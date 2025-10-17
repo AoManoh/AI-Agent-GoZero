@@ -1,0 +1,124 @@
+// Package svc 提供 AI 面试官聊天服务的依赖注入和会话存储功能，
+// 包括内存会话存储的实现和会话管理逻辑。
+// 注意，v1版本，已淘汰
+package svc
+
+import (
+	"sync"
+	"time"
+
+	"GoZero-AI/api/internal/types"
+
+	"github.com/sashabaranov/go-openai"
+)
+
+// MemorySessionStore 内存会话存储
+// 使用 sync.RWMutex 来保护对 sessions 和 lastAccessed 的并发访问
+type MemorySessionStore struct {
+	sessions     map[string]*types.ChatSession
+	lastAccessed map[string]time.Time // 最后访问时间
+	lock         sync.RWMutex
+}
+
+// NewMemorySessionStore 创建一个新的内存会话存储
+// 定义了 sessions 和 lastAccessed 的初始化
+func NewMemorySessionStore() *MemorySessionStore {
+	return &MemorySessionStore{
+		sessions:     make(map[string]*types.ChatSession),
+		lastAccessed: make(map[string]time.Time),
+	}
+}
+
+// GetSession 根据 chatId 获取会话数据
+// 如果会话不存在，则创建包含系统提示词的新会话
+func (m *MemorySessionStore) GetSession(chatId string) (*types.ChatSession, error) {
+	// 读取锁
+	m.lock.RLock()
+	defer m.lock.RUnlock()
+
+	session, exists := m.sessions[chatId]
+	if !exists {
+		// 创建新的会话
+		return &types.ChatSession{
+			Message: []openai.ChatCompletionMessage{
+				{
+					Role:    openai.ChatMessageRoleSystem,
+					Content: "你是一个专业的Go语言面试官，负责评估候选人的技术能力。请根据候选人的回答提出有针对性的深入问题。",
+				},
+			},
+		}, nil
+	}
+
+	// 更新最后访问时间
+	m.lastAccessed[chatId] = time.Now()
+	return session, nil
+}
+
+// SaveSession 保存会话数据到内存存储
+// 当会话消息超过10条时，自动清理早期消息以控制内存使用
+func (m *MemorySessionStore) SaveSession(chatId string, session *types.ChatSession) error {
+	m.lock.Lock()
+	defer m.lock.Unlock()
+
+	// 上下文截断：当历史消息过多时，保留系统消息和最近5轮对话
+	// 这是为了防止会话历史过长导致 OpenAI API 的 token 限制和响应速度问题
+	if len(session.Message) > 10 {
+		// 如果会话消息超过10条，则删除最早的消息
+		// 保留系统消息（索引0）作为第一条消息
+		newMessages := []openai.ChatCompletionMessage{session.Message[0]}
+
+		// 计算保留最近5轮对话的起始位置
+		// 每轮对话包含用户消息和AI回复，所以5轮对话 = 10条消息
+		start := len(session.Message) - 5
+
+		// 边界检查：如果 start 小于1，则从1开始（跳过系统消息）
+		// 这确保我们至少保留系统消息和最近的对话
+		if start < 1 {
+			start = 1
+		}
+
+		// 将剩余的消息添加到新的消息列表中
+		// 这样既保留了系统提示词，又保留了最近的对话上下文
+		newMessages = append(newMessages, session.Message[start:]...)
+		session.Message = newMessages
+	}
+
+	// 更新会话, 并更新最后访问时间
+	m.sessions[chatId] = session
+	m.lastAccessed[chatId] = time.Now()
+	return nil
+}
+
+// DeleteSession 删除指定的会话
+func (m *MemorySessionStore) DeleteSession(chatId string) error {
+	m.lock.Lock()
+	defer m.lock.Unlock()
+
+	delete(m.sessions, chatId)
+	delete(m.lastAccessed, chatId)
+
+	return nil
+}
+
+// CleanupExpiredSessions 清理过期的会话数据
+// 根据指定的最大存活时间删除长时间未访问的会话
+func (m *MemorySessionStore) CleanupExpiredSessions(maxAge time.Duration) error {
+	m.lock.Lock()
+	defer m.lock.Unlock()
+
+	// 获取当前时间作为清理基准
+	now := time.Now()
+
+	// 遍历所有会话的最后访问时间
+	for chatId, lastAccessed := range m.lastAccessed {
+		// 检查会话是否超过最大存活时间
+		// 如果超过，则从内存中删除该会话数据
+		if now.Sub(lastAccessed) > maxAge {
+			// 删除会话数据和访问时间记录
+			// 这样可以释放内存空间，防止内存泄漏
+			delete(m.sessions, chatId)
+			delete(m.lastAccessed, chatId)
+		}
+	}
+	return nil
+}

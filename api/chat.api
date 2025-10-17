@@ -1,0 +1,34 @@
+// Package chat 提供 AI 面试官聊天 API 服务，
+// 负责处理与 AI 面试官的实时对话交互。
+syntax = "v1"
+
+info (
+	title:   "InterviewAPP Chat API"
+	desc:    "Go面试官聊天API服务"
+	author:  "AoManoh"
+	email:   "2913457330@qq.com"
+	version: "1.0"
+)
+
+// InterviewAppChatReq AI 面试官聊天请求结构体
+// 定义了用户发送给 AI 面试官的消息内容和会话标识
+type InterviewAppChatReq {
+	Message string `form:"message"`
+	ChatId  string `form:"chatId"`
+}
+
+// ChatRes AI 面试官聊天响应结构体
+// 定义了 AI 面试官返回的消息内容和状态信息
+type ChatRes {
+	Content  string `json:"content"`
+	IsLatest bool   `json:"isLatest"`
+}
+
+// chat 服务提供 AI 面试官聊天功能
+// 支持 SSE 流式响应，实现实时对话交互
+service chat {
+	@doc "Go 面试官聊天SSE流式接口"
+	@handler Chat
+	post /api/ai/interview_app/chat/sse (InterviewAppChatReq)
+}
+

@@ -1,0 +1,52 @@
+/.cursor/
+/.augment
+/.env
+/default.etcd
+/notes
+/Go-Agent.zip
+/client/demo
+/client/dist
+/client/node_modules
+/client/dist.zip
+/client/dist (生产环境).zip
+/client/todo.md
+/.idea
+/image
+
+# 可执行文件
+*.exe
+*.dll
+
+# etcd 数据目录
+**/default.etcd/
+*.etcd/
+
+# Go 相关
+*.log
+*.test
+*.out
+vendor/
+
+# 临时和缓存文件
+*.tmp
+*.swp
+*.swo
+*~
+.DS_Store
+
+# IDE 配置
+.vscode/
+*.iml
+
+# 数据库和敏感文件
+*.db
+*.sqlite
+*.pem
+*.key
+
+# 构建和部署
+*.tar.gz
+*.zip
+
+# 文档编辑临时文件
+*.md.backup

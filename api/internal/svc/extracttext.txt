@@ -1,0 +1,123 @@
+package svc
+
+import (
+	"context"
+	"errors"
+	"io"
+	"mime/multipart"
+
+	"github.com/zeromicro/go-zero/core/logx"
+
+	"GoZero-AI/mcp/types/mcp"
+)
+
+// ExtractText 执行PDF文本提取的高级业务接口
+// 将HTTP multipart文件上传转换为gRPC流式协议，调用MCP服务完成PDF解析
+//
+// 业务流程设计:
+//  1. **gRPC流初始化** - 创建与MCP服务的双向流连接
+//  2. **元数据传输** - 首先发送文件的元信息（文件名、MIME类型）
+//  3. **文件数据传输** - 将整个文件作为单个数据块发送
+//  4. **响应接收** - 接收MCP服务返回的解析结果
+//  5. **错误处理** - 处理各种可能的错误情况并返回统一格式
+//
+// 协议转换实现:
+//   - 将HTTP multipart.File转换为gRPC流式数据
+//   - 使用oneof联合类型实现元数据和数据块的分开发送
+//   - 采用CloseAndRecv模式实现与服务端的同步通信
+//
+// 性能优化策略:
+//   - 使用io.ReadAll一次性读取文件，减少IO操作次数
+//   - 采用defer模式确保流连接的正确关闭
+//   - 早期错误检测，避免不必要的数据传输
+//
+// 错误处理机制:
+//   - gRPC连接错误: 网络故障或服务不可用
+//   - 文件读取错误: multipart文件损坏或内存不足
+//   - 业务逻辑错误: MCP服务返回的PDF解析失败
+//   - 所有错误都会记录到日志并返回给调用者
+//
+// **后续**优化方向:
+//   - 实现真正的流式传输，支持大文件分块处理
+//   - 添加文件大小限制和类型校验
+//   - 集成超时和取消机制
+//   - 添加重试和熔断器支持
+//   - 实现处理进度回调
+//
+// 参数说明:
+//
+//	file: HTTP multipart文件上传的文件对象，包含PDF文件数据
+//	filename: 原始文件名，用于日志记录和错误追踪
+//
+// 返回值:
+//
+//	string: 提取的PDF文本内容，包含所有页面的文本信息
+//	error: 处理过程中的任何错误，包括网络、文件或解析错误
+func (c *PdfClient) ExtractText(file multipart.File, filename string) (string, error) {
+	// 步骤1: 创建与MCP服务的gRPC流式连接
+	// 使用context.Background()作为基础上下文，**后续**可改为支持超时取消
+	stream, err := c.Client.ExtractTextFromPDF(context.Background())
+	if err != nil {
+		logx.Errorf("创建 gRPC 流式客户端失败: %v", err)
+		return "", err
+	}
+	// 使用defer确保流连接在函数退出时被正确关闭
+	defer func() {
+		if err := stream.CloseSend(); err != nil {
+			logx.Errorf("关闭 gRPC 流式客户端失败: %v", err)
+		}
+	}()
+
+	// 步骤2: 发送文件元数据信息
+	// 根据gRPC协议，首先发送包含文件元信息的消息
+	if err := stream.Send(&mcp.PdfReq{
+		Data: &mcp.PdfReq_Metadata{
+			Metadata: &mcp.Metadata{
+				Filename: filename,          // 原始文件名，用于服务端日志和追踪
+				MimeType: "application/pdf", // 确保文件类型为PDF格式
+			},
+		},
+	}); err != nil {
+		logx.Errorf("发送元数据失败: %v", err)
+		return "", err
+	}
+
+	// 步骤3: 读取并发送文件数据
+	// 一次性读取整个文件到内存，**后续**可优化为流式分块读取
+	fileData, err := io.ReadAll(file)
+	if err != nil {
+		logx.Errorf("读取文件失败: %v", err)
+		return "", err
+	}
+
+	// 发送文件数据块给MCP服务
+	// 使用PdfReq_Chunk类型发送二进制文件数据
+	if err := stream.Send(&mcp.PdfReq{
+		Data: &mcp.PdfReq_Chunk{
+			Chunk: fileData, // 整个PDF文件的二进制数据
+		},
+	}); err != nil {
+		logx.Errorf("发送文件数据失败: %v", err)
+		return "", err
+	}
+
+	// 步骤4: 关闭发送流并接收响应
+	// 使用CloseAndRecv同步等待MCP服务处理完成并返回结果
+	res, err := stream.CloseAndRecv()
+	if err != nil {
+		logx.Errorf("接收响应失败: %v", err)
+		return "", err
+	}
+
+	// 步骤5: 处理业务逻辑错误
+	// 检查MCP服务返回的业务层错误信息
+	if res.Error != "" {
+		logx.Errorf("PDF 提取文本失败: %s", res.Error)
+		// 将业务错误转换为Go错误类型返回给调用者
+		return "", errors.New(res.Error)
+	}
+
+	// 步骤6: 返回成功结果
+	// 返回从 PDF 中提取的纯文本内容
+	return res.Content, nil
+}
