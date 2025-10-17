@@ -6,9 +6,9 @@ package handler
 import (
 	"net/http"
 
-	"GoZero-AI/api/internal/svc"
-
 	"github.com/zeromicro/go-zero/rest"
+
+	"GoZero-AI/api/chat/internal/svc"
 )
 
 func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {

@@ -28,12 +28,12 @@ import (
 	"errors"
 	"net/http"
 
-	"GoZero-AI/api/internal/logic"
-	"GoZero-AI/api/internal/svc"
-	"GoZero-AI/api/internal/types"
-
 	"github.com/zeromicro/go-zero/core/logx"
 	"github.com/zeromicro/go-zero/rest/httpx"
+
+	"GoZero-AI/api/chat/internal/logic"
+	"GoZero-AI/api/chat/internal/svc"
+	"GoZero-AI/api/chat/internal/types"
 )
 
 // KnowledgeUploadHandler 知识库文档上传处理器

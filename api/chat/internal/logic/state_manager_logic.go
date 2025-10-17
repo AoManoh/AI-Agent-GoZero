@@ -32,10 +32,10 @@ import (
 	"strings"
 	"time"
 
-	"GoZero-AI/api/internal/svc"
-	"GoZero-AI/api/internal/types"
-
 	"github.com/zeromicro/go-zero/core/stores/redis"
+
+	"GoZero-AI/api/chat/internal/svc"
+	"GoZero-AI/api/chat/internal/types"
 )
 
 // 状态管理相关常量定义

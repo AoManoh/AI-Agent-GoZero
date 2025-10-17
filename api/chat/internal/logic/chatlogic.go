@@ -42,13 +42,13 @@ import (
 	"io"
 	"strings"
 
-	"GoZero-AI/api/internal/config"
-	"GoZero-AI/api/internal/svc"
-	"GoZero-AI/api/internal/types"
-	"GoZero-AI/api/internal/utils"
-
 	"github.com/sashabaranov/go-openai"
 	"github.com/zeromicro/go-zero/core/logx"
+
+	"GoZero-AI/api/chat/internal/config"
+	"GoZero-AI/api/chat/internal/svc"
+	types2 "GoZero-AI/api/chat/internal/types"
+	"GoZero-AI/api/chat/internal/utils"
 )
 
 // ChatLogic AI面试对话的核心业务逻辑处理器
@@ -147,9 +147,9 @@ func NewChatLogic(ctx context.Context, svcCtx *svc.ServiceContext) *ChatLogic {
 //
 //	<-chan *types.ChatRes: 只读的响应数据流，支持实时流式输出
 //	error: 初始化阶段的错误，不包含异步处理中的错误
-func (l *ChatLogic) Chat(req *types.InterviewAppChatReq) (<-chan *types.ChatRes, error) {
+func (l *ChatLogic) Chat(req *types2.InterviewAppChatReq) (<-chan *types2.ChatRes, error) {
 	// 1. 创建一个 channel 用于通信
-	ch := make(chan *types.ChatRes)
+	ch := make(chan *types2.ChatRes)
 
 	// 2. 启动一个 goroutine 执行耗时操作，进行异步通信
 	go func() {
@@ -168,7 +168,7 @@ func (l *ChatLogic) Chat(req *types.InterviewAppChatReq) (<-chan *types.ChatRes,
 		currentState, err := stateManager.GetCurrentState(req.ChatId)
 		if err != nil {
 			l.Logger.Errorf("获取状态失败: %v", err)
-			currentState = types.StateStart
+			currentState = types2.StateStart
 		}
 
 		// 2.2 新增：知识检索（RAG）
@@ -176,14 +176,14 @@ func (l *ChatLogic) Chat(req *types.InterviewAppChatReq) (<-chan *types.ChatRes,
 		knowledgeChunks, err := l.svcCtx.VectorStore.RetrieveKnowledge(req.Message, l.svcCtx.Config.VectorDB.Knowledge.TopK)
 		if err != nil {
 			l.Logger.Errorf("知识检索失败: %v", err)
-			knowledgeChunks = []types.KnowledgeChunk{} // 确保不为nil
+			knowledgeChunks = []types2.KnowledgeChunk{} // 确保不为nil
 		}
 
 		// 2.3 构建消息
 		openSession, err := l.buildMessagesWithState(req.ChatId, currentState, knowledgeChunks)
 		if err != nil {
 			l.Logger.Errorf("构建消息失败: %v", err)
-			ch <- &types.ChatRes{
+			ch <- &types2.ChatRes{
 				Content:  "系统错误：无法构建消息",
 				IsLatest: true,
 			}
@@ -204,7 +204,7 @@ func (l *ChatLogic) Chat(req *types.InterviewAppChatReq) (<-chan *types.ChatRes,
 		if err != nil {
 			l.Errorf("创建聊天失败: %v", err)
 			l.Errorf("请求配置: BaseURL=%s, Model=%s\n", l.svcCtx.Config.OpenAI.BaseURL, l.svcCtx.Config.OpenAI.Model)
-			ch <- &types.ChatRes{
+			ch <- &types2.ChatRes{
 				Content:  "系统错误：无法连接 OpenAI 的 API 请求",
 				IsLatest: true,
 			}
@@ -241,12 +241,12 @@ func (l *ChatLogic) Chat(req *types.InterviewAppChatReq) (<-chan *types.ChatRes,
 						l.Logger.Infof("状态更新: %s -> %s", currentState, newState)
 					}
 
-					ch <- &types.ChatRes{IsLatest: true} // 流结束，发送结束标记
+					ch <- &types2.ChatRes{IsLatest: true} // 流结束，发送结束标记
 					return
 				}
 				if err != nil {
 					l.Logger.Error("接受流式响应失败: %v", err)
-					ch <- &types.ChatRes{
+					ch <- &types2.ChatRes{
 						Content:  "系统错误：无法接受流式响应",
 						IsLatest: true,
 					}
@@ -257,7 +257,7 @@ func (l *ChatLogic) Chat(req *types.InterviewAppChatReq) (<-chan *types.ChatRes,
 				if len(res.Choices) > 0 && res.Choices[0].Delta.Content != "" {
 					content := res.Choices[0].Delta.Content
 					fullResponse.WriteString(content)
-					ch <- &types.ChatRes{
+					ch <- &types2.ChatRes{
 						Content:  content,
 						IsLatest: false,
 					}
@@ -329,7 +329,7 @@ func (l *ChatLogic) Chat(req *types.InterviewAppChatReq) (<-chan *types.ChatRes,
 //
 //	[]openai.ChatCompletionMessage: 符合OpenAI API格式的完整对话上下文
 //	error: 历史消息检索失败或数据处理异常
-func (l *ChatLogic) getSessionHistory(chatId string, knowledge []types.KnowledgeChunk) ([]openai.ChatCompletionMessage, error) {
+func (l *ChatLogic) getSessionHistory(chatId string, knowledge []types2.KnowledgeChunk) ([]openai.ChatCompletionMessage, error) {
 	// 步骤1: 从向量数据库检索历史对话记录
 	// 限制为最近10条消息，避免上下文过长影响AI响应质量
 	// VectorStore.GetMessage会自动按时间排序并返回正确的消息顺序
@@ -500,7 +500,7 @@ func (l *ChatLogic) getSessionHistory(chatId string, knowledge []types.Knowledge
 //		// 返回包含状态感知系统消息和历史对话的完整上下文
 //		return messages, nil
 //	}
-func (l *ChatLogic) buildMessagesWithState(chatId, currentState string, knowledge []types.KnowledgeChunk) ([]openai.ChatCompletionMessage, error) {
+func (l *ChatLogic) buildMessagesWithState(chatId, currentState string, knowledge []types2.KnowledgeChunk) ([]openai.ChatCompletionMessage, error) {
 	var sb strings.Builder
 
 	// --- 阶段一：构建 AI 的核心身份与行为准则 ---
@@ -526,22 +526,22 @@ func (l *ChatLogic) buildMessagesWithState(chatId, currentState string, knowledg
 	sb.WriteString("\n**当前面试阶段**: " + currentState)
 
 	switch currentState {
-	case types.StateStart:
+	case types2.StateStart:
 		sb.WriteString("\n**本阶段目标**: 欢迎候选人并开始面试流程。")
 		fmt.Println("sb.WriteString(\"\\n**本阶段目标**: 欢迎候选人，破冰，并确认今天的面试重点。\")")
-	case types.StateQuestion:
+	case types2.StateQuestion:
 		sb.WriteString("\n**本阶段目标**: 提出一个核心的**技术深挖**问题，考察候选人的基础知识。")
 		fmt.Println("sb.WriteString(\"\\n**本阶段目标**: 提出一个核心的**技术深挖**问题，考察候选人的基础知识。\")")
-	case types.StateFollowUp:
+	case types2.StateFollowUp:
 		sb.WriteString("\n**本阶段目标**: 对候选人的回答进行**技术追问**，或者提出一个相关的**情景模拟**问题，考察其实践能力。")
 		fmt.Println("333333333")
-	case types.StateEvaluate:
+	case types2.StateEvaluate:
 		// 我们可以引入一个新的状态，比如 StateBehavioral
 		fmt.Println("44444444")
 		sb.WriteString("\n**本阶段目标**: 提出一个**行为面试**问题，考察候选人的思维特质或职业素养。")
 	// case types.StateEvaluate:
 	// 	sb.WriteString("\n**本阶段目标**: 对候选人到目前为止的表现进行一次阶段性的总结和评估。")
-	case types.StateEnd:
+	case types2.StateEnd:
 		fmt.Println("555555555")
 		sb.WriteString("\n**本阶段目标**: 礼貌地结束面试，并询问候选人是否需要生成本次面试的总结报告。")
 	}

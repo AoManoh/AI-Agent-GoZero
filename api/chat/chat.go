@@ -4,12 +4,12 @@ import (
 	"flag"
 	"fmt"
 
-	"GoZero-AI/api/internal/config"
-	"GoZero-AI/api/internal/handler"
-	"GoZero-AI/api/internal/svc"
-
 	"github.com/zeromicro/go-zero/core/conf"
 	"github.com/zeromicro/go-zero/rest"
+
+	"GoZero-AI/api/chat/internal/config"
+	"GoZero-AI/api/chat/internal/handler"
+	"GoZero-AI/api/chat/internal/svc"
 )
 
 var configFile = flag.String("f", "etc/chat.yaml", "the config file")

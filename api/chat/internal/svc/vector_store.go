@@ -35,8 +35,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/sashabaranov/go-openai"
 
-	"GoZero-AI/api/internal/config"
-	"GoZero-AI/api/internal/types"
+	"GoZero-AI/api/chat/internal/config"
+	"GoZero-AI/api/chat/internal/types"
 )
 
 // VectorStore 向量存储结构

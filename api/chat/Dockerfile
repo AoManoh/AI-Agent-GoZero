@@ -45,7 +45,7 @@ COPY . .
 # ==========================================
 # 切换到API服务的源码目录，准备编译API服务
 # 构建应用
-WORKDIR /build/api
+WORKDIR /build/api/chat
 # 编译API服务二进制文件
 # CGO_ENABLED=0: 禁用CGO，生成纯静态二进制文件，提高跨平台兼容性
 # GOOS=linux: 目标操作系统为Linux，适配容器环境
@@ -67,7 +67,7 @@ FROM alpine:latest
 # 创建API服务需要的配置文件目录结构
 # /api/etc: 存放服务配置文件的目录
 # 创建配置目录
-RUN mkdir -p /api/etc
+RUN mkdir -p /api/chat/etc
 
 # ==========================================
 # 二进制文件和配置文件复制
@@ -75,17 +75,17 @@ RUN mkdir -p /api/etc
 # 从构建阶段复制Docker环境的配置文件
 # docker.yaml: Docker容器环境下的专用配置，包含容器化部署的特定设置
 # 复制配置文件和可执行文件
-COPY --from=builder /build/api/etc/docker.yaml /api/etc/chat.yaml
+COPY --from=builder /build/api/chat/etc/docker.yaml /api/chat/etc/chat.yaml
 # 从构建阶段复制编译好的API服务二进制文件
 # --from=builder: 指定源阶段为builder
 # /output/api: 构建阶段编译输出的二进制文件路径
-COPY --from=builder /output/api /api/
+COPY --from=builder /output/api /api/chat/api
 
 # ==========================================
 # 服务启动配置
 # ==========================================
 # 设置运行时工作目录，所有命令在此目录下执行
-WORKDIR /api
+WORKDIR /api/chat
 # 定义容器启动时的默认执行命令
 # ./api: 执行编译好的API服务二进制文件
 # 服务将自动加载同目录下的配置文件(etc/docker.yaml)

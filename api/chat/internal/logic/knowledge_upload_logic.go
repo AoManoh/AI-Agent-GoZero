@@ -23,11 +23,11 @@ package logic
 import (
 	"context"
 
-	"GoZero-AI/api/internal/svc"
-	"GoZero-AI/api/internal/types"
-	"GoZero-AI/api/internal/utils"
-
 	"github.com/zeromicro/go-zero/core/logx"
+
+	"GoZero-AI/api/chat/internal/svc"
+	"GoZero-AI/api/chat/internal/types"
+	"GoZero-AI/api/chat/internal/utils"
 )
 
 // KnowledgeUploadLogic RAG知识库上传业务逻辑处理器

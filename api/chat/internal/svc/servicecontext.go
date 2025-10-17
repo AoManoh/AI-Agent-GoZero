@@ -8,7 +8,7 @@ import (
 	"github.com/redis/go-redis/v9"
 	"github.com/sashabaranov/go-openai"
 
-	"GoZero-AI/api/internal/config"
+	"GoZero-AI/api/chat/internal/config"
 )
 
 // ServiceContext 服务上下文结构体

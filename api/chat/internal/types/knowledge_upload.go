@@ -9,6 +9,6 @@ type KnowledgeUploadReq struct {
 
 // KnowledgeUploadRes 新增：知识上传响应结构体
 type KnowledgeUploadRes struct {
-	Msg    string `json:"msg"` // 返回给前端的提示信息
+	Msg    string `json:"msg"`    // 返回给前端的提示信息
 	Chunks int    `json:"chunks"` // 用来提示前端你的文件已经被切分为多少块
 }
