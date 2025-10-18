@@ -13,7 +13,7 @@
     <main class="main-content">
       <h1 class="hero-title">与真正的AI面试官对话</h1>
       <p class="hero-subtitle">
-        深入代码级模拟面试，挖掘你的真实技术潜力。不再是题库，而是真实的思维碰撞。
+        深入代码级模拟面试，挖掘你的真实技术潜力。不再是题库，而是真实的思维碰撞。（项目会不断更新迭代，详细安排请见我的博客记录奥~）
       </p>
 
       <div class="product-showcase">
@@ -128,7 +128,7 @@ body.light-mode .hero-title {
 }
 
 .hero-subtitle {
-  font-size: 1.25rem;
+  font-size: 1.18rem;
   color: var(--color-text-secondary);
   max-width: 600px;
   margin: 0 auto 40px;

@@ -440,6 +440,9 @@ export DB_PASSWORD="123456"
 2. 验证网络连接
 3. 确认请求格式是否正确
 
+### 前端无法访问后端
+1. 查看日志 `docker-compose -f docker-compose.yml -f docker-compose.client.slim.yml logs client` 定位并分析问题
+
 ## 开发工具推荐
 
 - **Go 版本**: 1.24.6

@@ -1,8 +1,6 @@
 import axios from 'axios'
 
-// const API_BASE_URL = '/api'  // 服务器 docker 挂载前端 dist 目录后专用
-const API_BASE_URL = 'http://localhost:8123/api' // 本地开发访问专用
-// const API_BASE_URL = 'http://你的服务器IP:8123/api' // 测试本地客户端是否能沟通服务器docker部署项目
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api'
 
 
 // 创建axios实例

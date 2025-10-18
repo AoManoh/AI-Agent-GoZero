@@ -382,8 +382,8 @@ const handleKnowledgeFileChange = async (uploadFile) => {
     return;
   }
 
-  if (uploadFile.raw.size > 500 * 1024) {
-    ElMessage.error("文件大小不能超过500KB");
+  if (uploadFile.raw.size > 50 * 1024 * 1024) {
+    ElMessage.error("文件大小不能超过50MB");
     knowledgeFile.value = [];
     return;
   }
