@@ -1,47 +1,58 @@
-import { createRouter, createWebHashHistory } from 'vue-router'
+import { createRouter, createWebHashHistory } from "vue-router";
 
 const routes = [
   {
-    path: '/',
-    name: 'Home',
-    component: () => import('../views/Home.vue'),
+    path: "/",
+    name: "Home",
+    component: () => import("../views/Home.vue"),
     meta: {
-      title: ' 首页- AI面试官智能体应用平台',
-      description: 'AI面试官提供专业的编程面试模拟，智能算法面试、系统设计练习，实时反馈助你快速提升，成功拿到心仪offer'
-    }
+      title: "AI 面试官 - 技术面试新体验",
+      description:
+        "AI面试官提供沉浸式编程面试模拟，深度追问与实时反馈助力全面提升技术能力。",
+    },
   },
   {
-    path: '/interview',
-    name: 'Interview',
-    component: () => import('../views/Interview.vue'),
+    path: "/chat",
+    name: "Chat",
+    component: () => import("../views/Chat.vue"),
     meta: {
-      title: '面试 - 助你拿到心仪offer',
-      description: 'AI面试官提供专业的编程面试模拟，智能算法面试、系统设计练习，实时反馈助你快速提升，成功拿到心仪offer'
-    }
+      title: "AI 模拟面试",
+      description: "与AI面试官展开深入对话，获得实时评估与建议。",
+    },
   },
   {
-    path: '/interview-master',
-    name: 'InterviewMaster',
-    component: () => import('../views/InterviewMaster.vue'),
+    path: "/login",
+    name: "Login",
+    component: () => import("../views/Login.vue"),
     meta: {
-      title: '模拟面试官 - 助你拿到心仪offer',
-      description: 'AI面试官提供专业的编程面试模拟，智能算法面试、系统设计练习，实时反馈助你快速提升，成功拿到心仪offer'
-    }
-  }
-  // {
-  //   path: '/super-agent',
-  //   name: 'SuperAgent',
-  //   component: () => import('../views/SuperAgent.vue'),
-  //   meta: {
-  //     title: 'AI超级智能体 - 大鱼AI超级智能体应用平台',
-  //     description: 'AI超级智能体是大鱼AI超级智能体应用平台的全能助手，能解答各类专业问题，提供精准建议和解决方案'
-  //   }
-  // }
-]
+      title: "登录 AI 面试官",
+      description: "登录以继续你的模拟面试练习。",
+    },
+  },
+  {
+    path: "/register",
+    name: "Register",
+    component: () => import("../views/Register.vue"),
+    meta: {
+      title: "注册 AI 面试官账号",
+      description: "创建账户，开启沉浸式技术面试体验。",
+    },
+  },
+  {
+    path: "/:pathMatch(.*)*",
+    redirect: "/",
+  },
+];
 
 const router = createRouter({
   history: createWebHashHistory(),
-  routes
-})
+  routes,
+});
 
-export default router
+router.afterEach((to) => {
+  if (to.meta?.title) {
+    document.title = to.meta.title;
+  }
+});
+
+export default router;

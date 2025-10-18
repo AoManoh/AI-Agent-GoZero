@@ -1,0 +1,47 @@
+syntax = "v1"
+
+info (
+	title:   "User Authentication API"
+	desc:    "GoZero-AI 用户注册与登录接口定义"
+	author:  "AoManoh"
+	email:   "2913457330@qq.com"
+	version: "1.0"
+)
+
+type (
+	RegisterReq {
+		Username string `json:"username" validate:"required,min=3,max=50"`
+		Password string `json:"password" validate:"required,min=6"`
+	}
+
+	LoginReq {
+		Username string `json:"username" validate:"required"`
+		Password string `json:"password" validate:"required"`
+	}
+
+	AuthResp {
+		Username  string `json:"username"`
+		Token     string `json:"token"`
+		ExpiresAt int64  `json:"expires_at,optional"`
+	}
+)
+
+@server (
+	prefix: /api
+)
+service user-api {
+	@doc "用户注册"
+	@handler Register
+	post /users/register (RegisterReq) returns (AuthResp)
+
+	@doc "用户登录"
+	@handler Login
+	post /users/login (LoginReq) returns (AuthResp)
+
+	// TODO: 后续可在带 jwt:Auth 的分组中补充以下接口：
+	// 1. GET /users/profile  -> 返回当前登录用户基础信息
+	// 2. GET /users/sessions -> 查询该用户最近对话会话列表
+	// 3. GET /users/sessions/{sessionId}/messages -> 拉取指定会话历史消息
+	// 上述接口需要中间件获取 userId 后在数据库中按 user_id 过滤结果
+}
+

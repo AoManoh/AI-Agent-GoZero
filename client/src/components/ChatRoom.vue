@@ -1,159 +1,113 @@
 <template>
-  <div class="chat-container">
-    <!-- 聊天记录区域 -->
-    <div class="chat-messages" ref="messagesContainer">
-      <div
-        v-for="(msg, index) in messages"
-        :key="index"
-        class="message-wrapper"
-      >
-        <!-- AI消息 -->
-        <div v-if="!msg.isUser" class="message ai-message" :class="[msg.type]">
-          <div class="avatar ai-avatar">
-            <AiAvatarFallback :type="aiType" />
-          </div>
-          <div class="message-bubble">
-            <!-- 使用 XMarkdown 渲染 AI 消息 -->
-            <XMarkdown
-              :markdown="processMessageContent(msg.content || '')"
-              :enableLatex="true"
-              :enableBreaks="true"
-              :allowHtml="false"
-              class="message-content"
-            />
-            <div class="message-time">{{ formatTime(msg.time) }}</div>
-          </div>
-        </div>
-
-        <!-- 用户消息 -->
-        <div v-else class="message user-message" :class="[msg.type]">
-          <div class="message-bubble">
-            <div class="message-content">{{ msg.content }}</div>
-            <div class="message-time">{{ formatTime(msg.time) }}</div>
-          </div>
-          <div class="avatar user-avatar">
-            <img src="http://pic.aomanoh.com/note/20250903035824302.jpg" alt="用户头像" class="avatar-image" />
+  <div class="chat-room">
+    <div class="chat-container">
+      <div class="chat-log" ref="messagesContainer">
+        <div class="chat-messages">
+          <div
+            v-for="(msg, index) in messages"
+            :key="index"
+            :class="['chat-message', msg.isUser ? 'user' : 'ai']"
+          >
+            <div class="avatar-block">
+              <div class="avatar">
+                <img
+                  v-if="msg.isUser"
+                  src="http://pic.aomanoh.com/note/20250903035824302.jpg"
+                  alt="用户头像"
+                  class="avatar-image"
+                />
+                <AiAvatarFallback v-else :type="aiType" />
+              </div>
+              <div class="timestamp">{{ formatTime(msg.time) }}</div>
+            </div>
+            <div class="message-bubble" :class="{ user: msg.isUser }">
+              <div class="message-content" v-if="msg.isUser">
+                {{ msg.content }}
+              </div>
+              <MarkdownMessage
+                v-else
+                :content="processMessageContent(msg.content || '')"
+                class="message-content"
+              />
+            </div>
           </div>
         </div>
       </div>
-    </div>
 
-    <!-- 使用 Sender 组件作为输入区域 -->
-    <div class="chat-input-container">
-      <Sender
-        v-model="inputMessage"
-        variant="updown"
-        :disabled="connectionStatus === 'connecting'"
-        :loading="connectionStatus === 'connecting'"
-        submit-type="enter"
-        :auto-size="{ minRows: 3, maxRows: 4 }"
-        clearable
-        placeholder="请输入消息..."
-        class="chat-sender"
-        @submit="handleSendMessage"
-      >
-        <template #prefix>
-          <div
-            style="
-              display: flex;
-              align-items: center;
-              gap: 8px;
-              flex-wrap: wrap;
-            "
-          >
+      <div class="chat-input-area">
+        <div class="input-wrapper" :class="{ disabled: isConnecting }">
+          <div class="chat-actions">
             <el-upload
+              class="action-upload"
               v-model:file-list="file"
               :limit="1"
-              style="
-                height: 24px;
-                width: auto;
-                padding: 0 8px;
-                border: 1px solid #ccc;
-                border-radius: 16px;
-              "
-              :before-remove="beforeRemove"
               :auto-upload="false"
-              :on-exceed="handleExceed"
               :show-file-list="false"
+              :before-remove="beforeRemove"
+              :on-exceed="handleExceed"
+              :disabled="isConnecting"
             >
-              <el-icon style="height: 24px"><Paperclip /></el-icon>
-              <el-text
-                v-if="file[0]?.name"
-                style="margin-left: 4px"
-                size="small"
-                >{{ file[0]?.name }}</el-text
-              >
+              <button class="action-btn" type="button" title="上传文件" :disabled="isConnecting">
+                <el-icon><Paperclip /></el-icon>
+              </button>
             </el-upload>
+
             <el-upload
+              class="action-upload"
               v-model:file-list="knowledgeFile"
               :limit="1"
               accept=".pdf"
-              style="
-                height: 24px;
-                width: auto;
-                padding: 0 8px;
-                border: 1px solid #ff6b35;
-                border-radius: 16px;
-                background-color: #fff5f2;
-              "
-              :before-remove="beforeRemoveKnowledge"
               :auto-upload="false"
-              :on-exceed="handleExceedKnowledge"
               :show-file-list="false"
+              :before-remove="beforeRemoveKnowledge"
+              :on-exceed="handleExceedKnowledge"
               :on-change="handleKnowledgeFileChange"
+              :disabled="isConnecting || uploadingKnowledge"
             >
-              <el-icon style="height: 24px; color: #ff6b35"
-                ><Document
-              /></el-icon>
-              <el-text
-                v-if="knowledgeFile[0]?.name"
-                style="margin-left: 4px; color: #ff6b35"
-                size="small"
-                >{{ knowledgeFile[0]?.name }}</el-text
+              <button
+                class="action-btn"
+                type="button"
+                title="上传到知识库"
+                :disabled="isConnecting || uploadingKnowledge"
               >
-              <el-text
-                v-else
-                style="margin-left: 4px; color: #ff6b35"
-                size="small"
-                >知识库PDF</el-text
-              >
+                <el-icon><Document /></el-icon>
+              </button>
             </el-upload>
-            <div
-              :class="{ isSelect }"
-              style="
-                display: flex;
-                align-items: center;
-                gap: 4px;
-                padding: 2px 12px;
-                border: 1px solid silver;
-                border-radius: 15px;
-                cursor: pointer;
-                font-size: 12px;
-              "
-              @click="isSelect = !isSelect"
-            >
-              <el-icon><ElementPlus /></el-icon>
-              <span>深度思考</span>
-            </div>
           </div>
-        </template>
 
-        <!-- <template #action-list>
-          <div style="display: flex; align-items: center; gap: 8px">
-            <el-button round color="#626aef">
-              <el-icon><Promotion /></el-icon>
-            </el-button>
-          </div>
-        </template> -->
-      </Sender>
+          <textarea
+            v-model="inputMessage"
+            class="chat-textarea"
+            placeholder="输入消息..."
+            :disabled="isConnecting"
+            @keydown="handleKeydown"
+          ></textarea>
+
+          <button
+            class="action-btn send-btn"
+            type="button"
+            title="发送"
+            :disabled="isConnecting"
+            @click="handleSendMessage"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3.478 2.405a.75.75 0 0 0-.926.94l2.432 7.905H13.5a.75.75 0 0 1 0 1.5H4.984l-2.432 7.905a.75.75 0 0 0 .926.94 60.519 60.519 0 0 0 18.445-8.986.75.75 0 0 0 0-1.218A60.517 60.517 0 0 0 3.478 2.405Z"/></svg>
+          </button>
+        </div>
+
+        <div class="input-hints">
+          <span v-if="fileName" class="file-tag">已附加：{{ fileName }}</span>
+          <span v-if="uploadingKnowledge" class="hint">知识库文件上传中...</span>
+        </div>
+      </div>
     </div>
   </div>
 </template>
 
 <script setup>
-import { ElementPlus, Paperclip, Document } from "@element-plus/icons-vue";
+import { computed, nextTick, onMounted, ref, watch } from "vue";
 import { ElMessage } from "element-plus";
-import { ref } from "vue";
+import { Paperclip, Document } from "@element-plus/icons-vue";
+import MarkdownMessage from "./MarkdownMessage.vue";
 import AiAvatarFallback from "./AiAvatarFallback.vue";
 import { uploadKnowledge } from "../api/index.js";
 
@@ -172,13 +126,37 @@ const props = defineProps({
   },
 });
 
+const emit = defineEmits(["send-message"]);
+
 const file = ref([]);
 const knowledgeFile = ref([]);
-const isSelect = ref(false);
-const emit = defineEmits(["send-message", "upload-knowledge"]);
-
 const inputMessage = ref("");
 const messagesContainer = ref(null);
+const uploadingKnowledge = ref(false);
+
+const isConnecting = computed(() => props.connectionStatus === "connecting");
+const fileName = computed(() => (file.value[0]?.name ? file.value[0].name : ""));
+
+const scrollToBottom = () => {
+  nextTick(() => {
+    const container = messagesContainer.value;
+    if (container) {
+      container.scrollTop = container.scrollHeight;
+    }
+  });
+};
+
+watch(
+  () => props.messages,
+  () => {
+    scrollToBottom();
+  },
+  { deep: true }
+);
+
+onMounted(() => {
+  scrollToBottom();
+});
 
 // 处理消息内容中的转义符
 const processMessageContent = (content) => {
@@ -247,15 +225,22 @@ const processMessageContent = (content) => {
 };
 
 // 处理发送消息
-const handleSendMessage = (message) => {
-  if (!message.trim()) return;
+const sendMessage = () => {
+  if (isConnecting.value) {
+    ElMessage.warning("AI 正在回复，请稍候");
+    return;
+  }
 
-  // 创建 FormData 格式
+  const content = inputMessage.value.trim();
+  if (!content) {
+    ElMessage.warning("请输入内容");
+    return;
+  }
+
   const formData = new FormData();
-  formData.append("message", message);
+  formData.append("message", content);
 
-  // 只有当文件存在时才添加文件
-  if (file.value && file.value.length > 0 && file.value[0]) {
+  if (file.value.length > 0 && file.value[0]?.raw) {
     formData.append("file", file.value[0].raw);
   }
 
@@ -264,471 +249,353 @@ const handleSendMessage = (message) => {
   inputMessage.value = "";
 };
 
+const handleSendMessage = () => {
+  sendMessage();
+};
+
+const handleKeydown = (event) => {
+  if (event.key === "Enter" && !event.shiftKey) {
+    event.preventDefault();
+    sendMessage();
+  }
+};
+
 // 格式化时间
 const formatTime = (timestamp) => {
+  if (!timestamp) return "";
   const date = new Date(timestamp);
-  return date.toLocaleTimeString("zh-CN", {
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+  if (Number.isNaN(date.getTime())) return "";
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  const hours = String(date.getHours()).padStart(2, "0");
+  const minutes = String(date.getMinutes()).padStart(2, "0");
+  return `${month}/${day} ${hours}:${minutes}`;
 };
 
 // 处理文件上传相关函数
-const beforeRemove = (uploadFile, uploadFiles) => {
-  return true; // 允许删除
-};
+const beforeRemove = () => true;
 
-const handleExceed = (files, uploadFiles) => {
+const handleExceed = (files) => {
   file.value = [files[0]];
 };
 
-// 处理知识库PDF上传相关函数
-const beforeRemoveKnowledge = (uploadFile, uploadFiles) => {
-  return true; // 允许删除
-};
+const beforeRemoveKnowledge = () => true;
 
-const handleExceedKnowledge = (files, uploadFiles) => {
+const handleExceedKnowledge = (files) => {
   knowledgeFile.value = [files[0]];
 };
 
-const handleKnowledgeFileChange = async (uploadFile, uploadFiles) => {
-  if (uploadFile.status === "ready" && uploadFile.raw) {
-    // 验证文件类型
-    if (uploadFile.raw.type !== "application/pdf") {
-      ElMessage.error("只支持PDF格式的文件");
-      knowledgeFile.value = [];
-      return;
-    }
+const handleKnowledgeFileChange = async (uploadFile) => {
+  if (uploadFile.status !== "ready" || !uploadFile.raw) {
+    return;
+  }
 
-    // 验证文件大小（限制为500KB）
-    if (uploadFile.raw.size > 500 * 1024) {
-      ElMessage.error("文件大小不能超过500KB");
-      knowledgeFile.value = [];
-      return;
-    }
+  if (uploadFile.raw.type !== "application/pdf") {
+    ElMessage.error("只支持PDF格式的文件");
+    knowledgeFile.value = [];
+    return;
+  }
 
-    try {
-      // 显示上传中提示
-      const loadingMessage = ElMessage({
-        message: "正在上传知识库文件...",
-        type: "info",
-        duration: 0, // 不自动关闭
-      });
+  if (uploadFile.raw.size > 500 * 1024) {
+    ElMessage.error("文件大小不能超过500KB");
+    knowledgeFile.value = [];
+    return;
+  }
 
-      // 创建FormData并上传
-      const formData = new FormData();
-      formData.append("file", uploadFile.raw);
+  uploadingKnowledge.value = true;
+  const loadingMessage = ElMessage({
+    message: "正在上传知识库文件...",
+    type: "info",
+    duration: 0,
+  });
 
-      // 调用上传接口
-      await uploadKnowledge(formData);
-
-      // 关闭加载提示
-      loadingMessage.close();
-
-      // 显示上传成功提示
-      ElMessage.success("知识库文件上传成功");
-    } catch (error) {
-      // 关闭加载提示（如果存在）
-      ElMessage.closeAll();
-
-      // 显示错误提示
-      ElMessage.error(
-        error.response?.data?.message || "知识库文件上传失败，请重试"
-      );
-
-      // 清空文件列表
-      knowledgeFile.value = [];
-    }
+  try {
+    const formData = new FormData();
+    formData.append("file", uploadFile.raw);
+    await uploadKnowledge(formData);
+    loadingMessage.close();
+    ElMessage.success("知识库文件上传成功");
+    knowledgeFile.value = [];
+  } catch (error) {
+    loadingMessage.close();
+    ElMessage.error(
+      error.response?.data?.message || "知识库文件上传失败，请重试"
+    );
+    knowledgeFile.value = [];
+  } finally {
+    uploadingKnowledge.value = false;
   }
 };
 </script>
 
 <style scoped>
-.chat-container {
+.chat-room {
+  width: 100%;
   display: flex;
-  flex-direction: column;
-  min-height: 100%;
-  background-color: #f5f5f5;
-  border-radius: 8px;
-  overflow: hidden;
-  position: relative;
+  justify-content: center;
+  padding-bottom: 24px;
 }
 
-.chat-messages {
+.chat-container {
+  width: 100%;
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 0 20px 20px;
+  display: flex;
+  flex-direction: column;
+  flex-grow: 1;
+  height: calc(100vh - 93px - 85px);
+}
+
+.chat-log {
   flex: 1;
   overflow-y: auto;
-  padding: 16px;
-  padding-bottom: 100px; /* 为输入框留出更多空间 */
+  padding-right: 10px;
   display: flex;
   flex-direction: column;
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 92px; /* 与输入框高度相匹配 */
 }
 
-.message-wrapper {
-  margin-bottom: 16px;
-  display: flex;
-  flex-direction: column;
-  width: 100%;
+.chat-log::-webkit-scrollbar {
+  width: 6px;
 }
 
-.message {
+.chat-log::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.chat-log::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 3px;
+}
+
+body.light-mode .chat-log::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.chat-message {
   display: flex;
+  gap: 16px;
   align-items: flex-start;
-  max-width: 85%;
-  margin-bottom: 8px;
+  max-width: 90%;
 }
 
-.user-message {
-  margin-left: auto; /* 用户消息靠右 */
-  flex-direction: row; /* 正常顺序，先气泡后头像 */
+.chat-message.ai {
+  margin-right: auto;
 }
 
-.ai-message {
-  margin-right: auto; /* AI消息靠左 */
+.chat-message.user {
+  margin-left: auto;
+  flex-direction: row-reverse;
+}
+
+.avatar-block {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
 }
 
 .avatar {
-  width: 36px;
-  height: 36px;
+  width: 40px;
+  height: 40px;
   border-radius: 50%;
-  overflow: hidden;
   flex-shrink: 0;
+  background: rgba(255, 255, 255, 0.1);
   display: flex;
   align-items: center;
   justify-content: center;
-}
-
-.user-avatar {
-  margin-left: 8px; /* 用户头像在右侧，左边距 */
-}
-
-.ai-avatar {
-  margin-right: 8px; /* AI头像在左侧，右边距 */
-}
-
-.avatar-placeholder {
-  width: 100%;
-  height: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background-color: #007bff;
-  color: white;
-  font-weight: bold;
+  font-weight: 700;
+  overflow: hidden;
 }
 
 .avatar-image {
   width: 100%;
   height: 100%;
   object-fit: cover;
-  border-radius: 50%;
 }
 
 .message-bubble {
-  padding: 12px;
-  border-radius: 18px;
-  position: relative;
-  word-wrap: break-word;
-  min-width: 100px; /* 最小宽度 */
+  background: var(--color-input-bg);
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  padding: 16px;
+  line-height: 1.6;
+  color: var(--color-text-primary);
+  min-width: 0;
 }
 
-.user-message .message-bubble {
-  background-color: #007bff;
-  color: white;
-  border-bottom-right-radius: 4px;
-  text-align: left;
-}
-
-.ai-message .message-bubble {
-  background-color: #e9e9eb;
-  color: #333;
-  border-bottom-left-radius: 4px;
-  text-align: left;
+.chat-message.user .message-bubble {
+  background: var(--color-user-bubble-bg);
+  border-color: var(--color-user-bubble-border);
 }
 
 .message-content {
-  font-size: 16px;
-  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
-/* XMarkdown 组件专用样式 */
-.ai-message .message-content :deep(div) {
-  font-family: inherit;
-  font-size: 16px;
-  line-height: 1.5;
-  color: #333;
-  background: transparent;
+.message-content :deep(p) {
+  margin: 0;
 }
 
-/* 标题样式 */
-.ai-message .message-content :deep(h1),
-.ai-message .message-content :deep(h2),
-.ai-message .message-content :deep(h3),
-.ai-message .message-content :deep(h4),
-.ai-message .message-content :deep(h5),
-.ai-message .message-content :deep(h6) {
-  margin-top: 0.5em;
-  margin-bottom: 0.5em;
-  color: #333;
-  font-weight: bold;
-}
-
-/* 段落样式 */
-.ai-message .message-content :deep(p) {
-  margin-top: 0;
-  margin-bottom: 0.8em;
-  word-wrap: break-word;
-}
-
-/* 列表样式 - 关键修复 */
-.ai-message .message-content :deep(ul),
-.ai-message .message-content :deep(ol) {
-  margin: 0.5em 0;
-  padding-left: 1.5em;
-  list-style-position: outside;
-}
-
-.ai-message .message-content :deep(ul) {
-  list-style-type: disc;
-}
-
-.ai-message .message-content :deep(ol) {
-  list-style-type: decimal;
-}
-
-.ai-message .message-content :deep(li) {
-  margin-bottom: 0.3em;
-  padding-left: 0.2em;
-  word-wrap: break-word;
-  display: list-item;
-}
-
-.ai-message .message-content :deep(ul ul),
-.ai-message .message-content :deep(ol ul) {
-  list-style-type: circle;
-  margin-top: 0.2em;
-  margin-bottom: 0.2em;
-}
-
-.ai-message .message-content :deep(ul ul ul),
-.ai-message .message-content :deep(ol ul ul) {
-  list-style-type: square;
-}
-
-/* 代码块样式 */
-.ai-message .message-content :deep(pre) {
-  background-color: #f6f8fa;
-  border-radius: 6px;
-  padding: 12px;
-  overflow-x: auto;
-  margin: 0.5em 0;
-}
-
-.ai-message .message-content :deep(code) {
-  background-color: rgba(175, 184, 193, 0.2);
-  padding: 0.2em 0.4em;
-  border-radius: 3px;
-  font-size: 85%;
-  font-family: "Courier New", monospace;
-}
-
-.ai-message .message-content :deep(pre code) {
-  background-color: transparent;
-  padding: 0;
-  font-size: 14px;
-}
-
-/* 引用块样式 */
-.ai-message .message-content :deep(blockquote) {
-  border-left: 4px solid #dfe2e5;
-  padding-left: 1em;
-  margin: 0.5em 0;
-  color: #6a737d;
-  font-style: italic;
-}
-
-/* 表格样式 */
-.ai-message .message-content :deep(table) {
-  border-collapse: collapse;
-  width: 100%;
-  margin: 0.5em 0;
-}
-
-.ai-message .message-content :deep(th),
-.ai-message .message-content :deep(td) {
-  border: 1px solid #dfe2e5;
-  padding: 8px 12px;
-  text-align: left;
-}
-
-.ai-message .message-content :deep(th) {
-  background-color: #f6f8fa;
-  font-weight: bold;
-}
-
-/* 链接样式 */
-.ai-message .message-content :deep(a) {
-  color: #0366d6;
-  text-decoration: none;
-}
-
-.ai-message .message-content :deep(a:hover) {
-  text-decoration: underline;
-}
-
-/* 强调样式 */
-.ai-message .message-content :deep(strong) {
-  font-weight: bold;
-}
-
-.ai-message .message-content :deep(em) {
-  font-style: italic;
-}
-
-/* 水平线样式 */
-.ai-message .message-content :deep(hr) {
-  border: none;
-  height: 1px;
-  background-color: #dfe2e5;
-  margin: 1em 0;
-}
-
-.message-time {
-  font-size: 12px;
-  opacity: 0.7;
-  margin-top: 4px;
-  text-align: right;
-}
-
-.chat-input-container {
-  position: absolute;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  /* background-color: white; */
-  /* border-top: 1px solid #e0e0e0; */
-  z-index: 100;
+.message-content :deep(pre) {
+  margin-top: 12px;
   padding: 16px;
-  box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.05);
-  background-color: #fff;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.3);
 }
 
-.chat-sender {
-  width: 100%;
+body.light-mode .message-content :deep(pre) {
+  background: rgba(0, 0, 0, 0.06);
 }
 
-/* Sender 组件样式优化 */
-.chat-sender :deep(.el-textarea__inner) {
-  border-radius: 20px;
-  border: 1px solid #ddd;
-  padding: 12px 16px;
-  font-size: 16px;
+.timestamp {
+  font-size: 0.75rem;
+  color: var(--color-text-secondary);
+}
+
+.chat-input-area {
+  padding-top: 20px;
+  flex-shrink: 0;
+}
+
+.input-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--color-input-bg);
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  padding: 8px;
+  backdrop-filter: blur(10px);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.input-wrapper:focus-within {
+  border-color: var(--color-glow-1);
+  box-shadow: 0 0 12px rgba(59, 130, 246, 0.4);
+}
+
+.input-wrapper.disabled {
+  opacity: 0.6;
+}
+
+.chat-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.action-upload {
+  display: inline-flex;
+}
+
+.action-upload :deep(.el-upload) {
+  display: inline-flex;
+}
+
+.action-btn {
+  background: none;
+  border: none;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  padding: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.2s ease;
+}
+
+.action-btn:hover {
+  color: var(--color-text-primary);
+}
+
+.action-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.action-btn :deep(svg) {
+  width: 24px;
+  height: 24px;
+}
+
+.send-btn {
+  background: var(--color-glow-1);
+  border-radius: 8px;
+  color: #fff;
+}
+
+.send-btn:hover {
+  background: #4f8fff;
+}
+
+.send-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.send-btn svg {
+  width: 24px;
+  height: 24px;
+  fill: currentColor;
+}
+
+.chat-textarea {
+  flex: 1;
+  background: transparent;
+  border: none;
+  color: var(--color-text-primary);
+  font-size: 1rem;
+  line-height: 1.6;
   resize: none;
-  transition: border-color 0.3s;
+  padding: 12px;
+  min-height: 48px;
 }
 
-.chat-sender :deep(.el-textarea__inner):focus {
-  border-color: #007bff;
-  box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.1);
+.chat-textarea:focus {
+  outline: none;
 }
 
-.chat-sender :deep(.el-button) {
-  border-radius: 20px;
-  padding: 0 20px;
-  font-size: 16px;
+.chat-textarea::placeholder {
+  color: var(--color-text-secondary);
 }
 
-.chat-sender :deep(.el-button--primary) {
-  background-color: #007bff;
-  border-color: #007bff;
+.input-hints {
+  margin-top: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  color: var(--color-text-secondary);
+  font-size: 0.85rem;
 }
 
-.chat-sender :deep(.el-button--primary):hover {
-  background-color: #0069d9;
-  border-color: #0062cc;
+.file-tag {
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--color-border);
+  background: var(--color-card-bg);
 }
 
-/* 动画效果 */
-.ai-answer {
-  animation: fadeIn 0.3s ease-in-out;
+.hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 
-@keyframes fadeIn {
-  from {
-    opacity: 0;
-    transform: translateY(10px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-/* 响应式设计 */
 @media (max-width: 768px) {
-  .message {
-    max-width: 95%;
+  .chat-container {
+    padding: 0 16px 16px;
+    min-height: calc(100vh - 120px);
   }
 
-  .message-content {
-    font-size: 15px;
+  .chat-message {
+    max-width: 100%;
   }
 
-  .chat-input-container {
-    padding: 12px;
+  .chat-textarea {
+    min-height: 60px;
   }
-
-  .chat-messages {
-    bottom: 84px;
-    padding-bottom: 90px;
-  }
-}
-
-@media (max-width: 480px) {
-  .avatar {
-    width: 32px;
-    height: 32px;
-  }
-
-  .message-bubble {
-    padding: 10px;
-  }
-
-  .message-content {
-    font-size: 14px;
-  }
-
-  .chat-input-container {
-    padding: 10px;
-  }
-
-  .chat-messages {
-    bottom: 76px;
-    padding-bottom: 80px;
-  }
-}
-
-/* 连续消息气泡样式 */
-.ai-message + .ai-message {
-  margin-top: 4px;
-}
-
-.ai-message + .ai-message .avatar {
-  visibility: hidden;
-}
-
-.ai-message + .ai-message .message-bubble {
-  border-top-left-radius: 10px;
-}
-.isSelect {
-  color: #626aef;
-  border: 1px solid #626aef !important;
-  border-radius: 15px;
-  padding: 3px 12px;
-  font-weight: 700;
 }
 </style>
