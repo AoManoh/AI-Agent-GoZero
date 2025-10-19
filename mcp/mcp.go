@@ -32,6 +32,11 @@ func main() {
 			reflection.Register(grpcServer)
 		}
 	})
+	// 设置gRPC服务器的最大接收和发送消息大小为 50M
+	s.AddOptions(
+		grpc.MaxRecvMsgSize(50*1024*1024),
+		grpc.MaxSendMsgSize(50*1024*1024),
+	)
 	defer s.Stop()
 
 	fmt.Printf("Starting rpc server at %s...\n", c.ListenOn)

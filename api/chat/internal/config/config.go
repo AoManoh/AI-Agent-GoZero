@@ -1,6 +1,8 @@
 package config
 
-import "github.com/zeromicro/go-zero/rest"
+import (
+	"github.com/zeromicro/go-zero/rest"
+)
 
 type Config struct {
 	rest.RestConf
@@ -30,6 +32,7 @@ type VectorDBConfig struct {
 	MaxConn        int       // 最大连接数
 	EmbeddingModel string    // 最关键的，大模型的嵌入模型
 	Knowledge      Knowledge // 新增：本地 RAG 知识库配置
+	TimeZone       string    // 新增：时区配置
 }
 
 // Knowledge RAG 本地知识库配置结构体

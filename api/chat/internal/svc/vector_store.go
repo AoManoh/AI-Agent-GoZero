@@ -27,16 +27,18 @@ package svc
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/sashabaranov/go-openai"
 
 	"GoZero-AI/api/chat/internal/config"
 	"GoZero-AI/api/chat/internal/types"
+	// pgvector-go 是一个 Go 语言库，用于将 Go 语言中的数据类型转换为 PostgreSQL 的 pgvector 扩展所需的格式
+	"github.com/pgvector/pgvector-go"
 )
 
 // VectorStore 向量存储结构
@@ -61,6 +63,20 @@ func NewVectorStore(cfg config.VectorDBConfig, openAIClient *openai.Client) (*Ve
 	}
 	poolConfig.MaxConns = int32(cfg.MaxConn) // 设置最大连接数
 
+	// 配置亚洲时区
+	if cfg.TimeZone != "" {
+		if poolConfig.ConnConfig.RuntimeParams == nil {
+			poolConfig.ConnConfig.RuntimeParams = make(map[string]string)
+		}
+		poolConfig.ConnConfig.RuntimeParams["TimeZone"] = cfg.TimeZone
+		poolConfig.AfterConnect = func(ctx context.Context, conn *pgx.Conn) error {
+			if _, err := conn.Exec(ctx, fmt.Sprintf("SET TIME ZONE '%s'", cfg.TimeZone)); err != nil {
+				return fmt.Errorf("设置数据库时区失败: %w", err)
+			}
+			return nil
+		}
+	}
+
 	// 3. 创建连接池
 	pool, err := pgxpool.NewWithConfig(context.Background(), poolConfig)
 	if err != nil {
@@ -84,10 +100,10 @@ func (vs *VectorStore) TestConnection() error {
 	return vs.Pool.Ping(ctx)
 }
 
-// generateEmbedding 清洗 content 文本，并将其转换为 []byte 类型的向量
-func (vs *VectorStore) generateEmbedding(content string) ([]byte, error) {
+// generateEmbedding 清洗 content 文本，并将其转换为 pgvector.Vector 类型的向量
+func (vs *VectorStore) generateEmbedding(content string) (pgvector.Vector, error) {
 	if content == "" {
-		return nil, nil
+		return pgvector.NewVector(nil), errors.New("内容不能为空")
 	}
 
 	// 使用 OpenAI 客户端生成向量, 返回一个 EmbeddingResponse 结构体
@@ -101,43 +117,32 @@ func (vs *VectorStore) generateEmbedding(content string) ([]byte, error) {
 		},
 	)
 	if err != nil {
-		return nil, fmt.Errorf("OpenAI API 错误，生成向量失败: %w", err)
+		return pgvector.NewVector(nil), fmt.Errorf("OpenAI API 错误，生成向量失败: %w", err)
 	}
 
 	if len(embedding.Data) == 0 {
-		return nil, errors.New("OpenAI API 错误，生成向量失败: 没有返回数据")
+		return pgvector.NewVector(nil), errors.New("OpenAI API 错误，生成向量失败: 没有返回数据")
 	}
 
-	// 将向量转换为 JSON 格式
-	embeddingJSON, err := json.Marshal(embedding.Data[0].Embedding)
-	if err != nil {
-		return nil, fmt.Errorf("序列化嵌入失败: %w", err)
-	}
-
+	// 将向量转换为 pgvector.vector 格式
 	// 返回向量数据
-	return embeddingJSON, nil
+	return pgvector.NewVector(embedding.Data[0].Embedding), nil
 }
 
 // SaveMessage 保存消息到向量数据库
 // 新增 RAG 本地知识库后，进行了升级
 func (vs *VectorStore) SaveMessage(chatId, role, content string) error {
-	// 步骤1：生成文本向量
+	// 步骤1：生成  pgvector.vector  文本向量
 	embedding, err := vs.generateEmbedding(content)
 	if err != nil {
 		return fmt.Errorf("生成嵌入失败: %w", err)
 	}
 
-	// 步骤2：向量序列化
-	embeddingJSON, err := json.Marshal(embedding)
-	if err != nil {
-		return fmt.Errorf("序列化嵌入失败: %w", err)
-	}
-
-	// 步骤3：数据库存储
-	sql := `INSERT INTO vector_store (chat_id, role, content, embedding, source_type) 
+	// 步骤2：数据库存储
+	sql := `INSERT INTO vector_store (chat_id, role, content, embedding, doc_type) 
             VALUES ($1, $2, $3, $4, 'message')`
-	_, err = vs.Pool.Exec(context.Background(), sql,
-		chatId, role, content, embeddingJSON)
+
+	_, err = vs.Pool.Exec(context.Background(), sql, chatId, role, content, embedding)
 
 	return err
 }
@@ -193,8 +198,8 @@ func (vs *VectorStore) GetMessage(chatId string, limit int) ([]types.VectorMessa
 //	chunk: 文档的一个分块片段，长度应控制在合理范围内
 func (vs *VectorStore) SaveKnowledge(title, chunk string) error {
 	// 1. 将知识块内容转换为向量表示
-	// generateEmbedding()返回已序列化的JSON向量数据
-	embeddingJSON, err := vs.generateEmbedding(chunk)
+	// generateEmbedding()返回已序列化的向量数据
+	embeddingVector, err := vs.generateEmbedding(chunk)
 	if err != nil {
 		return fmt.Errorf("知识块向量化失败: %w", err)
 	}
@@ -202,7 +207,7 @@ func (vs *VectorStore) SaveKnowledge(title, chunk string) error {
 	// 2. 将知识块和向量数据存储到knowledge_base表
 	// 与vector_store表分离，专门存储知识库数据
 	sql := `INSERT INTO knowledge_base (title, content, embedding) VALUES ($1, $2, $3)`
-	_, err = vs.Pool.Exec(context.Background(), sql, title, chunk, embeddingJSON)
+	_, err = vs.Pool.Exec(context.Background(), sql, title, chunk, embeddingVector)
 	if err != nil {
 		return fmt.Errorf("保存知识块到数据库失败: %w", err)
 	}
@@ -235,7 +240,7 @@ func (vs *VectorStore) SaveKnowledge(title, chunk string) error {
 func (vs *VectorStore) RetrieveKnowledge(query string, topK int) ([]types.KnowledgeChunk, error) {
 	// 1. 将用户查询转换为向量表示
 	// 使用相同的embedding模型确保向量空间一致性
-	queryEmbeddingJSON, err := vs.generateEmbedding(query)
+	queryEmbeddingVector, err := vs.generateEmbedding(query)
 	if err != nil {
 		return nil, fmt.Errorf("用户查询向量化失败: %w", err)
 	}
@@ -243,13 +248,10 @@ func (vs *VectorStore) RetrieveKnowledge(query string, topK int) ([]types.Knowle
 	// 2. 构建SQL查询语句，使用向量相似度排序
 	// <->是PostgreSQL的向量距离操作符，计算余弦距离
 	// 距离越小表示相似度越高，ORDER BY升序排列
-	sql := `SELECT id, title, content 
-          FROM knowledge_base 
-          ORDER BY embedding::jsonb::text <-> $1::text
-          LIMIT $2`
+	sql := `SELECT id, title, content FROM knowledge_base ORDER BY embedding <-> $1 LIMIT $2`
 
 	// 3. 执行数据库查询
-	rows, err := vs.Pool.Query(context.Background(), sql, queryEmbeddingJSON, topK)
+	rows, err := vs.Pool.Query(context.Background(), sql, queryEmbeddingVector, topK)
 	if err != nil {
 		return nil, fmt.Errorf("知识库检索失败: %w", err)
 	}
@@ -272,4 +274,60 @@ func (vs *VectorStore) RetrieveKnowledge(query string, topK int) ([]types.Knowle
 	}
 
 	return results, nil
+}
+
+// SaveKnowledgeBatch 以事务方式批量写入知识块，确保全部成功或全部失败
+// SaveKnowledgeBatch 批量保存知识块到向量数据库
+// 参数:
+//   - title: 知识块的标题
+//   - chunks: 需要保存的知识块内容切片
+//
+// 返回值:
+//   - error: 操作过程中遇到的错误，如果成功则为nil
+func (vs *VectorStore) SaveKnowledgeBatch(title string, chunks []string) error {
+	// 如果知识块切片为空，直接返回nil
+	if len(chunks) == 0 {
+		return nil
+	}
+
+	// 创建上下文
+	ctx := context.Background()
+	// 开启数据库事务
+	tx, err := vs.Pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return fmt.Errorf("创建事务失败: %w", err)
+	}
+
+	// 使用 defer 确保在发生错误时回滚事务
+	defer func() {
+		if err != nil {
+			_ = tx.Rollback(ctx)
+		}
+	}()
+
+	// 定义插入 SQL 语句
+	insertSQL := `INSERT INTO knowledge_base (title, content, embedding) VALUES ($1, $2, $3)`
+	// 遍历所有知识块
+	for _, chunk := range chunks {
+		// 生成知识块的向量表示
+		var embedding pgvector.Vector
+		embedding, err = vs.generateEmbedding(chunk)
+		if err != nil {
+			err = fmt.Errorf("知识块向量化失败: %w", err)
+			return err
+		}
+
+		// 执行 SQL 插入语句
+		if _, execErr := tx.Exec(ctx, insertSQL, title, chunk, embedding); execErr != nil {
+			err = fmt.Errorf("保存知识块到数据库失败: %w", execErr)
+			return err
+		}
+	}
+
+	// 提交事务
+	if commitErr := tx.Commit(ctx); commitErr != nil {
+		return fmt.Errorf("提交事务失败: %w", commitErr)
+	}
+
+	return nil
 }

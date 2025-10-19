@@ -129,19 +129,10 @@ func (l *KnowledgeUploadLogic) KnowledgeUpload(req *types.KnowledgeUploadReq) (*
 
 	// 步骤2: 批量存储知识块到向量数据库
 	// 遍历每个分块，逐一进行向量化和存储处理
-	// 采用fail-fast机制，任何一个块存储失败都会立即中断整个流程
-	for _, chunk := range chunks {
-		// 调用VectorStore.SaveKnowledge进行单块存储
-		// 该方法会进行向量化、序列化和数据库插入操作
-		if err := l.svcCtx.VectorStore.SaveKnowledge(req.Title, chunk); err != nil {
-			// 存储失败时记录详细错误信息
-			// 使用GoZero的结构化日志，便于问题追踪和监控
-			logx.Errorf("保存知识失败: %v", err)
-
-			// 立即返回错误，确保上层能够感知失败并进行相应处理
-			// 这种设计保证了数据的一致性，避免部分成功的中间状态
-			return nil, err
-		}
+	// 采用原子操作，要么全部成功，要么全部失败。禁止上传一半失败，数据库里留下僵尸数据的情况
+	if err := l.svcCtx.VectorStore.SaveKnowledgeBatch(req.Title, chunks); err != nil {
+		logx.Errorf("保存知识失败: %v", err)
+		return nil, err
 	}
 
 	// 调试日志：标记存储流程完成)

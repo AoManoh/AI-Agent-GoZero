@@ -52,6 +52,7 @@ import (
 
 	"github.com/zeromicro/go-zero/core/logx"
 	"github.com/zeromicro/go-zero/zrpc"
+	"google.golang.org/grpc"
 )
 
 // PdfClient PDF文档处理gRPC客户端封装器
@@ -107,7 +108,13 @@ func NewPdfClient(endPoint string) *PdfClient {
 	conn := zrpc.MustNewClient(zrpc.RpcClientConf{
 		Endpoints: []string{endPoint}, // 支持多个端点实现高可用性
 		NonBlock:  true,               // 非阻塞连接模式，提高响应性能
-	})
+	},
+		// 放大发送/接收消息限制
+		zrpc.WithDialOption(grpc.WithDefaultCallOptions(
+			grpc.MaxCallSendMsgSize(50*1024*1024),
+			grpc.MaxCallRecvMsgSize(50*1024*1024),
+		)),
+	)
 
 	// 返回配置完成的PdfClient实例
 	return &PdfClient{
