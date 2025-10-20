@@ -82,7 +82,7 @@ GoZero-AI 是一个基于 **GoZero 微服务框架**构建的企业级 AI 对话
 | **ETCD** | 2379 | HTTP | 运行中 | 微服务注册发现中心 |
 | **PostgreSQL** | 5432 | TCP | 运行中 | 主数据库 + 向量存储 |
 | **Redis** | 6379 | TCP | 运行中 | 会话状态机与异步任务队列 |
-| **Frontend** | 5173/80 | HTTP | 运行中 | Vue3 前端应用 |
+| **Frontend** | 5000/80 | HTTP | 运行中 | Vue3 前端应用 |
 
 ### 数据流向
 
@@ -324,7 +324,7 @@ psql -U postgres -d gozero_ai_agent -f db/init.sql
 3. **PostgreSQL** (端口 5432) - 数据库 + 向量存储
 4. **MCP 微服务** (端口 8321) - PDF 处理（依赖 ETCD）
 5. **Chat API** (端口 8123) - 主服务
-6. **前端** (端口 5173) - 可选
+6. **前端** (端口 5000) - 可选
 
 **重要提示**: ETCD 是 GoZero 微服务的服务注册中心，MCP 服务启动时需要向 ETCD 注册，因此 ETCD 必须先于 MCP 服务启动。如果没有本地 ETCD，建议使用 Docker 运行。
 
