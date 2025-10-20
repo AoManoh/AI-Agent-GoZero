@@ -1,47 +1,100 @@
 syntax = "v1"
 
 info (
-	title:   "User Authentication API"
-	desc:    "GoZero-AI 用户注册与登录接口定义"
+	title:   "用户认证服务"
+	desc:    "提供用户注册、登录、退出及令牌刷新功能。"
 	author:  "AoManoh"
 	email:   "2913457330@qq.com"
 	version: "1.0"
 )
 
+// ----------------------------
+// 1. 数据结构定义 (type)
+// ----------------------------
 type (
+	// 注册请求体
 	RegisterReq {
-		Username string `json:"username" validate:"required,min=3,max=50"`
-		Password string `json:"password" validate:"required,min=6"`
+		// 用户名，必填，长度需在 6 到 50 个字符之间
+		Username string `json:"username" validate:"required,min=6,max=50"`
+		// 密码，必填，长度需在 6 到 50 个字符之间
+		Password string `json:"password" validate:"required,min=6,max=50"`
+		// 确认密码，必填，必须与密码字段相同
+		ConfirmPassword string `json:"confirmPassword" validate:"required,eqfield=Password"`
 	}
-
+	// 注册响应体 (成功时返回空JSON对象，符合RESTful风格)
+	RegisterResp  {}
+	// 登录请求体
 	LoginReq {
+		// 用户名，必填
 		Username string `json:"username" validate:"required"`
+		// 密码，必填
 		Password string `json:"password" validate:"required"`
 	}
-
-	AuthResp {
-		Username  string `json:"username"`
-		Token     string `json:"token"`
-		ExpiresAt int64  `json:"expires_at,optional"`
+	// 登录响应体
+	LoginResp {
+		// 访问令牌 (JWT)，用于后续接口的身份认证
+		AccessToken string `json:"accessToken"`
+		// 刷新令牌，用于在AccessToken过期后安全地获取新的令牌
+		RefreshToken string `json:"refreshToken"`
+		// AccessToken 的有效期，单位：秒
+		ExpireIn int64 `json:"expireIn"`
+	}
+	// 退出登录请求体 (为空，因为用户信息通过JWT获取)
+	LogoutReq  {}
+	// 退出登录响应体
+	LogoutResp  {}
+	// 刷新令牌请求体
+	RefreshTokenReq {
+		// 刷新令牌，必填
+		RefreshToken string `json:"refreshToken" validate:"required"`
+	}
+	// 刷新令牌响应体 (与登录响应体结构相同，返回一对新令牌)
+	RefreshTokenResp {
+		// 新的访问令牌 (JWT)
+		AccessToken string `json:"accessToken"`
+		// 新的刷新令牌
+		RefreshToken string `json:"refreshToken"`
+		// 新的 AccessToken 的有效期，单位：秒
+		ExpireIn int64 `json:"expireIn"`
 	}
 )
 
+// ----------------------------------------------------
+// 服务路由定义 - Part 1: 公共接口 (无需JWT认证)
+// ----------------------------------------------------
 @server (
-	prefix: /api
+	group:  user // 将所有handler分组到 user 目录下
+	prefix: /api/users // 为所有路由添加 /api/users 前缀
 )
 service user-api {
+	// --- 公共接口 (无需JWT认证) ---
 	@doc "用户注册"
-	@handler Register
-	post /users/register (RegisterReq) returns (AuthResp)
+	@handler RegisterHandler
+	post /register (RegisterReq) returns (RegisterResp)
 
 	@doc "用户登录"
-	@handler Login
-	post /users/login (LoginReq) returns (AuthResp)
+	@handler LoginHandler
+	post /login (LoginReq) returns (LoginResp)
 
-	// TODO: 后续可在带 jwt:Auth 的分组中补充以下接口：
-	// 1. GET /users/profile  -> 返回当前登录用户基础信息
-	// 2. GET /users/sessions -> 查询该用户最近对话会话列表
-	// 3. GET /users/sessions/{sessionId}/messages -> 拉取指定会话历史消息
-	// 上述接口需要中间件获取 userId 后在数据库中按 user_id 过滤结果
+	@doc "刷新访问令牌"
+	@handler RefreshTokenHandler
+	post /refresh (RefreshTokenReq) returns (RefreshTokenResp)
+}
+
+// ----------------------------------------------------
+// 服务路由定义 - Part 2: 受保护接口 (需要JWT认证)
+// ----------------------------------------------------
+// 这是同一个 user-api 服务的扩展块。
+// @server 注解中的 jwt: Auth 规则将仅应用于这个块中定义的路由。
+// 必须重复声明 group 和 prefix，以确保这些路由与公共路由在同一个组和URL前缀下。
+@server (
+	jwt:    Auth // 此注解将应用于下方 service 块中的所有路由
+	group:  user
+	prefix: /api/users
+)
+service user-api {
+	@doc "用户退出登录"
+	@handler LogoutHandler
+	post /logout (LogoutReq) returns (LogoutResp)
 }
 
