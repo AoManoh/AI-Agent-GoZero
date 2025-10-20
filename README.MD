@@ -418,3 +418,51 @@ docker-compose -f docker-compose.client.slim.yml up -d
 
 - 确保你的 key 足额。或者用自己搭建 gemini 轮询池服务
 - 更多详情请前往我的博客中查询有关信息
+
+---
+
+## 贡献指南
+
+欢迎提交 Issue 和 Pull Request 来帮助改进项目！
+
+### 如何贡献
+
+1. Fork 本仓库
+2. 创建你的特性分支 (`git checkout -b feature/AmazingFeature`)
+3. 提交你的修改 (`git commit -m 'Add some AmazingFeature'`)
+4. 推送到分支 (`git push origin feature/AmazingFeature`)
+5. 开启一个 Pull Request
+
+### 开发规范
+
+- 遵循现有代码风格
+- 添加必要的注释
+- 更新相关文档
+- 确保代码通过测试
+
+---
+
+## 许可证
+
+本项目采用 MIT 许可证 - 详见 [LICENSE](LICENSE) 文件
+
+---
+
+## 联系方式
+
+- 个人博客: [https://aomanoh.com](https://aomanoh.com)
+- GitHub: [@AoManoh](https://github.com/AoManoh)
+- 邮箱: yangzsb1@gmail.com
+
+---
+
+## 致谢
+
+- [GoZero](https://go-zero.dev/) - 微服务框架
+- [pgvector](https://github.com/pgvector/pgvector) - PostgreSQL 向量扩展
+- [UniPDF](https://unidoc.io/) - PDF 处理库
+- [Vue.js](https://vuejs.org/) - 前端框架
+
+---
+
+**如果这个项目对你有帮助，请给一个 Star ⭐**
