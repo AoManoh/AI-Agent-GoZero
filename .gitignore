@@ -50,3 +50,15 @@ vendor/
 
 # 文档编辑临时文件
 *.md.backup
+
+# 敏感配置文件 (保留 example 文件)
+/api/chat/etc/chat.yaml
+/api/chat/etc/docker.yaml
+/api/user/etc/user-api.yaml
+/mcp/etc/docker.yaml
+/mcp/etc/mcp.yaml
+/docker-compose.yml
+
+# 前端环境变量 (保留 example 文件)
+/client/.env.development
+/client/.env.production

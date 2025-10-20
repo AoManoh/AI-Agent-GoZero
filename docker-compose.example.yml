@@ -1,0 +1,155 @@
+# GoZero-AI 微服务容器编排配置文件
+# 定义完整的AI对话系统容器化部署方案，包含服务注册中心、缓存、数据库和业务服务
+#
+# 系统架构:
+#   - ETCD: 微服务注册发现中心，支持GoZero框架的服务发现机制
+#   - Redis: 高性能缓存服务，用于会话状态存储和数据缓存
+#   - PostgreSQL: 主数据库，集成pgvector扩展支持向量存储和语义搜索
+#   - MCP: PDF处理微服务，提供gRPC接口进行文档解析和文本提取
+#   - API: 主业务服务，提供RESTful API和流式对话功能
+#
+# 部署特性:
+#   - 健康检查机制确保服务可用性
+#   - 依赖关系管理保证启动顺序
+#   - 数据持久化和自动初始化
+#   - 网络隔离和端口映射
+#
+# 使用方法:
+#   1. 复制此文件为 docker-compose.yml
+#   2. 修改数据库密码等敏感配置
+#   3. 确保已创建 api/chat/etc/docker.yaml 和 mcp/etc/docker.yaml 配置文件
+#   启动: docker-compose up -d
+#   停止: docker-compose down
+#   重建: docker-compose build [service_name]
+#   查看日志: docker-compose logs [service_name]
+#   清理数据: docker-compose down -v
+version: '3.8'
+
+services:
+  # ==========================================
+  # 1. ETCD服务注册中心
+  # ==========================================
+  # 功能: GoZero微服务架构的核心组件，提供服务注册发现和配置管理
+  # 作用: 允许MCP和API服务在运行时自动发现对方，实现负载均衡和故障转移
+  # 端口: 2379(标准ETCD客户端端口)
+  etcd:
+    image: quay.io/coreos/etcd:v3.5.0  # 使用稳定版本ETCD镜像
+    ports:
+      - "2379:2379"  # 对外暴露ETCD客户端端口，支持外部调试和管理
+    environment:
+      # ETCD服务监听地址配置，允许所有网络接口访问
+      - ETCD_LISTEN_CLIENT_URLS=http://0.0.0.0:2379
+      # ETCD对外广告地址，使用Docker服务名作为内部网络标识
+      - ETCD_ADVERTISE_CLIENT_URLS=http://etcd:2379
+    # 健康检查配置：确保ETCD服务正常运行后再启动依赖服务
+    healthcheck:
+      test: ["CMD", "etcdctl", "endpoint", "health"]  # 使用etcdctl工具检查服务状态
+      interval: 5s   # 每5秒执行一次健康检查
+      timeout: 2s    # 检查超时时间
+      retries: 10    # 最多重试10次，确保服务稳定性
+
+  # ==========================================
+  # 2. Redis缓存服务
+  # ==========================================
+  # 功能: 高性能内存数据库，用于会话状态管理和高频数据缓存
+  # 作用: 存储面试状态转换信息，提供毫秒级的数据访问性能
+  # 特性: 支持数据持久化、主从复制和高可用性部署
+  redis:
+    image: redis:alpine  # 使用轻量Alpine Linux版本，减少镜像大小
+    ports:
+      - "6379:6379"  # Redis标准端口，支持外部Redis客户端连接
+    # Redis健康检查：确保服务可用性和响应能力
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]  # 使用ping命令检查Redis连接状态
+      interval: 10s  # 每10秒执行一次检查
+      timeout: 5s    # 检查超时时间
+      retries: 5     # 最多重试5次
+
+  # ==========================================
+  # 3. PostgreSQL向量数据库
+  # ==========================================
+  # 功能: 主数据库，集成pgvector扩展支持向量存储和语义搜索
+  # 作用: 存储对话历史、知识库内容和向量嵌入，支持RAG检索增强生成
+  # 特性: 高性能向量相似度计算、ACID事务支持、复杂查询能力
+  postgres:
+    image: ankane/pgvector  # 使用预安装pgvector扩展的PostgreSQL镜像
+    environment:
+      # 数据库连接凭据配置，与应用服务配置一致
+      # ⚠️ 重要: 请修改为你自己的密码
+      POSTGRES_USER: postgres                    # 数据库管理员用户名
+      POSTGRES_PASSWORD: your-database-password  # 数据库密码（生产环境应使用环境变量或加密配置）
+      POSTGRES_DB: gozero_ai_agent               # 默认创建的数据库名称
+    ports:
+      - "5432:5432"  # PostgreSQL标准端口，支持外部数据库工具连接
+    volumes:
+      # 数据持久化和初始化脚本挂载
+      - postgres-data:/var/lib/postgresql/data        # 数据持久化存储
+      - ./db:/docker-entrypoint-initdb.d              # 自动执行初始化SQL脚本
+    # PostgreSQL健康检查：确保数据库就绪后再启动应用服务
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d gozero_ai_agent"]  # 检查数据库连接状态
+      interval: 10s  # 每10秒执行一次检查
+      timeout: 5s    # 检查超时时间
+      retries: 5     # 最多重试5次
+
+  # ==========================================
+  # 4. MCP文档处理微服务
+  # ==========================================
+  # 功能: 提供PDF文档上传、解析和文本提取功能，支持RAG知识库构建
+  # 协议: gRPC服务，提供高性能的二进制流式传输
+  # 依赖: 依赖ETCD进行服务注册，支持服务发现和负载均衡
+  mcp:
+    build:
+      context: .                    # 以项目根目录为构建上下文
+      dockerfile: mcp/Dockerfile    # 指定MCP服务的Dockerfile路径
+    ports:
+      - "8321:8321"  # MCP gRPC服务端口，与API服务内部通信
+    # 服务依赖关系：确保ETCD就绪后再启动MCP服务
+    depends_on:
+      etcd:
+        condition: service_healthy  # 等待ETCD健康检查通过后再启动
+    # Go构建环境变量配置
+    environment:
+      GO111MODULE: "on"                           # 启用Go Modules依赖管理
+      GOPROXY: "https://goproxy.cn,direct"        # 使用国内代理加速依赖下载
+
+  # ==========================================
+  # 5. API主业务服务
+  # ==========================================
+  # 功能: 提供RESTful API和流式对话功能，集成OpenAI API和向量数据库
+  # 作用: AI对话系统的核心服务，处理用户请求和状态管理
+  # 集成: 调用MCP服务进行PDF处理，使用Redis管理会话状态
+  api:
+    build:
+      context: .                    # 以项目根目录为构建上下文
+      dockerfile: api/chat/Dockerfile    # 指定API服务的Dockerfile路径
+    ports:
+      - "8123:8123"  # API HTTP服务端口，对外提供Web API接口
+    # 复杂的服务依赖关系：确保所有基础服务就绪后再启动API服务
+    depends_on:
+      etcd:
+        condition: service_healthy      # ETCD必须健康（服务注册发现）
+      redis:
+        condition: service_healthy      # Redis必须健康（会话状态存储）
+      postgres:
+        condition: service_healthy      # PostgreSQL必须健康（数据持久化）
+      mcp:
+        condition: service_started      # MCP服务必须启动（PDF处理能力）
+    # Go构建环境变量配置
+    environment:
+      GO111MODULE: "on"                           # 启用Go Modules依赖管理
+      GOPROXY: "https://goproxy.cn,direct"        # 使用国内代理加速依赖下载
+
+# ==========================================
+# 数据卷和持久化配置
+# ==========================================
+# 定义容器数据卷，实现数据持久化和容器重启后数据保留
+
+# 数据卷定义
+volumes:
+  # PostgreSQL数据持久化卷
+  # 功能: 存储数据库文件、向量索引和用户数据
+  # 位置: Docker管理的命名卷，存储在Docker数据目录中
+  # 生命周期: 独立于容器生命周期，容器删除后数据保留
+  # 备份: 建议定期备份此卷以防数据丢失
+  postgres-data:

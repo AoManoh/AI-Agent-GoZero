@@ -1,0 +1,52 @@
+Name: chat
+Host: 0.0.0.0
+Port: 8123
+Timeout: 0 # 禁用超时，因为流式输出需要持久输出，如果启用超时断开的话，可能会影响服务的稳定性
+MaxBytes: 52428800 # 允许最大 50MB 的请求体
+
+OpenAI:
+  ApiKey: "your-openai-api-key-here"
+  BaseURL: "https://api.openai.com/v1"
+  Model: "gpt-4"
+
+  # 或使用阿里云千问模型
+  # ApiKey: "your-dashscope-api-key"
+  # BaseURL: "https://dashscope.aliyuncs.com/compatible-mode/v1"
+  # Model: "qwen-plus"
+
+  # 或使用其他兼容 OpenAI API 的模型
+  # ApiKey: "your-api-key"
+  # BaseURL: "https://your-api-endpoint/v1"
+  # Model: "your-model-name"
+
+  MaxCompletionTokens: 2048           # 最大token数，注意，原 MaxTokens 已废弃
+  Temperature: 0.75          # 温度参数
+
+# 向量数据库配置
+VectorDB:
+  Host: "127.0.0.1"
+  Port: 5432
+  DBName: "gozero_ai_agent"
+  User: "postgres"
+  Password: "your-database-password"
+  Table: "vector_store"
+  MaxConn: 20       # 最大连接数
+  EmbeddingModel: "text-embedding-v1" # 千问嵌入模型
+  # EmbeddingModel: "text-embedding-3-small" # OpenAI 嵌入模型
+  TimeZone: "Asia/Shanghai"
+  # 更新 RAG 本地知识库配置
+  Knowledge:
+    MaxChunkSize: 1000 # 知识块最大长度
+    TopK: 3 # 检索返回的知识片数量
+    MaxContextLength: 500 # 注入上下文的截断长度
+
+# MCP 服务配置
+MCP:
+  Endpoint: 127.0.0.1:8080 # MCP服务地址
+
+# Redis 配置
+Redis:
+  Host: "127.0.0.1"
+  Port: 6379
+  Password: ""
+  DB: 0
