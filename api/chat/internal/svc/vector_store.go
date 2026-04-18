@@ -29,14 +29,18 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/sashabaranov/go-openai"
 
 	"GoZero-AI/api/chat/internal/config"
 	"GoZero-AI/api/chat/internal/types"
+	"GoZero-AI/internal/sessionmode"
+	"GoZero-AI/internal/statuserr"
 	// pgvector-go 是一个 Go 语言库，用于将 Go 语言中的数据类型转换为 PostgreSQL 的 pgvector 扩展所需的格式
 	"github.com/pgvector/pgvector-go"
 )
@@ -47,6 +51,16 @@ type VectorStore struct {
 	OpenAIClient   *openai.Client // OpenAI客户端
 	EmbeddingModel string         // 向量模型名称
 }
+
+type execQuerier interface {
+	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+}
+
+var (
+	ErrSessionDeleted      = statuserr.Conflict("会话已删除，请创建新会话")
+	ErrSessionAccessDenied = statuserr.Forbidden("无权访问该会话")
+)
 
 // NewVectorStore 初始化向量存储
 func NewVectorStore(cfg config.VectorDBConfig, openAIClient *openai.Client) (*VectorStore, error) {
@@ -132,28 +146,87 @@ func (vs *VectorStore) generateEmbedding(content string) (pgvector.Vector, error
 // SaveMessage 保存消息到向量数据库
 // 新增 RAG 本地知识库后，进行了升级
 func (vs *VectorStore) SaveMessage(chatId, role, content string) error {
+	return vs.SaveMessageWithUser(context.Background(), chatId, role, content, nil, "")
+}
+
+func (vs *VectorStore) SaveMessageWithUser(ctx context.Context, chatId, role, content string, userID *int64, mode string) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	if err := vs.ValidateSessionWrite(ctx, chatId, userID); err != nil {
+		return err
+	}
+
 	// 步骤1：生成  pgvector.vector  文本向量
 	embedding, err := vs.generateEmbedding(content)
 	if err != nil {
 		return fmt.Errorf("生成嵌入失败: %w", err)
 	}
 
+	tx, err := vs.Pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return err
+	}
+	defer func() {
+		_ = tx.Rollback(ctx)
+	}()
+
+	if userID != nil {
+		if err := ensureSessionWritable(ctx, tx, chatId, *userID); err != nil {
+			return err
+		}
+	}
+
 	// 步骤2：数据库存储
-	sql := `INSERT INTO vector_store (chat_id, role, content, embedding, doc_type) 
-            VALUES ($1, $2, $3, $4, 'message')`
+	sql := `INSERT INTO vector_store (chat_id, user_id, role, content, embedding, doc_type) 
+            VALUES ($1, $2, $3, $4, $5, 'message')`
 
-	_, err = vs.Pool.Exec(context.Background(), sql, chatId, role, content, embedding)
+	_, err = tx.Exec(ctx, sql, chatId, nullableUserID(userID), role, content, embedding)
+	if err != nil {
+		return err
+	}
 
-	return err
+	if err := ensureChatSession(ctx, tx, chatId, userID, role, content, mode); err != nil {
+		return err
+	}
+
+	return tx.Commit(ctx)
+}
+
+func (vs *VectorStore) ValidateSessionWrite(ctx context.Context, chatId string, userID *int64) error {
+	if userID == nil {
+		return nil
+	}
+
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	return ensureSessionWritable(ctx, vs.Pool, chatId, *userID)
 }
 
 // GetMessage 获取消息从向量数据库
 func (vs *VectorStore) GetMessage(chatId string, limit int) ([]types.VectorMessage, error) {
+	return vs.GetMessageWithUser(chatId, nil, limit)
+}
+
+func (vs *VectorStore) GetMessageWithUser(chatId string, userID *int64, limit int) ([]types.VectorMessage, error) {
 	// 1. 构建一条 SQL 语句，从表中获取消息
-	sql := `SELECT role, content FROM vector_store WHERE chat_id = $1 ORDER BY created_at DESC LIMIT $2`
+	var (
+		sql  string
+		args []any
+	)
+	if userID == nil {
+		sql = `SELECT role, content FROM vector_store WHERE chat_id = $1 AND user_id IS NULL AND doc_type = 'message' ORDER BY created_at DESC LIMIT $2`
+		args = []any{chatId, limit}
+	} else {
+		sql = `SELECT role, content FROM vector_store WHERE chat_id = $1 AND user_id = $2 AND doc_type = 'message' ORDER BY created_at DESC LIMIT $3`
+		args = []any{chatId, *userID, limit}
+	}
 
 	// 2. 传入指定用户 ID，获取他的历史对话数据，并做出限制，我们肯定不希望数据太多导致准确性降低
-	rows, err := vs.Pool.Query(context.Background(), sql, chatId, limit)
+	rows, err := vs.Pool.Query(context.Background(), sql, args...)
 	if err != nil {
 		return nil, fmt.Errorf("从数据库中获取当前用户消息失败: %w", err)
 	}
@@ -238,6 +311,10 @@ func (vs *VectorStore) SaveKnowledge(title, chunk string) error {
 //	[]types.KnowledgeChunk: 按相似度排序的知识块列表
 //	error: 向量生成或数据库检索错误
 func (vs *VectorStore) RetrieveKnowledge(query string, topK int) ([]types.KnowledgeChunk, error) {
+	return vs.RetrieveKnowledgeScoped(query, topK, nil, "")
+}
+
+func (vs *VectorStore) RetrieveKnowledgeScoped(query string, topK int, userID *int64, chatID string) ([]types.KnowledgeChunk, error) {
 	// 1. 将用户查询转换为向量表示
 	// 使用相同的embedding模型确保向量空间一致性
 	queryEmbeddingVector, err := vs.generateEmbedding(query)
@@ -245,35 +322,238 @@ func (vs *VectorStore) RetrieveKnowledge(query string, topK int) ([]types.Knowle
 		return nil, fmt.Errorf("用户查询向量化失败: %w", err)
 	}
 
-	// 2. 构建SQL查询语句，使用向量相似度排序
-	// <->是PostgreSQL的向量距离操作符，计算余弦距离
-	// 距离越小表示相似度越高，ORDER BY升序排列
-	sql := `SELECT id, title, content FROM knowledge_base ORDER BY embedding <-> $1 LIMIT $2`
+	var results []scoredKnowledgeChunk
 
-	// 3. 执行数据库查询
-	rows, err := vs.Pool.Query(context.Background(), sql, queryEmbeddingVector, topK)
+	publicResults, err := vs.fetchPublicKnowledge(queryEmbeddingVector, topK, userID)
 	if err != nil {
-		return nil, fmt.Errorf("知识库检索失败: %w", err)
+		// 当前环境可能仍保留 jsonb/旧维度知识库；这里降级到私有简历与消息链路，避免整条对话失败。
+		fmt.Printf("skip public knowledge retrieval due to schema/runtime mismatch: %v\n", err)
+	} else {
+		results = append(results, publicResults...)
+	}
+
+	if userID != nil && chatID != "" {
+		resumeResults, err := vs.fetchResumeKnowledge(queryEmbeddingVector, topK, *userID, chatID)
+		if err != nil {
+			return nil, fmt.Errorf("私有简历检索失败: %w", err)
+		}
+		results = append(results, resumeResults...)
+	}
+
+	sortScoredKnowledge(results)
+
+	if len(results) > topK {
+		results = results[:topK]
+	}
+
+	knowledge := make([]types.KnowledgeChunk, 0, len(results))
+	for _, result := range results {
+		knowledge = append(knowledge, result.KnowledgeChunk)
+	}
+
+	return knowledge, nil
+}
+
+func ensureChatSession(ctx context.Context, db execQuerier, chatId string, userID *int64, role, content, mode string) error {
+	if userID == nil {
+		return nil
+	}
+
+	title := defaultSessionTitle
+	if role == openai.ChatMessageRoleUser {
+		title = deriveSessionTitle(content)
+	}
+	modeKey := sessionmode.NormalizeKey(mode)
+
+	query := `INSERT INTO chat_sessions (session_id, user_id, title, mode, last_message_at, message_count, is_active)
+VALUES ($1, $2, $3, $4, now(), 1, true)
+ON CONFLICT (session_id) DO UPDATE
+SET user_id = COALESCE(chat_sessions.user_id, EXCLUDED.user_id),
+    title = CASE
+        WHEN chat_sessions.title = $5 AND EXCLUDED.title <> '' THEN EXCLUDED.title
+        ELSE chat_sessions.title
+    END,
+    mode = CASE
+        WHEN chat_sessions.mode IS NULL OR btrim(chat_sessions.mode) = '' THEN EXCLUDED.mode
+        WHEN chat_sessions.mode = $6 AND EXCLUDED.mode <> $6 THEN EXCLUDED.mode
+        ELSE chat_sessions.mode
+    END,
+    updated_at = now(),
+    last_message_at = now(),
+    message_count = chat_sessions.message_count + 1`
+
+	_, err := db.Exec(ctx, query, chatId, *userID, title, modeKey, defaultSessionTitle, defaultSessionMode)
+	return err
+}
+
+func (vs *VectorStore) ResolveSessionMode(ctx context.Context, chatId string, userID *int64, requestedMode string) (string, error) {
+	if userID == nil || strings.TrimSpace(chatId) == "" {
+		return effectiveSessionMode("", requestedMode), nil
+	}
+
+	var storedMode string
+	row := vs.Pool.QueryRow(ctx, `SELECT mode FROM chat_sessions WHERE session_id = $1 AND user_id = $2 LIMIT 1`, chatId, *userID)
+	if err := row.Scan(&storedMode); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return effectiveSessionMode("", requestedMode), nil
+		}
+		return "", err
+	}
+
+	return effectiveSessionMode(storedMode, requestedMode), nil
+}
+
+func ensureSessionWritable(ctx context.Context, db execQuerier, chatId string, userID int64) error {
+	row := db.QueryRow(ctx, `SELECT user_id, is_active FROM chat_sessions WHERE session_id = $1 LIMIT 1`, chatId)
+
+	var ownerID int64
+	var isActive bool
+	if err := row.Scan(&ownerID, &isActive); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil
+		}
+		return err
+	}
+	if ownerID != userID {
+		return ErrSessionAccessDenied
+	}
+	if !isActive {
+		return ErrSessionDeleted
+	}
+
+	return nil
+}
+
+func deriveSessionTitle(content string) string {
+	const maxLen = 48
+
+	normalized := strings.TrimSpace(strings.ReplaceAll(strings.ReplaceAll(content, "\n", " "), "\r", " "))
+	if normalized == "" {
+		return defaultSessionTitle
+	}
+	runes := []rune(normalized)
+	if len(runes) > maxLen {
+		return string(runes[:maxLen]) + "..."
+	}
+
+	return normalized
+}
+
+func nullableUserID(userID *int64) any {
+	if userID == nil {
+		return nil
+	}
+
+	return *userID
+}
+
+func effectiveSessionMode(storedMode, requestedMode string) string {
+	if strings.TrimSpace(storedMode) != "" {
+		return sessionmode.NormalizeKey(storedMode)
+	}
+
+	return sessionmode.NormalizeKey(requestedMode)
+}
+
+const (
+	defaultSessionTitle = "新对话"
+	defaultSessionMode  = sessionmode.DefaultKey
+)
+
+type scoredKnowledgeChunk struct {
+	types.KnowledgeChunk
+	Score float64
+}
+
+func (vs *VectorStore) fetchPublicKnowledge(queryEmbeddingVector pgvector.Vector, topK int, userID *int64) ([]scoredKnowledgeChunk, error) {
+	sql := `SELECT id, title, content, embedding <-> $1 AS score
+FROM knowledge_base
+WHERE (user_id = 1`
+	args := []any{queryEmbeddingVector}
+	if userID != nil {
+		sql += ` OR user_id = $2`
+		args = append(args, *userID)
+	}
+	sql += `) AND embedding IS NOT NULL`
+	sql += `
+ORDER BY score
+LIMIT $`
+	sql += fmt.Sprintf("%d", len(args)+1)
+	args = append(args, topK)
+
+	rows, err := vs.Pool.Query(context.Background(), sql, args...)
+	if err != nil {
+		return nil, err
 	}
 	defer rows.Close()
 
-	// 4. 遍历查询结果，构建知识块列表
-	var results []types.KnowledgeChunk
+	var results []scoredKnowledgeChunk
 	for rows.Next() {
-		var id int64
-		var title, content string
-		if err := rows.Scan(&id, &title, &content); err != nil {
-			return nil, fmt.Errorf("扫描知识块数据失败: %w", err)
+		var (
+			id      int64
+			title   string
+			content string
+			score   float64
+		)
+		if err := rows.Scan(&id, &title, &content, &score); err != nil {
+			return nil, err
 		}
-		// 构建知识块结构体，包含ID、标题和内容
-		results = append(results, types.KnowledgeChunk{
-			ID:      id,      // 知识块唯一标识
-			Title:   title,   // 文档标题，用于结果展示
-			Content: content, // 知识块内容，用于注入AI上下文
+		results = append(results, scoredKnowledgeChunk{
+			KnowledgeChunk: types.KnowledgeChunk{
+				ID:      id,
+				Title:   title,
+				Content: content,
+			},
+			Score: score,
 		})
 	}
 
 	return results, nil
+}
+
+func (vs *VectorStore) fetchResumeKnowledge(queryEmbeddingVector pgvector.Vector, topK int, userID int64, chatID string) ([]scoredKnowledgeChunk, error) {
+	rows, err := vs.Pool.Query(context.Background(), `SELECT id, '[resume]'::text AS title, content, embedding <-> $1 AS score
+FROM vector_store
+WHERE user_id = $2 AND chat_id = $3 AND doc_type = 'resume'
+ORDER BY score
+LIMIT $4`, queryEmbeddingVector, userID, chatID, topK)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var results []scoredKnowledgeChunk
+	for rows.Next() {
+		var (
+			id      int64
+			title   string
+			content string
+			score   float64
+		)
+		if err := rows.Scan(&id, &title, &content, &score); err != nil {
+			return nil, err
+		}
+		results = append(results, scoredKnowledgeChunk{
+			KnowledgeChunk: types.KnowledgeChunk{
+				ID:      id,
+				Title:   title,
+				Content: content,
+			},
+			Score: score,
+		})
+	}
+
+	return results, nil
+}
+
+func sortScoredKnowledge(results []scoredKnowledgeChunk) {
+	for i := 0; i < len(results); i++ {
+		for j := i + 1; j < len(results); j++ {
+			if results[j].Score < results[i].Score {
+				results[i], results[j] = results[j], results[i]
+			}
+		}
+	}
 }
 
 // SaveKnowledgeBatch 以事务方式批量写入知识块，确保全部成功或全部失败

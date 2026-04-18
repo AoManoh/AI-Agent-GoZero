@@ -25,8 +25,8 @@
 package handler
 
 import (
-	"errors"
 	"net/http"
+	"strings"
 
 	"github.com/zeromicro/go-zero/core/logx"
 	"github.com/zeromicro/go-zero/rest/httpx"
@@ -34,6 +34,8 @@ import (
 	"GoZero-AI/api/chat/internal/logic"
 	"GoZero-AI/api/chat/internal/svc"
 	"GoZero-AI/api/chat/internal/types"
+	"GoZero-AI/internal/pdfupload"
+	"GoZero-AI/internal/statuserr"
 )
 
 // KnowledgeUploadHandler 知识库文档上传处理器
@@ -81,30 +83,29 @@ func KnowledgeUploadHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
 		// file: 文件内容流，header: 文件元信息(文件名、大小、类型等)
 		file, header, err := r.FormFile("file")
 		if err != nil {
-			// 文件上传失败，可能原因：
-			// - 请求格式不正确(非multipart/form-data)
-			// - 字段名不匹配(前端使用的字段名不是"file")
-			// - 文件大小超出服务器限制
-			httpx.Error(w, err)
+			httpx.ErrorCtx(r.Context(), w, pdfupload.RequiredFormFileError(err))
 			return
 		}
 		defer file.Close() // 确保文件流及时关闭，避免资源泄露
 
-		// 步骤2: 验证文件类型，确保上传的是PDF文件
-		// 通过HTTP header中的Content-Type进行MIME类型检查
-		// 这是第一道安全防线，防止恶意文件上传
-		if header.Header.Get("Content-Type") != "application/pdf" {
-			// 返回用户友好的错误信息，指导用户上传正确格式
-			httpx.Error(w, errors.New("仅支持 PDF 文件！"))
+		// 步骤2: 统一校验上传文件，确保是有效 PDF
+		if err := pdfupload.ValidatePDFUpload(file, header); err != nil {
+			httpx.ErrorCtx(r.Context(), w, err)
 			return
 		}
 
 		// 步骤3更新: 调用 mcp 微服务提取 PDF 文本
 		// ExtractTextFromPDF使用 mcp 解析PDF文档
 		// 提取出的content是纯文本，去除了格式和图片信息
-		content, err := svcCtx.PdfClient.ExtractTextFromPDF(file, header.Filename)
+		content, err := svcCtx.PdfClient.ExtractTextFromPDF(r.Context(), file, header.Filename)
 		if err != nil {
 			logx.Errorf("PDF文本提取失败: %v", err)
+			httpx.ErrorCtx(r.Context(), w, statuserr.New(http.StatusBadGateway, "PDF 文本提取失败，请稍后重试"))
+			return
+		}
+		if strings.TrimSpace(content) == "" {
+			httpx.ErrorCtx(r.Context(), w, pdfupload.ErrEmptyPDF)
+			return
 		}
 
 		// 步骤4: 提取文档标题信息
@@ -117,8 +118,8 @@ func KnowledgeUploadHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
 		l := logic.NewKnowledgeUploadLogic(r.Context(), svcCtx)
 
 		// 调用业务逻辑处理文档分块、向量化和存储
-		// KnowledgeUploadReq包装提取的标题和内容
-		resp, err := l.KnowledgeUpload(&types.KnowledgeUploadReq{
+		// KnowledgeUploadInput 包装提取的标题和内容
+		resp, err := l.KnowledgeUpload(&types.KnowledgeUploadInput{
 			Title:   title,   // PDF文件名，用作文档标题
 			Content: content, // 提取的文本内容，将被分块处理
 		})

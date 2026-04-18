@@ -42,6 +42,8 @@ import (
 	"io"
 	"strings"
 
+	chatAuth "GoZero-AI/api/chat/internal/auth"
+	"GoZero-AI/internal/chatflow"
 	"github.com/sashabaranov/go-openai"
 	"github.com/zeromicro/go-zero/core/logx"
 
@@ -150,22 +152,47 @@ func NewChatLogic(ctx context.Context, svcCtx *svc.ServiceContext) *ChatLogic {
 func (l *ChatLogic) Chat(req *types2.InterviewAppChatReq) (<-chan *types2.ChatRes, error) {
 	// 1. 创建一个 channel 用于通信
 	ch := make(chan *types2.ChatRes)
+	var scopedUserID *int64
+	if userID, ok := chatAuth.UserIDFromContext(l.ctx); ok {
+		scopedUserID = &userID
+	}
+	effectiveMode, err := l.svcCtx.VectorStore.ResolveSessionMode(l.ctx, req.ChatId, scopedUserID, req.Mode)
+	if err != nil {
+		return nil, err
+	}
+	scope := ConversationScope{
+		ChatID: req.ChatId,
+		UserID: scopedUserID,
+		Mode:   effectiveMode,
+	}
+	if err := l.svcCtx.VectorStore.ValidateSessionWrite(l.ctx, req.ChatId, scopedUserID); err != nil {
+		return nil, err
+	}
 
 	// 2. 启动一个 goroutine 执行耗时操作，进行异步通信
 	go func() {
 		defer close(ch)
 
+		stateManager := NewStateManager(l.ctx, l.svcCtx)
+		if _, err := stateManager.UpdateExecutionState(scope, chatflow.ExecutionRetrieving, "incoming_request"); err != nil {
+			l.Logger.Errorf("更新 flow 执行状态失败: %v", err)
+		}
+
 		// 2.1 首先就先将用户的对话内容，添加到向量存储中
-		if err := l.svcCtx.VectorStore.SaveMessage(req.ChatId, openai.ChatMessageRoleUser, req.Message); err != nil {
+		if err := l.svcCtx.VectorStore.SaveMessageWithUser(l.ctx, req.ChatId, openai.ChatMessageRoleUser, req.Message, scopedUserID, effectiveMode); err != nil {
 			l.Errorf("保存用户消息失败: %v", err)
-			// 注意，这里不返回，即便保存失败，也要继续执行后续逻辑
-			// 因为保存失败也不影响对话的进行
-			// 并且由于是流式输出，如果返回了，会导致整个流式输出中断
+			_, _ = stateManager.UpdateExecutionState(scope, chatflow.ExecutionFailed, "user_message_persist_failed")
+			ch <- &types2.ChatRes{
+				Content:  "系统错误：无法保存会话消息",
+				IsLatest: true,
+			}
+			return
+		} else if err := stateManager.RecordTurn(scope, openai.ChatMessageRoleUser, "user_message_persisted"); err != nil {
+			l.Logger.Errorf("记录用户 turn 失败: %v", err)
 		}
 
 		// 2.2 获取当前状态
-		stateManager := NewStateManager(l.svcCtx)
-		currentState, err := stateManager.GetCurrentState(req.ChatId)
+		currentState, err := stateManager.GetCurrentState(scope)
 		if err != nil {
 			l.Logger.Errorf("获取状态失败: %v", err)
 			currentState = types2.StateStart
@@ -173,16 +200,20 @@ func (l *ChatLogic) Chat(req *types2.InterviewAppChatReq) (<-chan *types2.ChatRe
 
 		// 2.2 新增：知识检索（RAG）
 		// 从向量数据库中检索与用户消息最相关的知识片段
-		knowledgeChunks, err := l.svcCtx.VectorStore.RetrieveKnowledge(req.Message, l.svcCtx.Config.VectorDB.Knowledge.TopK)
+		knowledgeChunks, err := l.svcCtx.VectorStore.RetrieveKnowledgeScoped(req.Message, l.svcCtx.Config.VectorDB.Knowledge.TopK, scopedUserID, req.ChatId)
 		if err != nil {
 			l.Logger.Errorf("知识检索失败: %v", err)
 			knowledgeChunks = []types2.KnowledgeChunk{} // 确保不为nil
 		}
 
 		// 2.3 构建消息
-		openSession, err := l.buildMessagesWithState(req.ChatId, currentState, knowledgeChunks)
+		if _, err := stateManager.UpdateExecutionState(scope, chatflow.ExecutionGenerating, "model_stream_start"); err != nil {
+			l.Logger.Errorf("更新 flow 执行状态失败: %v", err)
+		}
+		openSession, err := l.buildMessagesWithState(req.ChatId, currentState, knowledgeChunks, scopedUserID)
 		if err != nil {
 			l.Logger.Errorf("构建消息失败: %v", err)
+			_, _ = stateManager.UpdateExecutionState(scope, chatflow.ExecutionFailed, "build_messages_failed")
 			ch <- &types2.ChatRes{
 				Content:  "系统错误：无法构建消息",
 				IsLatest: true,
@@ -204,6 +235,7 @@ func (l *ChatLogic) Chat(req *types2.InterviewAppChatReq) (<-chan *types2.ChatRe
 		if err != nil {
 			l.Errorf("创建聊天失败: %v", err)
 			l.Errorf("请求配置: BaseURL=%s, Model=%s\n", l.svcCtx.Config.OpenAI.BaseURL, l.svcCtx.Config.OpenAI.Model)
+			_, _ = stateManager.UpdateExecutionState(scope, chatflow.ExecutionFailed, "stream_start_failed")
 			ch <- &types2.ChatRes{
 				Content:  "系统错误：无法连接 OpenAI 的 API 请求",
 				IsLatest: true,
@@ -217,6 +249,11 @@ func (l *ChatLogic) Chat(req *types2.InterviewAppChatReq) (<-chan *types2.ChatRe
 		for {
 			select {
 			case <-l.ctx.Done(): // 如果客户端断开连接，就取消上下文退出
+				reason := "request_canceled"
+				if errors.Is(l.ctx.Err(), context.DeadlineExceeded) {
+					reason = "request_timeout"
+				}
+				_, _ = stateManager.UpdateExecutionState(scope, chatflow.ExecutionFailed, reason)
 				return
 			default:
 				res, err := stream.Recv()
@@ -224,28 +261,49 @@ func (l *ChatLogic) Chat(req *types2.InterviewAppChatReq) (<-chan *types2.ChatRe
 					// 退出前先保存助手回复
 					// 流结束后处理状态更新
 					finalRes := fullResponse.String()
+					if _, markErr := stateManager.UpdateExecutionState(scope, chatflow.ExecutionPersisting, "assistant_message_persist"); markErr != nil {
+						l.Logger.Errorf("更新 flow 执行状态失败: %v", markErr)
+					}
 					if fullResponse.String() != "" {
-						if saveErr := l.svcCtx.VectorStore.SaveMessage(
+						if saveErr := l.svcCtx.VectorStore.SaveMessageWithUser(
+							l.ctx,
 							req.ChatId,
 							openai.ChatMessageRoleAssistant,
 							finalRes,
+							scopedUserID,
+							effectiveMode,
 						); saveErr != nil {
 							l.Errorf("保存助手消息失败: %v", saveErr)
+							_, _ = stateManager.UpdateExecutionState(scope, chatflow.ExecutionFailed, "assistant_message_persist_failed")
+							ch <- &types2.ChatRes{IsLatest: true}
+							return
+						} else if err := stateManager.RecordTurn(scope, openai.ChatMessageRoleAssistant, "assistant_message_persisted"); err != nil {
+							l.Logger.Errorf("记录助手 turn 失败: %v", err)
 						}
 					}
 
-					newState, err := stateManager.EvaluateAndUpdateState(req.ChatId, finalRes)
+					snapshot, err := stateManager.EvaluateAndUpdateState(scope, finalRes)
 					if err != nil {
 						l.Logger.Errorf("更新状态失败: %v", err)
 					} else {
-						l.Logger.Infof("状态更新: %s -> %s", currentState, newState)
+						l.Logger.Infof("状态更新: %s -> %s", currentState, snapshot.InterviewState)
 					}
 
 					ch <- &types2.ChatRes{IsLatest: true} // 流结束，发送结束标记
 					return
 				}
 				if err != nil {
-					l.Logger.Error("接受流式响应失败: %v", err)
+					reason := "stream_receive_failed"
+					if errors.Is(err, context.Canceled) {
+						reason = "request_canceled"
+					} else if errors.Is(err, context.DeadlineExceeded) {
+						reason = "request_timeout"
+					}
+					l.Logger.Errorf("接受流式响应失败: %v", err)
+					_, _ = stateManager.UpdateExecutionState(scope, chatflow.ExecutionFailed, reason)
+					if reason == "request_canceled" {
+						return
+					}
 					ch <- &types2.ChatRes{
 						Content:  "系统错误：无法接受流式响应",
 						IsLatest: true,
@@ -329,11 +387,11 @@ func (l *ChatLogic) Chat(req *types2.InterviewAppChatReq) (<-chan *types2.ChatRe
 //
 //	[]openai.ChatCompletionMessage: 符合OpenAI API格式的完整对话上下文
 //	error: 历史消息检索失败或数据处理异常
-func (l *ChatLogic) getSessionHistory(chatId string, knowledge []types2.KnowledgeChunk) ([]openai.ChatCompletionMessage, error) {
+func (l *ChatLogic) getSessionHistory(chatId string, knowledge []types2.KnowledgeChunk, userID *int64) ([]openai.ChatCompletionMessage, error) {
 	// 步骤1: 从向量数据库检索历史对话记录
 	// 限制为最近10条消息，避免上下文过长影响AI响应质量
 	// VectorStore.GetMessage会自动按时间排序并返回正确的消息顺序
-	vectorMessages, err := l.svcCtx.VectorStore.GetMessage(chatId, 10)
+	vectorMessages, err := l.svcCtx.VectorStore.GetMessageWithUser(chatId, userID, 10)
 	if err != nil {
 		// 历史消息检索失败，可能原因:
 		// - 数据库连接异常
@@ -365,10 +423,6 @@ func (l *ChatLogic) getSessionHistory(chatId string, knowledge []types2.Knowledg
 			systemMessage += fmt.Sprintf("\n[知识片段%d] %s: %s", i+1, k.Title, truncatedContent)
 		}
 	}
-
-	// 调试输出: 展示最终构造的系统消息内容
-	// TODO: 生产环境应使用结构化日志替换fmt.Println
-	fmt.Println("检索的数据", systemMessage)
 
 	// 步骤4: 构造OpenAI API所需的消息格式
 	// 系统消息必须放在最前面，定义AI的角色和可用知识
@@ -500,7 +554,7 @@ func (l *ChatLogic) getSessionHistory(chatId string, knowledge []types2.Knowledg
 //		// 返回包含状态感知系统消息和历史对话的完整上下文
 //		return messages, nil
 //	}
-func (l *ChatLogic) buildMessagesWithState(chatId, currentState string, knowledge []types2.KnowledgeChunk) ([]openai.ChatCompletionMessage, error) {
+func (l *ChatLogic) buildMessagesWithState(chatId, currentState string, knowledge []types2.KnowledgeChunk, userID *int64) ([]openai.ChatCompletionMessage, error) {
 	var sb strings.Builder
 
 	// --- 阶段一：构建 AI 的核心身份与行为准则 ---
@@ -528,21 +582,15 @@ func (l *ChatLogic) buildMessagesWithState(chatId, currentState string, knowledg
 	switch currentState {
 	case types2.StateStart:
 		sb.WriteString("\n**本阶段目标**: 欢迎候选人并开始面试流程。")
-		fmt.Println("sb.WriteString(\"\\n**本阶段目标**: 欢迎候选人，破冰，并确认今天的面试重点。\")")
 	case types2.StateQuestion:
 		sb.WriteString("\n**本阶段目标**: 提出一个核心的**技术深挖**问题，考察候选人的基础知识。")
-		fmt.Println("sb.WriteString(\"\\n**本阶段目标**: 提出一个核心的**技术深挖**问题，考察候选人的基础知识。\")")
 	case types2.StateFollowUp:
 		sb.WriteString("\n**本阶段目标**: 对候选人的回答进行**技术追问**，或者提出一个相关的**情景模拟**问题，考察其实践能力。")
-		fmt.Println("333333333")
 	case types2.StateEvaluate:
-		// 我们可以引入一个新的状态，比如 StateBehavioral
-		fmt.Println("44444444")
 		sb.WriteString("\n**本阶段目标**: 提出一个**行为面试**问题，考察候选人的思维特质或职业素养。")
 	// case types.StateEvaluate:
 	// 	sb.WriteString("\n**本阶段目标**: 对候选人到目前为止的表现进行一次阶段性的总结和评估。")
 	case types2.StateEnd:
-		fmt.Println("555555555")
 		sb.WriteString("\n**本阶段目标**: 礼貌地结束面试，并询问候选人是否需要生成本次面试的总结报告。")
 	}
 
@@ -567,7 +615,7 @@ func (l *ChatLogic) buildMessagesWithState(chatId, currentState string, knowledg
 	}
 	// 将历史消息转换为OpenAI API格式并添加到上下文
 	// 保持原有的角色信息和时间顺序，确保状态转换的逻辑性
-	history, err := l.svcCtx.VectorStore.GetMessage(chatId, 10)
+	history, err := l.svcCtx.VectorStore.GetMessageWithUser(chatId, userID, 10)
 	if err != nil {
 		return nil, err
 	}

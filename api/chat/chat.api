@@ -11,24 +11,37 @@ info (
 )
 
 // InterviewAppChatReq AI 面试官聊天请求结构体
-// 定义了用户发送给 AI 面试官的消息内容和会话标识
+// 定义了用户发送给 AI 面试官的消息内容和会话标识。
+// 当前运行时通过 multipart/form-data 接收该表单字段，并允许额外附带一个可选的 `file` PDF part。
+// Bearer token 通过 Authorization 请求头传递，由 handler 手工解析，因此不在 goctl type 中展开。
 type InterviewAppChatReq {
 	Message string `form:"message"`
 	ChatId  string `form:"chatId"`
+	Mode    string `form:"mode,optional"`
 }
 
-// ChatRes AI 面试官聊天响应结构体
-// 定义了 AI 面试官返回的消息内容和状态信息
-type ChatRes {
-	Content  string `json:"content"`
-	IsLatest bool   `json:"isLatest"`
+// KnowledgeUploadReq 公共知识上传请求结构体
+// 运行时要求 multipart/form-data 中包含名为 `file` 的 PDF 文件 part；
+// 该文件 part 由 handler 手工读取，因此这里只保留占位字段用于表达外部契约。
+type KnowledgeUploadReq {
+	File string `form:"file"`
+}
+
+// KnowledgeUploadRes 公共知识上传响应结构体
+type KnowledgeUploadRes {
+	Msg    string `json:"msg"`
+	Chunks int    `json:"chunks"`
 }
 
 // chat 服务提供 AI 面试官聊天功能
 // 支持 SSE 流式响应，实现实时对话交互
 service chat {
-	@doc "Go 面试官聊天SSE流式接口"
+	@doc "Go 面试官聊天SSE流式接口，使用 multipart/form-data，并支持可选 file(PDF) part"
 	@handler Chat
 	post /api/ai/interview_app/chat/sse (InterviewAppChatReq)
+
+	@doc "公共知识库 PDF 上传接口，使用 multipart/form-data，并要求 file(PDF) part"
+	@handler KnowledgeUpload
+	post /api/ai/knowledge/upload (KnowledgeUploadReq) returns (KnowledgeUploadRes)
 }
 

@@ -6,6 +6,9 @@ import (
 
 type Config struct {
 	rest.RestConf
+	Auth struct {
+		AccessSecret string `json:",optional"`
+	}
 	OpenAI struct {
 		ApiKey              string
 		BaseURL             string

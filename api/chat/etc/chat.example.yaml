@@ -4,6 +4,9 @@ Port: 8123
 Timeout: 0 # 禁用超时，因为流式输出需要持久输出，如果启用超时断开的话，可能会影响服务的稳定性
 MaxBytes: 52428800 # 允许最大 50MB 的请求体
 
+Auth:
+  AccessSecret: "your-user-access-secret" # 需与 user 服务保持一致；不强制路由鉴权，仅用于解析可选 Bearer token
+
 OpenAI:
   ApiKey: "your-openai-api-key-here"
   BaseURL: "https://api.openai.com/v1"

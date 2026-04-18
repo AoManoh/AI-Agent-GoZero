@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -9,25 +10,33 @@ import (
 	"github.com/zeromicro/go-zero/core/logx"
 	"github.com/zeromicro/go-zero/rest/httpx"
 
+	chatAuth "GoZero-AI/api/chat/internal/auth"
 	"GoZero-AI/api/chat/internal/logic"
 	"GoZero-AI/api/chat/internal/svc"
 	"GoZero-AI/api/chat/internal/types"
 	"GoZero-AI/api/chat/internal/utils"
+	"GoZero-AI/internal/pdfupload"
+	"GoZero-AI/internal/statuserr"
 )
 
 func ChatHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		// 1. 设置 SSE 头部：告诉浏览器这是一个流式响应
-		setSSEHeader(w)
-		flusher, _ := w.(http.Flusher)
-		// 立即刷新头部，注意，由于前端请求为 post 请求，所以这里不能立即刷新头部
-		// 如果前端请求为 get 请求，则可以立即刷新头部
-		// flusher.Flush()
+		ctx := r.Context()
+		if accessToken := bearerTokenFromHeader(r.Header.Get("Authorization")); accessToken != "" {
+			userID, err := chatAuth.ParseAccessTokenUserID(svcCtx.Config.Auth.AccessSecret, accessToken)
+			if err != nil {
+				httpx.WriteJsonCtx(ctx, w, http.StatusUnauthorized, map[string]any{
+					"message": "access token 无效或已过期",
+				})
+				return
+			}
+			ctx = chatAuth.WithUserID(ctx, userID)
+		}
 
-		// 2. 解析请求参数
+		// 1. 解析请求参数
 		var req types.InterviewAppChatReq
 		if err := httpx.Parse(r, &req); err != nil {
-			sendSSEError(w, flusher, err.Error())
+			httpx.ErrorCtx(ctx, w, err)
 			return
 		}
 
@@ -36,33 +45,45 @@ func ChatHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
 		if file, header, err := r.FormFile("file"); err == nil {
 			defer file.Close()
 
-			// 验证文件类型
-			if header.Header.Get("Content-Type") != "application/pdf" {
-				http.Error(w, "文件类型错误，请上传 PDF 文件", http.StatusBadRequest)
+			if err := pdfupload.ValidatePDFUpload(file, header); err != nil {
+				httpx.ErrorCtx(ctx, w, err)
 				return
 			}
 
 			// 新增：使用 mcp 服务提取 PDF 文本
-			if content, err := svcCtx.PdfClient.ExtractTextFromPDF(file, header.Filename); err == nil {
+			if content, err := svcCtx.PdfClient.ExtractTextFromPDF(ctx, file, header.Filename); err == nil {
+				if strings.TrimSpace(content) == "" {
+					httpx.ErrorCtx(ctx, w, errors.New("PDF 未提取到有效文本内容"))
+					return
+				}
 				pdfContent = content
 			} else {
 				logx.Errorf("PDF提取失败: %v", err)
+				httpx.ErrorCtx(ctx, w, statuserr.New(http.StatusBadGateway, "PDF 文本提取失败，请稍后重试"))
+				return
 			}
+		} else if formErr := pdfupload.OptionalFormFileError(err); formErr != nil {
+			httpx.ErrorCtx(ctx, w, formErr)
+			return
 		}
 		// 使用 utils.CombineMessages 拼接用户消息和 PDF 内容
 		req.Message = utils.CombineMessages(req.Message, pdfContent)
 
-		// 3. 创建取消上下文
-		ctx, cancel := context.WithCancel(r.Context())
+		// 2. 创建取消上下文
+		ctx, cancel := context.WithCancel(ctx)
 		defer cancel() // 确保资源释放
 
-		// 4. 创建 Logic 实例，并调用业务方法
+		// 3. 创建 Logic 实例，并调用业务方法
 		l := logic.NewChatLogic(ctx, svcCtx)
 		respChan, err := l.Chat(&req) // 注意：这里返回的是一个 channel
 		if err != nil {
-			sendSSEError(w, flusher, err.Error())
+			httpx.ErrorCtx(ctx, w, err)
 			return
 		}
+
+		// 4. 仅在真正进入流式阶段后再切换到 SSE 响应
+		setSSEHeader(w)
+		flusher, _ := w.(http.Flusher)
 
 		// 5. 监听 channel，并将数据流式写入响应
 		for {
@@ -71,11 +92,16 @@ func ChatHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
 				return
 			case resp, ok := <-respChan: // 从 channel 读取 Logic 层传来的数据
 				if !ok { // channel 已关闭
-					_, err := fmt.Fprint(w, "event: end\ndata: {}\n\n")
-					if err != nil {
+					if !sendSSEDone(w, flusher) {
 						return
-					} // 结束标记
-					flusher.Flush()
+					}
+					return
+				}
+
+				if resp.IsLatest {
+					if !sendSSEDone(w, flusher) {
+						return
+					}
 					return
 				}
 
@@ -91,13 +117,20 @@ func ChatHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
 					return
 				}
 				flusher.Flush() // 立即发送给客户端
-
-				if resp.IsLatest {
-					return
-				}
 			}
 		}
 	}
+}
+
+func bearerTokenFromHeader(headerValue string) string {
+	const prefix = "bearer "
+
+	value := strings.TrimSpace(headerValue)
+	if len(value) < len(prefix) || strings.ToLower(value[:len(prefix)]) != prefix {
+		return ""
+	}
+
+	return strings.TrimSpace(value[len(prefix):])
 }
 
 // setSSEHeader 设置服务器推送事件(SSE)的响应头
@@ -110,12 +143,12 @@ func setSSEHeader(w http.ResponseWriter) {
 	w.Header().Set("Transfer-Encoding", "chunked")
 }
 
-func sendSSEError(w http.ResponseWriter, flusher http.Flusher, errMsg string) {
-	_, fprintf := fmt.Fprintf(w, "event: error\ndata: {\"error\":\"%s\"}\n\n", errMsg)
-	if fprintf != nil {
-		return
+func sendSSEDone(w http.ResponseWriter, flusher http.Flusher) bool {
+	if _, err := fmt.Fprint(w, "data: [DONE]\n\n"); err != nil {
+		return false
 	}
 	flusher.Flush()
+	return true
 }
 
 // // 创建一个解析简历 PDF 的函数，用来提取简历中的文本信息

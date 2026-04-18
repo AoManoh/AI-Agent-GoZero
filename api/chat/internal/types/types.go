@@ -3,12 +3,17 @@
 
 package types
 
-type ChatRes struct {
-	Content  string `json:"content"`
-	IsLatest bool   `json:"isLatest"`
-}
-
 type InterviewAppChatReq struct {
 	Message string `form:"message"`
 	ChatId  string `form:"chatId"`
+	Mode    string `form:"mode,optional"`
+}
+
+type KnowledgeUploadReq struct {
+	File string `form:"file"`
+}
+
+type KnowledgeUploadRes struct {
+	Msg    string `json:"msg"`
+	Chunks int    `json:"chunks"`
 }

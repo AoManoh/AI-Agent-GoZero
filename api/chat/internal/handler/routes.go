@@ -6,25 +6,26 @@ package handler
 import (
 	"net/http"
 
-	"github.com/zeromicro/go-zero/rest"
-
 	"GoZero-AI/api/chat/internal/svc"
+
+	"github.com/zeromicro/go-zero/rest"
 )
 
 func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 	server.AddRoutes(
 		[]rest.Route{
 			{
-				// Go 面试官聊天SSE流式接口
+				// Go 面试官聊天SSE流式接口，使用 multipart/form-data，并支持可选 file(PDF) part
 				Method:  http.MethodPost,
 				Path:    "/api/ai/interview_app/chat/sse",
 				Handler: ChatHandler(serverCtx),
 			},
 			{
-				// 知识库上传接口
+				// 公共知识库 PDF 上传接口，使用 multipart/form-data，并要求 file(PDF) part
 				Method:  http.MethodPost,
 				Path:    "/api/ai/knowledge/upload",
 				Handler: KnowledgeUploadHandler(serverCtx),
 			},
-		})
+		},
+	)
 }

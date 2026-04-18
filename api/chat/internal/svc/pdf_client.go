@@ -44,10 +44,9 @@ package svc
 
 import (
 	"context"
-	"errors"
-	"io"
 	"mime/multipart"
 
+	"GoZero-AI/internal/pdfgrpc"
 	"GoZero-AI/mcp/types/mcp"
 
 	"github.com/zeromicro/go-zero/core/logx"
@@ -165,71 +164,19 @@ func NewPdfClient(endPoint string) *PdfClient {
 //
 //	string: 提取的PDF文本内容，包含所有页面的文本信息
 //	error: 处理过程中的任何错误，包括网络、文件或解析错误
-func (c *PdfClient) ExtractTextFromPDF(file multipart.File, filename string) (string, error) {
-	// 步骤1: 创建与MCP服务的gRPC流式连接
-	// 使用context.Background()作为基础上下文，**后续**可改为支持超时取消
-	stream, err := c.Client.ExtractTextFromPDF(context.Background())
-	if err != nil {
-		logx.Errorf("创建 gRPC 流式客户端失败: %v", err)
-		return "", err
-	}
-	// 使用defer确保流连接在函数退出时被正确关闭
-	defer func() {
-		if err := stream.CloseSend(); err != nil {
-			logx.Errorf("关闭 gRPC 流式客户端失败: %v", err)
+func (c *PdfClient) ExtractTextFromPDF(ctx context.Context, file multipart.File, filename string) (string, error) {
+	content, err := pdfgrpc.ExtractText(ctx, func(ctx context.Context) (pdfgrpc.ClientStream, error) {
+		stream, err := c.Client.ExtractTextFromPDF(ctx)
+		if err != nil {
+			logx.Errorf("创建 gRPC 流式客户端失败: %v", err)
+			return nil, err
 		}
-	}()
-
-	// 步骤2: 发送文件元数据信息
-	// 根据gRPC协议，首先发送包含文件元信息的消息
-	if err := stream.Send(&mcp.PdfReq{
-		Data: &mcp.PdfReq_Metadata{
-			Metadata: &mcp.Metadata{
-				Filename: filename,          // 原始文件名，用于服务端日志和追踪
-				MimeType: "application/pdf", // 确保文件类型为PDF格式
-			},
-		},
-	}); err != nil {
-		logx.Errorf("发送元数据失败: %v", err)
-		return "", err
-	}
-
-	// 步骤3: 读取并发送文件数据
-	// 一次性读取整个文件到内存，**后续**可优化为流式分块读取
-	fileData, err := io.ReadAll(file)
+		return stream, nil
+	}, file, filename)
 	if err != nil {
-		logx.Errorf("读取文件失败: %v", err)
+		logx.Errorf("PDF 文本提取失败: %v", err)
 		return "", err
 	}
 
-	// 发送文件数据块给MCP服务
-	// 使用PdfReq_Chunk类型发送二进制文件数据
-	if err := stream.Send(&mcp.PdfReq{
-		Data: &mcp.PdfReq_Chunk{
-			Chunk: fileData, // 整个PDF文件的二进制数据
-		},
-	}); err != nil {
-		logx.Errorf("发送文件数据失败: %v", err)
-		return "", err
-	}
-
-	// 步骤4: 关闭发送流并接收响应
-	// 使用CloseAndRecv同步等待MCP服务处理完成并返回结果
-	res, err := stream.CloseAndRecv()
-	if err != nil {
-		logx.Errorf("接收响应失败: %v", err)
-		return "", err
-	}
-
-	// 步骤5: 处理业务逻辑错误
-	// 检查MCP服务返回的业务层错误信息
-	if res.Error != "" {
-		logx.Errorf("PDF 提取文本失败: %s", res.Error)
-		// 将业务错误转换为Go错误类型返回给调用者
-		return "", errors.New(res.Error)
-	}
-
-	// 步骤6: 返回成功结果
-	// 返回从 PDF 中提取的纯文本内容
-	return res.Content, nil
+	return content, nil
 }
