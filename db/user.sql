@@ -1,5 +1,5 @@
 -- =================================================================
--- 数据库安全升级脚本 v4 (非破坏性, 已修复索引兼容性问题)
+-- 数据库安全升级脚本 v5 (非破坏性, 兼容旧 embedding 存储形态)
 -- 功能：在保留现有数据的基础上，升级表结构并为所有字段添加注释。
 -- =================================================================
 
@@ -36,10 +36,80 @@ DO $$
 -- 步骤 2: 升级 `knowledge_base` 表
 -- ----------------------------
 -- 2.1: 新增 user_id 字段，并假设所有现有知识都属于管理员(id=1)
-ALTER TABLE "public"."knowledge_base" ADD COLUMN IF NOT EXISTS "user_id" BIGINT NOT NULL DEFAULT 1;
+ALTER TABLE "public"."knowledge_base" ADD COLUMN IF NOT EXISTS "user_id" BIGINT;
+UPDATE "public"."knowledge_base" SET "user_id" = 1 WHERE "user_id" IS NULL;
+ALTER TABLE "public"."knowledge_base" ALTER COLUMN "user_id" SET DEFAULT 1;
+ALTER TABLE "public"."knowledge_base" ALTER COLUMN "user_id" SET NOT NULL;
 
 -- 2.2: 将 embedding 字段从 JSONB 转换为 vector
-ALTER TABLE "public"."knowledge_base" ALTER COLUMN "embedding" TYPE vector(1536) USING ("embedding"::text::vector);
+DO $$
+    DECLARE
+        embedding_udt text;
+        array_rows bigint;
+        string_rows bigint;
+        other_rows bigint;
+        existing_dims integer;
+        distinct_dims integer;
+    BEGIN
+        SELECT udt_name
+        INTO embedding_udt
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'knowledge_base'
+          AND column_name = 'embedding';
+
+        IF embedding_udt = 'jsonb' THEN
+            SELECT COUNT(*) FILTER (WHERE jsonb_typeof(embedding) = 'array'),
+                   COUNT(*) FILTER (WHERE jsonb_typeof(embedding) = 'string'),
+                   COUNT(*) FILTER (WHERE jsonb_typeof(embedding) NOT IN ('array', 'string'))
+            INTO array_rows, string_rows, other_rows
+            FROM "public"."knowledge_base"
+            WHERE embedding IS NOT NULL;
+
+            IF array_rows = 0 AND string_rows = 0 THEN
+                ALTER TABLE "public"."knowledge_base"
+                    ALTER COLUMN "embedding" TYPE vector(1536) USING ("embedding"::text::vector);
+            ELSIF array_rows > 0 AND string_rows = 0 AND other_rows = 0 THEN
+                SELECT COUNT(DISTINCT jsonb_array_length(embedding)),
+                       COALESCE(MAX(jsonb_array_length(embedding)), 1536)
+                INTO distinct_dims, existing_dims
+                FROM "public"."knowledge_base"
+                WHERE embedding IS NOT NULL;
+
+                IF distinct_dims > 1 THEN
+                    RAISE NOTICE 'skip converting knowledge_base.embedding: inconsistent vector dimensions in existing jsonb array data';
+                ELSIF existing_dims = 1536 THEN
+                    ALTER TABLE "public"."knowledge_base"
+                        ALTER COLUMN "embedding" TYPE vector(1536) USING ("embedding"::text::vector);
+                ELSE
+                    RAISE NOTICE 'skip converting knowledge_base.embedding: existing dimension % does not match expected 1536', existing_dims;
+                END IF;
+            ELSIF string_rows > 0 AND array_rows = 0 AND other_rows = 0 THEN
+                BEGIN
+                    SELECT COUNT(DISTINCT jsonb_array_length((convert_from(decode(trim(both '"' from embedding::text), 'base64'), 'UTF8'))::jsonb)),
+                           COALESCE(MAX(jsonb_array_length((convert_from(decode(trim(both '"' from embedding::text), 'base64'), 'UTF8'))::jsonb)), 1536)
+                    INTO distinct_dims, existing_dims
+                    FROM "public"."knowledge_base"
+                    WHERE embedding IS NOT NULL;
+
+                    IF distinct_dims > 1 THEN
+                        RAISE NOTICE 'skip converting knowledge_base.embedding: inconsistent vector dimensions in base64 jsonb string data';
+                    ELSIF existing_dims = 1536 THEN
+                        ALTER TABLE "public"."knowledge_base"
+                            ALTER COLUMN "embedding" TYPE vector(1536)
+                            USING ((convert_from(decode(trim(both '"' from embedding::text), 'base64'), 'UTF8'))::vector);
+                    ELSE
+                        RAISE NOTICE 'skip converting knowledge_base.embedding: existing base64 dimension % does not match expected 1536', existing_dims;
+                    END IF;
+                EXCEPTION
+                    WHEN OTHERS THEN
+                        RAISE NOTICE 'skip converting knowledge_base.embedding: unsupported jsonb string payload: %', SQLERRM;
+                END;
+            ELSE
+                RAISE NOTICE 'skip converting knowledge_base.embedding: mixed jsonb payload shapes detected';
+            END IF;
+        END IF;
+    END $$;
 
 
 -- 2.3: 添加外键约束 (如果不存在)
@@ -55,7 +125,23 @@ DROP INDEX IF EXISTS idx_knowledge_base_title;
 DROP INDEX IF EXISTS idx_kb_user_id;
 CREATE INDEX idx_kb_user_id ON "public"."knowledge_base" (user_id);
 DROP INDEX IF EXISTS idx_kb_embedding;
-CREATE INDEX idx_kb_embedding ON "public"."knowledge_base" USING hnsw (embedding vector_l2_ops);
+DO $$
+    DECLARE
+        embedding_udt text;
+    BEGIN
+        SELECT udt_name
+        INTO embedding_udt
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'knowledge_base'
+          AND column_name = 'embedding';
+
+        IF embedding_udt = 'vector' THEN
+            CREATE INDEX idx_kb_embedding ON "public"."knowledge_base" USING hnsw (embedding vector_l2_ops);
+        ELSE
+            RAISE NOTICE 'skip creating idx_kb_embedding: knowledge_base.embedding is still %', embedding_udt;
+        END IF;
+    END $$;
 
 -- 2.5: 为 knowledge_base 表的所有字段添加/更新注释
 COMMENT ON TABLE "public"."knowledge_base" IS '存储可复用的RAG数据源，包括公共和私有知识';
@@ -76,17 +162,90 @@ ALTER TABLE "public"."vector_store" ADD COLUMN IF NOT EXISTS "user_id" BIGINT DE
 -- 3.2: 将旧的 source_type 字段重命名为 doc_type (如果存在)
 DO $$
     BEGIN
-        IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='vector_store' AND column_name='source_type') THEN
+        IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='vector_store' AND column_name='source_type')
+           AND NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='vector_store' AND column_name='doc_type') THEN
             ALTER TABLE "public"."vector_store" RENAME COLUMN "source_type" TO "doc_type";
         END IF;
     END $$;
 
 -- 3.2.1: 为 doc_type 设置默认值
+ALTER TABLE "public"."vector_store" ADD COLUMN IF NOT EXISTS "doc_type" VARCHAR(50);
+UPDATE "public"."vector_store"
+SET "doc_type" = COALESCE(NULLIF(btrim("doc_type"), ''), 'message')
+WHERE "doc_type" IS NULL OR btrim("doc_type") = '';
 ALTER TABLE "public"."vector_store" ALTER COLUMN "doc_type" SET DEFAULT 'message';
+ALTER TABLE "public"."vector_store" ALTER COLUMN "doc_type" SET NOT NULL;
 
 
 -- 3.3: 将 embedding 字段从 JSONB 转换为 vector
-ALTER TABLE "public"."vector_store" ALTER COLUMN "embedding" TYPE vector(1536) USING ("embedding"::text::vector);
+DO $$
+    DECLARE
+        embedding_udt text;
+        array_rows bigint;
+        string_rows bigint;
+        other_rows bigint;
+        existing_dims integer;
+        distinct_dims integer;
+    BEGIN
+        SELECT udt_name
+        INTO embedding_udt
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'vector_store'
+          AND column_name = 'embedding';
+
+        IF embedding_udt = 'jsonb' THEN
+            SELECT COUNT(*) FILTER (WHERE jsonb_typeof(embedding) = 'array'),
+                   COUNT(*) FILTER (WHERE jsonb_typeof(embedding) = 'string'),
+                   COUNT(*) FILTER (WHERE jsonb_typeof(embedding) NOT IN ('array', 'string'))
+            INTO array_rows, string_rows, other_rows
+            FROM "public"."vector_store"
+            WHERE embedding IS NOT NULL;
+
+            IF array_rows = 0 AND string_rows = 0 THEN
+                ALTER TABLE "public"."vector_store"
+                    ALTER COLUMN "embedding" TYPE vector(1536) USING ("embedding"::text::vector);
+            ELSIF array_rows > 0 AND string_rows = 0 AND other_rows = 0 THEN
+                SELECT COUNT(DISTINCT jsonb_array_length(embedding)),
+                       COALESCE(MAX(jsonb_array_length(embedding)), 1536)
+                INTO distinct_dims, existing_dims
+                FROM "public"."vector_store"
+                WHERE embedding IS NOT NULL;
+
+                IF distinct_dims > 1 THEN
+                    RAISE NOTICE 'skip converting vector_store.embedding: inconsistent vector dimensions in existing jsonb array data';
+                ELSIF existing_dims = 1536 THEN
+                    ALTER TABLE "public"."vector_store"
+                        ALTER COLUMN "embedding" TYPE vector(1536) USING ("embedding"::text::vector);
+                ELSE
+                    RAISE NOTICE 'skip converting vector_store.embedding: existing dimension % does not match expected 1536', existing_dims;
+                END IF;
+            ELSIF string_rows > 0 AND array_rows = 0 AND other_rows = 0 THEN
+                BEGIN
+                    SELECT COUNT(DISTINCT jsonb_array_length((convert_from(decode(trim(both '"' from embedding::text), 'base64'), 'UTF8'))::jsonb)),
+                           COALESCE(MAX(jsonb_array_length((convert_from(decode(trim(both '"' from embedding::text), 'base64'), 'UTF8'))::jsonb)), 1536)
+                    INTO distinct_dims, existing_dims
+                    FROM "public"."vector_store"
+                    WHERE embedding IS NOT NULL;
+
+                    IF distinct_dims > 1 THEN
+                        RAISE NOTICE 'skip converting vector_store.embedding: inconsistent vector dimensions in base64 jsonb string data';
+                    ELSIF existing_dims = 1536 THEN
+                        ALTER TABLE "public"."vector_store"
+                            ALTER COLUMN "embedding" TYPE vector(1536)
+                            USING ((convert_from(decode(trim(both '"' from embedding::text), 'base64'), 'UTF8'))::vector);
+                    ELSE
+                        RAISE NOTICE 'skip converting vector_store.embedding: existing base64 dimension % does not match expected 1536', existing_dims;
+                    END IF;
+                EXCEPTION
+                    WHEN OTHERS THEN
+                        RAISE NOTICE 'skip converting vector_store.embedding: unsupported jsonb string payload: %', SQLERRM;
+                END;
+            ELSE
+                RAISE NOTICE 'skip converting vector_store.embedding: mixed jsonb payload shapes detected';
+            END IF;
+        END IF;
+    END $$;
 
 -- 3.4: 添加外键约束 (如果不存在)
 DO $$
@@ -103,12 +262,30 @@ CREATE INDEX idx_vs_user_id_type ON "public"."vector_store" (user_id, doc_type);
 -- 用于快速加载和回放特定会话的上下文
 DROP INDEX IF EXISTS idx_vs_chat_id;
 CREATE INDEX idx_vs_chat_id ON "public"."vector_store" (chat_id);
+DROP INDEX IF EXISTS idx_vs_chat_user_type;
+CREATE INDEX idx_vs_chat_user_type ON "public"."vector_store" (chat_id, user_id, doc_type);
 -- 【新增】用于按时间排序和高效地执行定期的数据清理任务
 DROP INDEX IF EXISTS idx_vs_created_at;
 CREATE INDEX idx_vs_created_at ON "public"."vector_store" (created_at DESC);
 -- 用于高性能向量相似度搜索
 DROP INDEX IF EXISTS idx_vs_embedding;
-CREATE INDEX idx_vs_embedding ON "public"."vector_store" USING hnsw (embedding vector_l2_ops);
+DO $$
+    DECLARE
+        embedding_udt text;
+    BEGIN
+        SELECT udt_name
+        INTO embedding_udt
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'vector_store'
+          AND column_name = 'embedding';
+
+        IF embedding_udt = 'vector' THEN
+            CREATE INDEX idx_vs_embedding ON "public"."vector_store" USING hnsw (embedding vector_l2_ops);
+        ELSE
+            RAISE NOTICE 'skip creating idx_vs_embedding: vector_store.embedding is still %', embedding_udt;
+        END IF;
+    END $$;
 
 
 -- 3.6: 为 vector_store 表的所有字段添加/更新注释
@@ -121,6 +298,162 @@ COMMENT ON COLUMN "public"."vector_store"."content" IS '消息或文档（如简
 COMMENT ON COLUMN "public"."vector_store"."embedding" IS '文本内容的向量化表示';
 COMMENT ON COLUMN "public"."vector_store"."doc_type" IS '文档类型，区分为 "message" (对话消息) 和 "resume" (简历内容)';
 COMMENT ON COLUMN "public"."vector_store"."created_at" IS '记录的创建时间戳，可用于TTL清理';
+
+
+-- ----------------------------
+-- 步骤 4: 正式化 `chat_sessions` 表
+-- ----------------------------
+CREATE TABLE IF NOT EXISTS "public"."chat_sessions" (
+                                                        "id" BIGSERIAL PRIMARY KEY,
+                                                        "session_id" VARCHAR(64) UNIQUE NOT NULL,
+                                                        "user_id" BIGINT NOT NULL,
+                                                        "title" VARCHAR(200) NOT NULL DEFAULT '新对话',
+                                                        "mode" VARCHAR(64) NOT NULL DEFAULT 'Interview',
+                                                        "created_at" TIMESTAMPTZ NOT NULL DEFAULT now(),
+                                                        "updated_at" TIMESTAMPTZ NOT NULL DEFAULT now(),
+                                                        "last_message_at" TIMESTAMPTZ,
+                                                        "message_count" INTEGER NOT NULL DEFAULT 0,
+                                                        "is_active" BOOLEAN NOT NULL DEFAULT true
+);
+
+DO $$
+    BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_chat_sessions_user_id') THEN
+            ALTER TABLE "public"."chat_sessions"
+                ADD CONSTRAINT fk_chat_sessions_user_id
+                    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
+        END IF;
+    END $$;
+
+DROP INDEX IF EXISTS idx_chat_sessions_session_id;
+CREATE UNIQUE INDEX idx_chat_sessions_session_id ON "public"."chat_sessions" (session_id);
+ALTER TABLE "public"."chat_sessions" ADD COLUMN IF NOT EXISTS "mode" VARCHAR(64);
+UPDATE "public"."chat_sessions"
+SET "mode" = 'Interview'
+WHERE "mode" IS NULL OR btrim("mode") = '';
+ALTER TABLE "public"."chat_sessions" ALTER COLUMN "mode" SET NOT NULL;
+ALTER TABLE "public"."chat_sessions" ALTER COLUMN "mode" SET DEFAULT 'Interview';
+DROP INDEX IF EXISTS idx_chat_sessions_user_last_message;
+CREATE INDEX idx_chat_sessions_user_last_message ON "public"."chat_sessions" (user_id, last_message_at DESC);
+DROP INDEX IF EXISTS idx_chat_sessions_user_active;
+CREATE INDEX idx_chat_sessions_user_active ON "public"."chat_sessions" (user_id, is_active);
+
+COMMENT ON TABLE "public"."chat_sessions" IS '存储用户工作台中的会话元数据，用于会话列表、恢复与排序';
+COMMENT ON COLUMN "public"."chat_sessions"."id" IS '会话元数据主键';
+COMMENT ON COLUMN "public"."chat_sessions"."session_id" IS '对外暴露的会话ID，对应前端 chatId';
+COMMENT ON COLUMN "public"."chat_sessions"."user_id" IS '会话所属用户ID';
+COMMENT ON COLUMN "public"."chat_sessions"."title" IS '会话标题，默认由首条用户消息或默认值生成';
+COMMENT ON COLUMN "public"."chat_sessions"."mode" IS '会话所属工作模式，当前规范值为 Interview/Research/Memory/Coach';
+COMMENT ON COLUMN "public"."chat_sessions"."created_at" IS '会话创建时间';
+COMMENT ON COLUMN "public"."chat_sessions"."updated_at" IS '会话最近一次元数据更新时间';
+COMMENT ON COLUMN "public"."chat_sessions"."last_message_at" IS '会话最近一条消息时间';
+COMMENT ON COLUMN "public"."chat_sessions"."message_count" IS '会话消息条数，用于工作台统计';
+COMMENT ON COLUMN "public"."chat_sessions"."is_active" IS '会话是否仍处于活跃状态';
+
+-- ----------------------------
+-- 步骤 5: 新增 `session_evaluations` 表
+-- ----------------------------
+CREATE TABLE IF NOT EXISTS "public"."session_evaluations" (
+                                                              "id" BIGSERIAL PRIMARY KEY,
+                                                              "session_id" VARCHAR(64) NOT NULL,
+                                                              "user_id" BIGINT NOT NULL,
+                                                              "status" VARCHAR(32) NOT NULL DEFAULT 'draft',
+                                                              "summary" TEXT NOT NULL DEFAULT '',
+                                                              "user_turns" BIGINT NOT NULL DEFAULT 0,
+                                                              "assistant_turns" BIGINT NOT NULL DEFAULT 0,
+                                                              "overall_score" DOUBLE PRECISION NOT NULL DEFAULT 0,
+                                                              "rubric_version" VARCHAR(32) NOT NULL DEFAULT 'rubric-v1',
+                                                              "score_source" VARCHAR(32) NOT NULL DEFAULT 'heuristic',
+                                                              "dimensions" JSONB NOT NULL DEFAULT '[]'::jsonb,
+                                                              "strengths" JSONB NOT NULL DEFAULT '[]'::jsonb,
+                                                              "risks" JSONB NOT NULL DEFAULT '[]'::jsonb,
+                                                              "suggestions" JSONB NOT NULL DEFAULT '[]'::jsonb,
+                                                              "evidence" JSONB NOT NULL DEFAULT '[]'::jsonb,
+                                                              "source_last_message_id" BIGINT,
+                                                              "source_last_message_at" TIMESTAMPTZ,
+                                                              "first_generated_at" TIMESTAMPTZ,
+                                                              "generated_at" TIMESTAMPTZ NOT NULL DEFAULT now(),
+                                                              "updated_at" TIMESTAMPTZ NOT NULL DEFAULT now(),
+                                                              UNIQUE ("session_id", "user_id")
+);
+
+DO $$
+    BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_session_evaluations_user_id') THEN
+            ALTER TABLE "public"."session_evaluations"
+                ADD CONSTRAINT fk_session_evaluations_user_id
+                    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
+        END IF;
+    END $$;
+
+DO $$
+    BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_session_evaluations_session_id') THEN
+            ALTER TABLE "public"."session_evaluations"
+                ADD CONSTRAINT fk_session_evaluations_session_id
+                    FOREIGN KEY (session_id) REFERENCES "public"."chat_sessions"(session_id) ON DELETE CASCADE NOT VALID;
+        END IF;
+    END $$;
+
+DO $$
+    BEGIN
+        IF EXISTS (
+            SELECT 1
+            FROM pg_constraint
+            WHERE conname = 'fk_session_evaluations_session_id'
+              AND NOT convalidated
+        ) THEN
+            BEGIN
+                ALTER TABLE "public"."session_evaluations"
+                    VALIDATE CONSTRAINT fk_session_evaluations_session_id;
+            EXCEPTION
+                WHEN OTHERS THEN
+                    RAISE NOTICE 'skip validating fk_session_evaluations_session_id: %', SQLERRM;
+            END;
+        END IF;
+    END $$;
+
+ALTER TABLE "public"."session_evaluations" ADD COLUMN IF NOT EXISTS "overall_score" DOUBLE PRECISION NOT NULL DEFAULT 0;
+ALTER TABLE "public"."session_evaluations" ADD COLUMN IF NOT EXISTS "rubric_version" VARCHAR(32) NOT NULL DEFAULT 'rubric-v1';
+ALTER TABLE "public"."session_evaluations" ADD COLUMN IF NOT EXISTS "score_source" VARCHAR(32) NOT NULL DEFAULT 'heuristic';
+ALTER TABLE "public"."session_evaluations" ADD COLUMN IF NOT EXISTS "suggestions" JSONB NOT NULL DEFAULT '[]'::jsonb;
+ALTER TABLE "public"."session_evaluations" ADD COLUMN IF NOT EXISTS "source_last_message_id" BIGINT;
+ALTER TABLE "public"."session_evaluations" ADD COLUMN IF NOT EXISTS "source_last_message_at" TIMESTAMPTZ;
+ALTER TABLE "public"."session_evaluations" ADD COLUMN IF NOT EXISTS "first_generated_at" TIMESTAMPTZ;
+UPDATE "public"."session_evaluations"
+SET "first_generated_at" = COALESCE("first_generated_at", "generated_at", "updated_at", now())
+WHERE "first_generated_at" IS NULL;
+ALTER TABLE "public"."session_evaluations" ALTER COLUMN "first_generated_at" SET NOT NULL;
+ALTER TABLE "public"."session_evaluations" ALTER COLUMN "first_generated_at" SET DEFAULT now();
+ALTER TABLE "public"."session_evaluations" ALTER COLUMN "status" SET DEFAULT 'draft';
+ALTER TABLE "public"."session_evaluations" ALTER COLUMN "summary" SET DEFAULT '';
+
+DROP INDEX IF EXISTS idx_session_evaluations_user_id;
+CREATE INDEX idx_session_evaluations_user_id ON "public"."session_evaluations" (user_id);
+DROP INDEX IF EXISTS idx_session_evaluations_session_id;
+CREATE INDEX idx_session_evaluations_session_id ON "public"."session_evaluations" (session_id);
+
+COMMENT ON TABLE "public"."session_evaluations" IS '存储会话维度的结构化评估结果，为工作台和报告中心提供稳定数据源';
+COMMENT ON COLUMN "public"."session_evaluations"."id" IS '评估记录主键';
+COMMENT ON COLUMN "public"."session_evaluations"."session_id" IS '关联的会话ID';
+COMMENT ON COLUMN "public"."session_evaluations"."user_id" IS '评估所属用户ID';
+COMMENT ON COLUMN "public"."session_evaluations"."status" IS '评估状态，如 draft/ready/insufficient_data';
+COMMENT ON COLUMN "public"."session_evaluations"."summary" IS '评估摘要';
+COMMENT ON COLUMN "public"."session_evaluations"."user_turns" IS '用户消息轮次';
+COMMENT ON COLUMN "public"."session_evaluations"."assistant_turns" IS '助手消息轮次';
+COMMENT ON COLUMN "public"."session_evaluations"."overall_score" IS '按 rubric 计算后的综合得分';
+COMMENT ON COLUMN "public"."session_evaluations"."rubric_version" IS '当前评估所使用的 rubric 版本';
+COMMENT ON COLUMN "public"."session_evaluations"."score_source" IS '综合评分来源，例如 llm / heuristic / mixed';
+COMMENT ON COLUMN "public"."session_evaluations"."dimensions" IS '结构化评估维度 JSON';
+COMMENT ON COLUMN "public"."session_evaluations"."strengths" IS '优势摘要 JSON 数组';
+COMMENT ON COLUMN "public"."session_evaluations"."risks" IS '风险摘要 JSON 数组';
+COMMENT ON COLUMN "public"."session_evaluations"."suggestions" IS '可执行建议 JSON 数组';
+COMMENT ON COLUMN "public"."session_evaluations"."evidence" IS '评估证据片段 JSON 数组';
+COMMENT ON COLUMN "public"."session_evaluations"."source_last_message_id" IS '当前评估结果实际覆盖到的最新消息ID水位';
+COMMENT ON COLUMN "public"."session_evaluations"."source_last_message_at" IS '当前评估结果实际覆盖到的最新消息时间水位';
+COMMENT ON COLUMN "public"."session_evaluations"."first_generated_at" IS '当前会话评估结果首次生成的时间';
+COMMENT ON COLUMN "public"."session_evaluations"."generated_at" IS '最近一次生成当前评估结果的时间（接口兼容字段来源）';
+COMMENT ON COLUMN "public"."session_evaluations"."updated_at" IS '当前会话评估结果最近一次刷新时间';
 
 COMMIT; -- 提交事务，所有更改生效
 
