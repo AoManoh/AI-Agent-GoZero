@@ -7,6 +7,7 @@
 #   - PostgreSQL: 主数据库，集成pgvector扩展支持向量存储和语义搜索
 #   - MCP: PDF处理微服务，提供gRPC接口进行文档解析和文本提取
 #   - API: 主业务服务，提供RESTful API和流式对话功能
+#   - User API: 用户认证与工作台接口服务
 #
 # 部署特性:
 #   - 健康检查机制确保服务可用性
@@ -17,14 +18,12 @@
 # 使用方法:
 #   1. 复制此文件为 docker-compose.yml
 #   2. 修改数据库密码等敏感配置
-#   3. 确保已创建 api/chat/etc/docker.yaml 和 mcp/etc/docker.yaml 配置文件
+#   3. 确保已创建 api/chat/etc/docker.yaml、api/user/etc/docker.yaml 和 mcp/etc/docker.yaml 配置文件
 #   启动: docker-compose up -d
 #   停止: docker-compose down
 #   重建: docker-compose build [service_name]
 #   查看日志: docker-compose logs [service_name]
 #   清理数据: docker-compose down -v
-version: '3.8'
-
 services:
   # ==========================================
   # 1. ETCD服务注册中心
@@ -76,7 +75,7 @@ services:
     environment:
       # 数据库连接凭据配置，与应用服务配置一致
       # ⚠️ 重要: 请修改为你自己的密码
-      POSTGRES_USER: postgres                    # 数据库管理员用户名
+      POSTGRES_USER: root                        # 数据库管理员用户名
       POSTGRES_PASSWORD: your-database-password  # 数据库密码（生产环境应使用环境变量或加密配置）
       POSTGRES_DB: gozero_ai_agent               # 默认创建的数据库名称
     ports:
@@ -87,7 +86,7 @@ services:
       - ./db:/docker-entrypoint-initdb.d              # 自动执行初始化SQL脚本
     # PostgreSQL健康检查：确保数据库就绪后再启动应用服务
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d gozero_ai_agent"]  # 检查数据库连接状态
+      test: ["CMD-SHELL", "pg_isready -U root -d gozero_ai_agent"]  # 检查数据库连接状态
       interval: 10s  # 每10秒执行一次检查
       timeout: 5s    # 检查超时时间
       retries: 5     # 最多重试5次
@@ -108,6 +107,11 @@ services:
     depends_on:
       etcd:
         condition: service_healthy  # 等待ETCD健康检查通过后再启动
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 8321"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
     # Go构建环境变量配置
     environment:
       GO111MODULE: "on"                           # 启用Go Modules依赖管理
@@ -134,11 +138,34 @@ services:
       postgres:
         condition: service_healthy      # PostgreSQL必须健康（数据持久化）
       mcp:
-        condition: service_started      # MCP服务必须启动（PDF处理能力）
+        condition: service_healthy      # MCP服务必须健康（PDF处理能力）
     # Go构建环境变量配置
     environment:
       GO111MODULE: "on"                           # 启用Go Modules依赖管理
       GOPROXY: "https://goproxy.cn,direct"        # 使用国内代理加速依赖下载
+
+  # ==========================================
+  # 6. User API 用户服务
+  # ==========================================
+  user:
+    build:
+      context: .
+      dockerfile: api/user/Dockerfile
+    ports:
+      - "8124:8124"  # User API HTTP 服务端口
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 8124"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    environment:
+      GO111MODULE: "on"
+      GOPROXY: "https://goproxy.cn,direct"
 
 # ==========================================
 # 数据卷和持久化配置
