@@ -4,6 +4,8 @@ Name: user-api
 # 服务监听配置
 Host: 0.0.0.0
 Port: 8124 # 必须使用一个与 chat 服务 (8123) 不同的端口
+MaxBytes: 52428800
+Timeout: 60000
 
 # ----------------------------
 # 1. PostgreSQL 数据库配置
@@ -11,6 +13,20 @@ Port: 8124 # 必须使用一个与 chat 服务 (8123) 不同的端口
 # 用于 user 服务的核心数据库，存储 users, knowledge_base 等表
 Postgres:
   DataSource: "postgresql://root:your_password.@127.0.0.1:5432/gozero_ai_agent?sslmode=disable&TimeZone=Asia/Shanghai"
+
+OpenAI:
+  ApiKey: "your-openai-api-key"
+  BaseURL: "https://api.openai.com/v1"
+  EmbeddingModel: "text-embedding-3-small"
+  EvaluationModel: "gpt-4.1-mini"
+  EvaluationTemp: 0.2
+  MaxCompletionTokens: 1200
+
+MCP:
+  Endpoint: "127.0.0.1:8080"
+
+Resume:
+  MaxChunkSize: 1000
 
 # ----------------------------
 # 2. JWT 鉴权配置

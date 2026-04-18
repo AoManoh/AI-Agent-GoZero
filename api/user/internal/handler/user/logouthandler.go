@@ -2,6 +2,7 @@ package user
 
 import (
 	"net/http"
+	"strings"
 
 	"GoZero-AI/api/user/internal/logic/user"
 	"GoZero-AI/api/user/internal/svc"
@@ -18,7 +19,8 @@ func LogoutHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
 			return
 		}
 
-		l := user.NewLogoutLogic(r.Context(), svcCtx)
+		ctx := user.WithAccessToken(r.Context(), bearerTokenFromHeader(r.Header.Get("Authorization")))
+		l := user.NewLogoutLogic(ctx, svcCtx)
 		resp, err := l.Logout(&req)
 		if err != nil {
 			httpx.ErrorCtx(r.Context(), w, err)
@@ -26,4 +28,15 @@ func LogoutHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
 			httpx.OkJsonCtx(r.Context(), w, resp)
 		}
 	}
+}
+
+func bearerTokenFromHeader(headerValue string) string {
+	const prefix = "bearer "
+
+	value := strings.TrimSpace(headerValue)
+	if len(value) < len(prefix) || strings.ToLower(value[:len(prefix)]) != prefix {
+		return ""
+	}
+
+	return strings.TrimSpace(value[len(prefix):])
 }

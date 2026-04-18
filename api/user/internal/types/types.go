@@ -3,6 +3,45 @@
 
 package types
 
+type CreateSessionReq struct {
+	Title string `json:"title,optional"`
+	Mode  string `json:"mode,optional"`
+}
+
+type CreateSessionResp struct {
+	Session SessionItem `json:"session"`
+}
+
+type DeleteSessionReq struct {
+	Id string `path:"id"`
+}
+
+type DeleteSessionResp struct {
+}
+
+type EvaluationDimension struct {
+	Key      string `json:"key"`
+	Label    string `json:"label"`
+	Score    int64  `json:"score"`
+	MaxScore int64  `json:"maxScore"`
+	Summary  string `json:"summary"`
+}
+
+type EvaluationEvidence struct {
+	Role      string `json:"role"`
+	Content   string `json:"content"`
+	CreatedAt string `json:"createdAt"`
+}
+
+type FlowStateEvent struct {
+	Type   string `json:"type"`
+	From   string `json:"from,optional"`
+	To     string `json:"to,optional"`
+	Role   string `json:"role,optional"`
+	Reason string `json:"reason,optional"`
+	At     string `json:"at"`
+}
+
 type LoginReq struct {
 	Username string `json:"username" validate:"required"`
 	Password string `json:"password" validate:"required"`
@@ -18,6 +57,15 @@ type LogoutReq struct {
 }
 
 type LogoutResp struct {
+}
+
+type ProfileReq struct {
+}
+
+type ProfileResp struct {
+	UserId    int64  `json:"userId"`
+	Username  string `json:"username"`
+	CreatedAt string `json:"createdAt"`
 }
 
 type RefreshTokenReq struct {
@@ -37,4 +85,287 @@ type RegisterReq struct {
 }
 
 type RegisterResp struct {
+}
+
+type ReportAssetSummary struct {
+	HasResume       bool   `json:"hasResume"`
+	ResumeChunks    int64  `json:"resumeChunks"`
+	ResumeUpdatedAt string `json:"resumeUpdatedAt,optional"`
+}
+
+type ReportCenterBootstrapFilters struct {
+	Mode    string `json:"mode"`
+	ModeKey string `json:"modeKey"`
+	Limit   int64  `json:"limit"`
+}
+
+type ReportCenterBootstrapReq struct {
+	Mode    string `form:"mode,optional"`
+	ModeKey string `form:"modeKey,optional"`
+	Limit   int64  `form:"limit,optional"`
+}
+
+type ReportCenterBootstrapResp struct {
+	Overview      ReportCenterOverviewResp   `json:"overview"`
+	Modes         []ReportCenterModeCard     `json:"modes"`
+	ModeDetail    ReportCenterModeDetailResp `json:"modeDetail"`
+	BootstrapMeta ReportMeta                 `json:"bootstrapMeta"`
+}
+
+type ReportCenterModeCard struct {
+	Mode                     string                    `json:"mode"`
+	ModeKey                  string                    `json:"modeKey"`
+	SessionCount             int64                     `json:"sessionCount"`
+	MessageCount             int64                     `json:"messageCount"`
+	EvaluatedSessions        int64                     `json:"evaluatedSessions"`
+	ReadySessions            int64                     `json:"readySessions"`
+	DraftSessions            int64                     `json:"draftSessions"`
+	InsufficientDataSessions int64                     `json:"insufficientDataSessions"`
+	ResumeBackedSessions     int64                     `json:"resumeBackedSessions"`
+	AverageScore             float64                   `json:"averageScore"`
+	HasSessions              bool                      `json:"hasSessions"`
+	HasReadyReport           bool                      `json:"hasReadyReport"`
+	HasResumeContext         bool                      `json:"hasResumeContext"`
+	AttentionState           string                    `json:"attentionState"`
+	LastActivityAt           string                    `json:"lastActivityAt,optional"`
+	Spotlight                *ReportCenterRecentReport `json:"spotlight,optional"`
+}
+
+type ReportCenterModeDetailFilters struct {
+	Mode    string `json:"mode"`
+	ModeKey string `json:"modeKey"`
+	Limit   int64  `json:"limit"`
+	HasMore bool   `json:"hasMore"`
+}
+
+type ReportCenterModeDetailReq struct {
+	ModeKey string `path:"modeKey"`
+	Limit   int64  `form:"limit,optional"`
+}
+
+type ReportCenterModeDetailResp struct {
+	Card     ReportCenterModeCard          `json:"card"`
+	Reports  []ReportCenterRecentReport    `json:"reports"`
+	Total    int64                         `json:"total"`
+	Filters  ReportCenterModeDetailFilters `json:"filters"`
+	ModeMeta ReportMeta                    `json:"modeMeta"`
+}
+
+type ReportCenterModeSummary struct {
+	Mode                     string  `json:"mode"`
+	ModeKey                  string  `json:"modeKey"`
+	SessionCount             int64   `json:"sessionCount"`
+	MessageCount             int64   `json:"messageCount"`
+	EvaluatedSessions        int64   `json:"evaluatedSessions"`
+	ReadySessions            int64   `json:"readySessions"`
+	DraftSessions            int64   `json:"draftSessions"`
+	InsufficientDataSessions int64   `json:"insufficientDataSessions"`
+	ResumeBackedSessions     int64   `json:"resumeBackedSessions"`
+	AverageScore             float64 `json:"averageScore"`
+	LastActivityAt           string  `json:"lastActivityAt,optional"`
+}
+
+type ReportCenterModesReq struct {
+}
+
+type ReportCenterModesResp struct {
+	Modes     []ReportCenterModeCard `json:"modes"`
+	ModesMeta ReportMeta             `json:"modesMeta"`
+}
+
+type ReportCenterOverviewReq struct {
+}
+
+type ReportCenterOverviewResp struct {
+	Totals        ReportCenterTotals         `json:"totals"`
+	Modes         []ReportCenterModeSummary  `json:"modes"`
+	RecentReports []ReportCenterRecentReport `json:"recentReports"`
+	OverviewMeta  ReportMeta                 `json:"overviewMeta"`
+}
+
+type ReportCenterRecentReport struct {
+	Session        SessionItem `json:"session"`
+	Status         string      `json:"status"`
+	Summary        string      `json:"summary"`
+	OverallScore   float64     `json:"overallScore"`
+	HasResume      bool        `json:"hasResume"`
+	ResumeChunks   int64       `json:"resumeChunks"`
+	NextAction     string      `json:"nextAction,optional"`
+	GeneratedAt    string      `json:"generatedAt,optional"`
+	LastActivityAt string      `json:"lastActivityAt,optional"`
+}
+
+type ReportCenterSessionsFilters struct {
+	Mode    string `json:"mode,optional"`
+	ModeKey string `json:"modeKey,optional"`
+	Status  string `json:"status,optional"`
+	Limit   int64  `json:"limit"`
+	HasMore bool   `json:"hasMore"`
+}
+
+type ReportCenterSessionsReq struct {
+	Mode    string `form:"mode,optional"`
+	ModeKey string `form:"modeKey,optional"`
+	Status  string `form:"status,optional"`
+	Limit   int64  `form:"limit,optional"`
+}
+
+type ReportCenterSessionsResp struct {
+	Reports      []ReportCenterRecentReport  `json:"reports"`
+	Total        int64                       `json:"total"`
+	Filters      ReportCenterSessionsFilters `json:"filters"`
+	SessionsMeta ReportMeta                  `json:"sessionsMeta"`
+}
+
+type ReportCenterTotals struct {
+	TotalSessions            int64   `json:"totalSessions"`
+	EvaluatedSessions        int64   `json:"evaluatedSessions"`
+	ReadySessions            int64   `json:"readySessions"`
+	DraftSessions            int64   `json:"draftSessions"`
+	InsufficientDataSessions int64   `json:"insufficientDataSessions"`
+	ResumeBackedSessions     int64   `json:"resumeBackedSessions"`
+	AverageScore             float64 `json:"averageScore"`
+	LastActivityAt           string  `json:"lastActivityAt,optional"`
+}
+
+type ReportConversationSummary struct {
+	MessageCount           int64  `json:"messageCount"`
+	UserTurns              int64  `json:"userTurns"`
+	AssistantTurns         int64  `json:"assistantTurns"`
+	FirstMessageAt         string `json:"firstMessageAt,optional"`
+	LastMessageAt          string `json:"lastMessageAt,optional"`
+	LatestUserMessage      string `json:"latestUserMessage,optional"`
+	LatestAssistantMessage string `json:"latestAssistantMessage,optional"`
+}
+
+type ReportEvaluationSummary struct {
+	Status           string                `json:"status"`
+	Summary          string                `json:"summary"`
+	OverallScore     float64               `json:"overallScore"`
+	RubricVersion    string                `json:"rubricVersion"`
+	ScoreSource      string                `json:"scoreSource"`
+	Dimensions       []EvaluationDimension `json:"dimensions"`
+	Strengths        []string              `json:"strengths"`
+	Risks            []string              `json:"risks"`
+	Suggestions      []string              `json:"suggestions"`
+	FirstGeneratedAt string                `json:"firstGeneratedAt"`
+	LastRefreshedAt  string                `json:"lastRefreshedAt"`
+	GeneratedAt      string                `json:"generatedAt"`
+}
+
+type ReportMeta struct {
+	SchemaVersion string `json:"schemaVersion"`
+	Available     bool   `json:"available"`
+}
+
+type ReportSnapshot struct {
+	Title      string `json:"title"`
+	Summary    string `json:"summary"`
+	Status     string `json:"status"`
+	NextAction string `json:"nextAction,optional"`
+}
+
+type ResumeUploadReq struct {
+	ChatId string `form:"chatId"`
+	Title  string `form:"title,optional"`
+	Mode   string `form:"mode,optional"`
+}
+
+type ResumeUploadResp struct {
+	Msg      string `json:"msg"`
+	ChatId   string `json:"chatId"`
+	Title    string `json:"title"`
+	Filename string `json:"filename"`
+	Chunks   int    `json:"chunks"`
+}
+
+type SessionDetailReq struct {
+	Id string `path:"id"`
+}
+
+type SessionDetailResp struct {
+	Session  SessionItem      `json:"session"`
+	Messages []SessionMessage `json:"messages"`
+}
+
+type SessionEvaluationReq struct {
+	Id string `path:"id"`
+}
+
+type SessionEvaluationResp struct {
+	Session          SessionItem           `json:"session"`
+	Status           string                `json:"status"`
+	Summary          string                `json:"summary"`
+	UserTurns        int64                 `json:"userTurns"`
+	AssistantTurns   int64                 `json:"assistantTurns"`
+	OverallScore     float64               `json:"overallScore"`
+	RubricVersion    string                `json:"rubricVersion"`
+	ScoreSource      string                `json:"scoreSource"`
+	Dimensions       []EvaluationDimension `json:"dimensions"`
+	Strengths        []string              `json:"strengths"`
+	Risks            []string              `json:"risks"`
+	Suggestions      []string              `json:"suggestions"`
+	Evidence         []EvaluationEvidence  `json:"evidence"`
+	FirstGeneratedAt string                `json:"firstGeneratedAt"`
+	LastRefreshedAt  string                `json:"lastRefreshedAt"`
+	GeneratedAt      string                `json:"generatedAt"`
+}
+
+type SessionFlowStateReq struct {
+	Id string `path:"id"`
+}
+
+type SessionFlowStateResp struct {
+	Session        SessionItem      `json:"session"`
+	OwnerScope     string           `json:"ownerScope"`
+	Lane           string           `json:"lane"`
+	MemoryScope    string           `json:"memoryScope"`
+	InterviewState string           `json:"interviewState"`
+	LifecycleState string           `json:"lifecycleState"`
+	ExecutionState string           `json:"executionState"`
+	TurnCount      int64            `json:"turnCount"`
+	LastEvent      string           `json:"lastEvent"`
+	LastReason     string           `json:"lastReason"`
+	UpdatedAt      string           `json:"updatedAt"`
+	Events         []FlowStateEvent `json:"events"`
+	StateMeta      ReportMeta       `json:"stateMeta"`
+}
+
+type SessionItem struct {
+	SessionId     string `json:"sessionId"`
+	Title         string `json:"title"`
+	Mode          string `json:"mode"`
+	ModeKey       string `json:"modeKey"`
+	MessageCount  int64  `json:"messageCount"`
+	IsActive      bool   `json:"isActive"`
+	CreatedAt     string `json:"createdAt"`
+	UpdatedAt     string `json:"updatedAt"`
+	LastMessageAt string `json:"lastMessageAt,optional"`
+}
+
+type SessionMessage struct {
+	Role      string `json:"role"`
+	Content   string `json:"content"`
+	CreatedAt string `json:"createdAt"`
+}
+
+type SessionReportSummaryReq struct {
+	Id string `path:"id"`
+}
+
+type SessionReportSummaryResp struct {
+	Session      SessionItem               `json:"session"`
+	Snapshot     ReportSnapshot            `json:"snapshot"`
+	Conversation ReportConversationSummary `json:"conversation"`
+	Assets       ReportAssetSummary        `json:"assets"`
+	Evaluation   ReportEvaluationSummary   `json:"evaluation"`
+	ReportMeta   ReportMeta                `json:"reportMeta"`
+}
+
+type SessionsReq struct {
+}
+
+type SessionsResp struct {
+	Sessions []SessionItem `json:"sessions"`
+	Total    int64         `json:"total"`
 }

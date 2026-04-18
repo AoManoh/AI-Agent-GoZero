@@ -1,0 +1,30 @@
+Name: user-api
+Host: 0.0.0.0
+Port: 8124
+MaxBytes: 52428800
+Timeout: 60000
+
+Postgres:
+  DataSource: "postgresql://postgres:your-password@postgres:5432/gozero_ai_agent?sslmode=disable&TimeZone=Asia/Shanghai"
+
+OpenAI:
+  ApiKey: "your-openai-api-key"
+  BaseURL: "https://api.openai.com/v1"
+  EmbeddingModel: "text-embedding-3-small"
+  EvaluationModel: "gpt-4.1-mini"
+  EvaluationTemp: 0.2
+  MaxCompletionTokens: 1200
+
+MCP:
+  Endpoint: "mcp:8321"
+
+Resume:
+  MaxChunkSize: 1000
+
+Auth:
+  AccessSecret: "your-access-secret"
+  AccessExpire: 7200
+
+Redis:
+  Host: "redis:6379"
+  Type: "node"

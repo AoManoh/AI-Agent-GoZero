@@ -57,6 +57,308 @@ type (
 		// 新的 AccessToken 的有效期，单位：秒
 		ExpireIn int64 `json:"expireIn"`
 	}
+	// 用户资料请求体
+	ProfileReq  {}
+	// 用户资料响应体
+	ProfileResp {
+		UserId    int64  `json:"userId"`
+		Username  string `json:"username"`
+		CreatedAt string `json:"createdAt"`
+	}
+	// 会话列表请求体
+	SessionsReq  {}
+	// 创建会话请求体
+	CreateSessionReq {
+		Title string `json:"title,optional"`
+		Mode  string `json:"mode,optional"`
+	}
+	// 创建会话响应体
+	CreateSessionResp {
+		Session SessionItem `json:"session"`
+	}
+	// 会话列表项
+	SessionItem {
+		SessionId     string `json:"sessionId"`
+		Title         string `json:"title"`
+		Mode          string `json:"mode"`
+		ModeKey       string `json:"modeKey"`
+		MessageCount  int64  `json:"messageCount"`
+		IsActive      bool   `json:"isActive"`
+		CreatedAt     string `json:"createdAt"`
+		UpdatedAt     string `json:"updatedAt"`
+		LastMessageAt string `json:"lastMessageAt,optional"`
+	}
+	// 会话列表响应体
+	SessionsResp {
+		Sessions []SessionItem `json:"sessions"`
+		Total    int64         `json:"total"`
+	}
+	// 会话详情请求体
+	SessionDetailReq {
+		Id string `path:"id"`
+	}
+	DeleteSessionReq {
+		Id string `path:"id"`
+	}
+	// 会话消息
+	SessionMessage {
+		Role      string `json:"role"`
+		Content   string `json:"content"`
+		CreatedAt string `json:"createdAt"`
+	}
+	// 会话详情响应体
+	SessionDetailResp {
+		Session  SessionItem      `json:"session"`
+		Messages []SessionMessage `json:"messages"`
+	}
+	DeleteSessionResp  {}
+	// 会话评估请求体
+	SessionEvaluationReq {
+		Id string `path:"id"`
+	}
+	SessionReportSummaryReq {
+		Id string `path:"id"`
+	}
+	SessionFlowStateReq {
+		Id string `path:"id"`
+	}
+	ReportCenterOverviewReq  {}
+	ReportCenterSessionsReq {
+		Mode    string `form:"mode,optional"`
+		ModeKey string `form:"modeKey,optional"`
+		Status  string `form:"status,optional"`
+		Limit   int64  `form:"limit,optional"`
+	}
+	ReportCenterModesReq  {}
+	ReportCenterModeDetailReq {
+		ModeKey string `path:"modeKey"`
+		Limit   int64  `form:"limit,optional"`
+	}
+	ReportCenterBootstrapReq {
+		Mode    string `form:"mode,optional"`
+		ModeKey string `form:"modeKey,optional"`
+		Limit   int64  `form:"limit,optional"`
+	}
+	// 评估维度项
+	EvaluationDimension {
+		Key      string `json:"key"`
+		Label    string `json:"label"`
+		Score    int64  `json:"score"`
+		MaxScore int64  `json:"maxScore"`
+		Summary  string `json:"summary"`
+	}
+	// 评估证据项
+	EvaluationEvidence {
+		Role      string `json:"role"`
+		Content   string `json:"content"`
+		CreatedAt string `json:"createdAt"`
+	}
+	// 会话评估响应体
+	SessionEvaluationResp {
+		Session        SessionItem           `json:"session"`
+		Status         string                `json:"status"`
+		Summary        string                `json:"summary"`
+		UserTurns      int64                 `json:"userTurns"`
+		AssistantTurns int64                 `json:"assistantTurns"`
+		OverallScore   float64               `json:"overallScore"`
+		RubricVersion  string                `json:"rubricVersion"`
+		ScoreSource    string                `json:"scoreSource"`
+		Dimensions     []EvaluationDimension `json:"dimensions"`
+		Strengths      []string              `json:"strengths"`
+		Risks          []string              `json:"risks"`
+		Suggestions    []string              `json:"suggestions"`
+		Evidence       []EvaluationEvidence  `json:"evidence"`
+		// 首次生成当前会话评估结果的时间
+		FirstGeneratedAt string `json:"firstGeneratedAt"`
+		// 最近一次刷新当前会话评估结果的时间
+		LastRefreshedAt string `json:"lastRefreshedAt"`
+		// 当前这版评估结果最近一次生成时间（兼容字段）
+		GeneratedAt string `json:"generatedAt"`
+	}
+	ReportConversationSummary {
+		MessageCount           int64  `json:"messageCount"`
+		UserTurns              int64  `json:"userTurns"`
+		AssistantTurns         int64  `json:"assistantTurns"`
+		FirstMessageAt         string `json:"firstMessageAt,optional"`
+		LastMessageAt          string `json:"lastMessageAt,optional"`
+		LatestUserMessage      string `json:"latestUserMessage,optional"`
+		LatestAssistantMessage string `json:"latestAssistantMessage,optional"`
+	}
+	ReportAssetSummary {
+		HasResume       bool   `json:"hasResume"`
+		ResumeChunks    int64  `json:"resumeChunks"`
+		ResumeUpdatedAt string `json:"resumeUpdatedAt,optional"`
+	}
+	ReportSnapshot {
+		Title      string `json:"title"`
+		Summary    string `json:"summary"`
+		Status     string `json:"status"`
+		NextAction string `json:"nextAction,optional"`
+	}
+	ReportEvaluationSummary {
+		Status           string                `json:"status"`
+		Summary          string                `json:"summary"`
+		OverallScore     float64               `json:"overallScore"`
+		RubricVersion    string                `json:"rubricVersion"`
+		ScoreSource      string                `json:"scoreSource"`
+		Dimensions       []EvaluationDimension `json:"dimensions"`
+		Strengths        []string              `json:"strengths"`
+		Risks            []string              `json:"risks"`
+		Suggestions      []string              `json:"suggestions"`
+		FirstGeneratedAt string                `json:"firstGeneratedAt"`
+		LastRefreshedAt  string                `json:"lastRefreshedAt"`
+		GeneratedAt      string                `json:"generatedAt"`
+	}
+	ReportMeta {
+		SchemaVersion string `json:"schemaVersion"`
+		Available     bool   `json:"available"`
+	}
+	SessionReportSummaryResp {
+		Session      SessionItem               `json:"session"`
+		Snapshot     ReportSnapshot            `json:"snapshot"`
+		Conversation ReportConversationSummary `json:"conversation"`
+		Assets       ReportAssetSummary        `json:"assets"`
+		Evaluation   ReportEvaluationSummary   `json:"evaluation"`
+		ReportMeta   ReportMeta                `json:"reportMeta"`
+	}
+	FlowStateEvent {
+		Type   string `json:"type"`
+		From   string `json:"from,optional"`
+		To     string `json:"to,optional"`
+		Role   string `json:"role,optional"`
+		Reason string `json:"reason,optional"`
+		At     string `json:"at"`
+	}
+	SessionFlowStateResp {
+		Session        SessionItem      `json:"session"`
+		OwnerScope     string           `json:"ownerScope"`
+		Lane           string           `json:"lane"`
+		MemoryScope    string           `json:"memoryScope"`
+		InterviewState string           `json:"interviewState"`
+		LifecycleState string           `json:"lifecycleState"`
+		ExecutionState string           `json:"executionState"`
+		TurnCount      int64            `json:"turnCount"`
+		LastEvent      string           `json:"lastEvent"`
+		LastReason     string           `json:"lastReason"`
+		UpdatedAt      string           `json:"updatedAt"`
+		Events         []FlowStateEvent `json:"events"`
+		StateMeta      ReportMeta       `json:"stateMeta"`
+	}
+	ReportCenterTotals {
+		TotalSessions            int64   `json:"totalSessions"`
+		EvaluatedSessions        int64   `json:"evaluatedSessions"`
+		ReadySessions            int64   `json:"readySessions"`
+		DraftSessions            int64   `json:"draftSessions"`
+		InsufficientDataSessions int64   `json:"insufficientDataSessions"`
+		ResumeBackedSessions     int64   `json:"resumeBackedSessions"`
+		AverageScore             float64 `json:"averageScore"`
+		LastActivityAt           string  `json:"lastActivityAt,optional"`
+	}
+	ReportCenterModeSummary {
+		Mode                     string  `json:"mode"`
+		ModeKey                  string  `json:"modeKey"`
+		SessionCount             int64   `json:"sessionCount"`
+		MessageCount             int64   `json:"messageCount"`
+		EvaluatedSessions        int64   `json:"evaluatedSessions"`
+		ReadySessions            int64   `json:"readySessions"`
+		DraftSessions            int64   `json:"draftSessions"`
+		InsufficientDataSessions int64   `json:"insufficientDataSessions"`
+		ResumeBackedSessions     int64   `json:"resumeBackedSessions"`
+		AverageScore             float64 `json:"averageScore"`
+		LastActivityAt           string  `json:"lastActivityAt,optional"`
+	}
+	ReportCenterRecentReport {
+		Session        SessionItem `json:"session"`
+		Status         string      `json:"status"`
+		Summary        string      `json:"summary"`
+		OverallScore   float64     `json:"overallScore"`
+		HasResume      bool        `json:"hasResume"`
+		ResumeChunks   int64       `json:"resumeChunks"`
+		NextAction     string      `json:"nextAction,optional"`
+		GeneratedAt    string      `json:"generatedAt,optional"`
+		LastActivityAt string      `json:"lastActivityAt,optional"`
+	}
+	ReportCenterOverviewResp {
+		Totals        ReportCenterTotals         `json:"totals"`
+		Modes         []ReportCenterModeSummary  `json:"modes"`
+		RecentReports []ReportCenterRecentReport `json:"recentReports"`
+		OverviewMeta  ReportMeta                 `json:"overviewMeta"`
+	}
+	ReportCenterSessionsFilters {
+		Mode    string `json:"mode,optional"`
+		ModeKey string `json:"modeKey,optional"`
+		Status  string `json:"status,optional"`
+		Limit   int64  `json:"limit"`
+		HasMore bool   `json:"hasMore"`
+	}
+	ReportCenterSessionsResp {
+		Reports      []ReportCenterRecentReport  `json:"reports"`
+		Total        int64                       `json:"total"`
+		Filters      ReportCenterSessionsFilters `json:"filters"`
+		SessionsMeta ReportMeta                  `json:"sessionsMeta"`
+	}
+	ReportCenterModeCard {
+		Mode                     string                    `json:"mode"`
+		ModeKey                  string                    `json:"modeKey"`
+		SessionCount             int64                     `json:"sessionCount"`
+		MessageCount             int64                     `json:"messageCount"`
+		EvaluatedSessions        int64                     `json:"evaluatedSessions"`
+		ReadySessions            int64                     `json:"readySessions"`
+		DraftSessions            int64                     `json:"draftSessions"`
+		InsufficientDataSessions int64                     `json:"insufficientDataSessions"`
+		ResumeBackedSessions     int64                     `json:"resumeBackedSessions"`
+		AverageScore             float64                   `json:"averageScore"`
+		HasSessions              bool                      `json:"hasSessions"`
+		HasReadyReport           bool                      `json:"hasReadyReport"`
+		HasResumeContext         bool                      `json:"hasResumeContext"`
+		AttentionState           string                    `json:"attentionState"`
+		LastActivityAt           string                    `json:"lastActivityAt,optional"`
+		Spotlight                *ReportCenterRecentReport `json:"spotlight,optional"`
+	}
+	ReportCenterModesResp {
+		Modes     []ReportCenterModeCard `json:"modes"`
+		ModesMeta ReportMeta             `json:"modesMeta"`
+	}
+	ReportCenterModeDetailFilters {
+		Mode    string `json:"mode"`
+		ModeKey string `json:"modeKey"`
+		Limit   int64  `json:"limit"`
+		HasMore bool   `json:"hasMore"`
+	}
+	ReportCenterModeDetailResp {
+		Card     ReportCenterModeCard          `json:"card"`
+		Reports  []ReportCenterRecentReport    `json:"reports"`
+		Total    int64                         `json:"total"`
+		Filters  ReportCenterModeDetailFilters `json:"filters"`
+		ModeMeta ReportMeta                    `json:"modeMeta"`
+	}
+	ReportCenterBootstrapFilters {
+		Mode    string `json:"mode"`
+		ModeKey string `json:"modeKey"`
+		Limit   int64  `json:"limit"`
+	}
+	ReportCenterBootstrapResp {
+		Overview      ReportCenterOverviewResp   `json:"overview"`
+		Modes         []ReportCenterModeCard     `json:"modes"`
+		ModeDetail    ReportCenterModeDetailResp `json:"modeDetail"`
+		BootstrapMeta ReportMeta                 `json:"bootstrapMeta"`
+	}
+	// 私有简历上传请求体
+	// 当前运行时要求 multipart/form-data 中额外包含名为 `file` 的 PDF 文件 part；
+	// file 由 handler 手工读取，因此未在 goctl type 中展开。
+	ResumeUploadReq {
+		ChatId string `form:"chatId"`
+		Title  string `form:"title,optional"`
+		Mode   string `form:"mode,optional"`
+	}
+	// 私有简历上传响应体
+	ResumeUploadResp {
+		Msg      string `json:"msg"`
+		ChatId   string `json:"chatId"`
+		Title    string `json:"title"`
+		Filename string `json:"filename"`
+		Chunks   int    `json:"chunks"`
+	}
 )
 
 // ----------------------------------------------------
@@ -96,5 +398,61 @@ service user-api {
 	@doc "用户退出登录"
 	@handler LogoutHandler
 	post /logout (LogoutReq) returns (LogoutResp)
+
+	@doc "获取当前用户资料"
+	@handler ProfileHandler
+	get /profile (ProfileReq) returns (ProfileResp)
+
+	@doc "获取当前用户会话列表"
+	@handler SessionsHandler
+	get /sessions (SessionsReq) returns (SessionsResp)
+
+	@doc "获取当前用户报告中心概览"
+	@handler ReportCenterOverviewHandler
+	get /report-center/overview (ReportCenterOverviewReq) returns (ReportCenterOverviewResp)
+
+	@doc "获取当前用户报告中心会话列表"
+	@handler ReportCenterSessionsHandler
+	get /report-center/sessions (ReportCenterSessionsReq) returns (ReportCenterSessionsResp)
+
+	@doc "获取当前用户报告中心模式卡片"
+	@handler ReportCenterModesHandler
+	get /report-center/modes (ReportCenterModesReq) returns (ReportCenterModesResp)
+
+	@doc "获取当前用户指定模式的报告中心详情"
+	@handler ReportCenterModeDetailHandler
+	get /report-center/modes/:modeKey (ReportCenterModeDetailReq) returns (ReportCenterModeDetailResp)
+
+	@doc "获取当前用户报告中心工作台单入口"
+	@handler ReportCenterBootstrapHandler
+	get /report-center/bootstrap (ReportCenterBootstrapReq) returns (ReportCenterBootstrapResp)
+
+	@doc "创建新会话"
+	@handler CreateSessionHandler
+	post /sessions (CreateSessionReq) returns (CreateSessionResp)
+
+	@doc "获取指定会话详情"
+	@handler SessionDetailHandler
+	get /sessions/:id (SessionDetailReq) returns (SessionDetailResp)
+
+	@doc "删除指定会话"
+	@handler DeleteSessionHandler
+	delete /sessions/:id (DeleteSessionReq) returns (DeleteSessionResp)
+
+	@doc "获取指定会话的结构化评估"
+	@handler SessionEvaluationHandler
+	get /sessions/:id/evaluation (SessionEvaluationReq) returns (SessionEvaluationResp)
+
+	@doc "获取指定会话的报告摘要"
+	@handler SessionReportSummaryHandler
+	get /sessions/:id/report-summary (SessionReportSummaryReq) returns (SessionReportSummaryResp)
+
+	@doc "获取指定会话的流程状态"
+	@handler SessionFlowStateHandler
+	get /sessions/:id/flow-state (SessionFlowStateReq) returns (SessionFlowStateResp)
+
+	@doc "上传当前用户私有简历，使用 multipart/form-data，并要求 file(PDF) + chatId，title/mode 为可选表单字段"
+	@handler ResumeUploadHandler
+	post /resume/upload (ResumeUploadReq) returns (ResumeUploadResp)
 }
 
