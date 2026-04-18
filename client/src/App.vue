@@ -1,6 +1,6 @@
 <script setup>
 import { RouterView } from "vue-router";
-import AuroraBackground from "./components/AuroraBackground.vue";
+import CosmicCanvas from "./components/CosmicCanvas.vue";
 import { useTheme } from "./composables/useTheme";
 
 useTheme();
@@ -8,7 +8,7 @@ useTheme();
 
 <template>
   <div class="app-root">
-    <AuroraBackground />
+    <CosmicCanvas />
     <RouterView />
   </div>
 </template>
@@ -16,8 +16,8 @@ useTheme();
 <style scoped>
 .app-root {
   min-height: 100vh;
+  width: 100vw;
   position: relative;
-  display: flex;
-  flex-direction: column;
+  display: block; /* Removed flex-column which breaks 100vh layout when nesting .workbench */
 }
 </style>
