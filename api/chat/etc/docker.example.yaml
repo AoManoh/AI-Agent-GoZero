@@ -17,6 +17,7 @@ Host: 0.0.0.0
 Port: 8123
 # 超时配置：禁用超时，因为流式输出需要持久输出，如果启用超时断开的话，可能会影响服务的稳定性
 Timeout: 0 # 禁用超时，因为流式输出需要持久输出，如果启用超时断开的话，可能会影响服务的稳定性
+MaxBytes: 52428800 # 允许最大 50MB 的请求体，匹配 PDF 上传链路
 
 Auth:
   AccessSecret: "your-user-access-secret" # 必须与 user 服务保持一致，用于解析可选 Bearer token
@@ -27,11 +28,11 @@ Auth:
 # 支持多种大语言模型服务提供商，包括千问、Gemini等
 OpenAI:
   # ==========================================
-  # OpenAI 官方 API 配置
+  # 对话模型配置
   # ==========================================
-  ApiKey: "your-openai-api-key-here"
-  BaseURL: "https://api.openai.com/v1"
-  Model: "gpt-4"
+  ApiKeyEnv: "OPENAI_API_KEY"
+  BaseURL: "http://sub2api.aomanoh.com:18080/v1"
+  Model: "gpt-5.4"
   
   # ==========================================
   # 阿里云千问模型配置 (备选)
@@ -55,6 +56,11 @@ OpenAI:
   MaxCompletionTokens: 2048           # 最大token数，注意，原 MaxTokens 已废弃
   # 模型创造性参数，值越大输出越变化，值越小输出越稳定
   Temperature: 0.7          # 温度参数
+
+Embedding:
+  ApiKeyEnv: "DASHSCOPE_API_KEY"
+  BaseURL: "https://dashscope.aliyuncs.com/compatible-mode/v1"
+  Model: "text-embedding-v2"
 
 # ==========================================
 # 向量数据库配置 (PostgreSQL + pgvector)
@@ -81,7 +87,7 @@ VectorDB:
   # 嵌入模型配置
   # ==========================================
   # 文本嵌入向量生成模型，用于将文本转换为向量表示
-  EmbeddingModel: "text-embedding-v1" # 千问嵌入模型
+  EmbeddingModel: "text-embedding-v2" # 千问嵌入模型，固定 1536 维
   # EmbeddingModel: "text-embedding-3-small" # OpenAI 嵌入模型
   # 更新 RAG 本地知识库配置
   # ==========================================
@@ -106,6 +112,8 @@ VectorDB:
 MCP:
   # Docker环境配置 (当前生效)：使用Docker服务名进行服务发现
   Endpoint: "mcp:8321" # 使用 Docker 服务名
+  AuthToken: "your-mcp-auth-token"
+  MaxUploadBytes: 52428800
   # 本地开发环境配置 (已注释)：直接连接本地MCP服务
   # Endpoint: 127.0.0.1:8080 # MCP服务地址
 

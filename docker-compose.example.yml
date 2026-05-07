@@ -116,6 +116,8 @@ services:
     environment:
       GO111MODULE: "on"                           # 启用Go Modules依赖管理
       GOPROXY: "https://goproxy.cn,direct"        # 使用国内代理加速依赖下载
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY:-}
 
   # ==========================================
   # 5. API主业务服务
@@ -166,6 +168,8 @@ services:
     environment:
       GO111MODULE: "on"
       GOPROXY: "https://goproxy.cn,direct"
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY:-}
 
 # ==========================================
 # 数据卷和持久化配置

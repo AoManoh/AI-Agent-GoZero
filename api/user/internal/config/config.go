@@ -3,6 +3,8 @@ package config
 import (
 	"time"
 
+	"GoZero-AI/internal/llmclient"
+
 	"github.com/zeromicro/go-zero/rest"
 )
 
@@ -13,16 +15,13 @@ type Config struct {
 	Postgres struct {
 		DataSource string
 	}
-	OpenAI struct {
-		ApiKey              string
-		BaseURL             string
-		EmbeddingModel      string
-		EvaluationModel     string  `json:",optional"`
-		EvaluationTemp      float32 `json:",optional"`
-		MaxCompletionTokens int     `json:",optional"`
-	}
-	MCP struct {
-		Endpoint string
+	OpenAI     OpenAIConfig
+	Embedding  llmclient.ProviderConfig `json:",optional"`
+	Evaluation llmclient.ProviderConfig `json:",optional"`
+	MCP        struct {
+		Endpoint       string
+		AuthToken      string `json:",optional"`
+		MaxUploadBytes int64  `json:",optional"`
 	}
 	Resume struct {
 		MaxChunkSize int `json:",optional"`
@@ -41,6 +40,35 @@ type Config struct {
 		AccessSecret  string
 		AccessExpire  int64
 		RefreshExpire int64 `json:",optional"`
+	}
+}
+
+func (c Config) MCPMaxUploadBytes() int64 {
+	if c.MCP.MaxUploadBytes <= 0 {
+		return 50 * 1024 * 1024
+	}
+	return c.MCP.MaxUploadBytes
+}
+
+type OpenAIConfig struct {
+	ApiKey              string `json:",optional"`
+	ApiKeyEnv           string `json:",optional"`
+	ApiKeyFile          string `json:",optional"`
+	ApiKeyJSONKey       string `json:",optional"`
+	BaseURL             string
+	EmbeddingModel      string
+	EvaluationModel     string  `json:",optional"`
+	EvaluationTemp      float32 `json:",optional"`
+	MaxCompletionTokens int     `json:",optional"`
+}
+
+func (c OpenAIConfig) ProviderConfig() llmclient.ProviderConfig {
+	return llmclient.ProviderConfig{
+		ApiKey:        c.ApiKey,
+		ApiKeyEnv:     c.ApiKeyEnv,
+		ApiKeyFile:    c.ApiKeyFile,
+		ApiKeyJSONKey: c.ApiKeyJSONKey,
+		BaseURL:       c.BaseURL,
 	}
 }
 
@@ -76,7 +104,17 @@ func (c Config) ResumeChunkSize() int {
 	return c.Resume.MaxChunkSize
 }
 
+func (c Config) EmbeddingModel() string {
+	if c.Embedding.Model != "" {
+		return c.Embedding.Model
+	}
+	return c.OpenAI.EmbeddingModel
+}
+
 func (c Config) EvaluationModel() string {
+	if c.Evaluation.Model != "" {
+		return c.Evaluation.Model
+	}
 	if c.OpenAI.EvaluationModel != "" {
 		return c.OpenAI.EvaluationModel
 	}
@@ -95,6 +133,16 @@ func (c Config) EvaluationMaxTokens() int {
 		return 1200
 	}
 	return c.OpenAI.MaxCompletionTokens
+}
+
+func (c Config) EmbeddingEndpoint() llmclient.Endpoint {
+	return llmclient.ResolveEndpoint(c.Embedding, c.OpenAI.ProviderConfig(), c.EmbeddingModel())
+}
+
+func (c Config) EvaluationEndpoint() llmclient.Endpoint {
+	fallback := c.OpenAI.ProviderConfig()
+	fallback.Model = c.OpenAI.EvaluationModel
+	return llmclient.ResolveEndpoint(c.Evaluation, fallback, c.EvaluationModel())
 }
 
 func (c Config) RedisDialTimeout() time.Duration {

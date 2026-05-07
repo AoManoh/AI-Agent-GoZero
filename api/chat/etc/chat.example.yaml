@@ -8,9 +8,13 @@ Auth:
   AccessSecret: "your-user-access-secret" # 需与 user 服务保持一致；不强制路由鉴权，仅用于解析可选 Bearer token
 
 OpenAI:
-  ApiKey: "your-openai-api-key-here"
-  BaseURL: "https://api.openai.com/v1"
-  Model: "gpt-4"
+  # 对话模型可以使用明文、环境变量或 JSON 文件三种方式提供 key。
+  # ApiKey: "your-openai-api-key-here"
+  # ApiKeyEnv: "OPENAI_API_KEY"
+  ApiKeyFile: "~/.codex/auth.json"
+  ApiKeyJSONKey: "OPENAI_API_KEY"
+  BaseURL: "http://sub2api.aomanoh.com:18080/v1"
+  Model: "gpt-5.4"
 
   # 或使用阿里云千问模型
   # ApiKey: "your-dashscope-api-key"
@@ -25,6 +29,11 @@ OpenAI:
   MaxCompletionTokens: 2048           # 最大token数，注意，原 MaxTokens 已废弃
   Temperature: 0.75          # 温度参数
 
+Embedding:
+  ApiKey: "your-dashscope-api-key"
+  BaseURL: "https://dashscope.aliyuncs.com/compatible-mode/v1"
+  Model: "text-embedding-v2"
+
 # 向量数据库配置
 VectorDB:
   Host: "127.0.0.1"
@@ -34,7 +43,7 @@ VectorDB:
   Password: "your-database-password"
   Table: "vector_store"
   MaxConn: 20       # 最大连接数
-  EmbeddingModel: "text-embedding-v1" # 千问嵌入模型
+  EmbeddingModel: "text-embedding-v2" # 千问嵌入模型，固定 1536 维
   # EmbeddingModel: "text-embedding-3-small" # OpenAI 嵌入模型
   TimeZone: "Asia/Shanghai"
   # 更新 RAG 本地知识库配置
@@ -46,6 +55,8 @@ VectorDB:
 # MCP 服务配置
 MCP:
   Endpoint: 127.0.0.1:8080 # MCP服务地址
+  AuthToken: "your-mcp-auth-token"
+  MaxUploadBytes: 52428800
 
 # Redis 配置
 Redis:

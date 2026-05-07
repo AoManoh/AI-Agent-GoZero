@@ -41,3 +41,7 @@ Etcd:
 # 获取: 请访问 https://unidoc.io 获取你自己的许可证
 # UniPDF 商业版许可证密钥
 UniPDFLicense: "your-unipdf-license-key-here"
+
+PDF:
+  AuthToken: "your-mcp-auth-token"
+  MaxUploadBytes: 52428800

@@ -1,6 +1,8 @@
 package config
 
 import (
+	"GoZero-AI/internal/llmclient"
+
 	"github.com/zeromicro/go-zero/rest"
 )
 
@@ -9,19 +11,68 @@ type Config struct {
 	Auth struct {
 		AccessSecret string `json:",optional"`
 	}
-	OpenAI struct {
-		ApiKey              string
-		BaseURL             string
-		Model               string
-		MaxCompletionTokens int // 注意 MaxTokens 字段已经废弃
-		Temperature         float32
-	}
-	VectorDB VectorDBConfig // 新增向量数据库配置
+	OpenAI    OpenAIConfig
+	Embedding llmclient.ProviderConfig `json:",optional"`
+	VectorDB  VectorDBConfig           // 新增向量数据库配置
 	// MCPConfig MCP 服务配置
 	MCP struct {
-		Endpoint string // MCP 服务地址
+		Endpoint       string // MCP 服务地址
+		AuthToken      string `json:",optional"`
+		MaxUploadBytes int64  `json:",optional"`
 	}
 	Redis Redis // 新增：Redis 配置
+}
+
+func (c Config) MCPMaxUploadBytes() int64 {
+	if c.MCP.MaxUploadBytes <= 0 {
+		return 50 * 1024 * 1024
+	}
+	return c.MCP.MaxUploadBytes
+}
+
+type OpenAIConfig struct {
+	ApiKey              string `json:",optional"`
+	ApiKeyEnv           string `json:",optional"`
+	ApiKeyFile          string `json:",optional"`
+	ApiKeyJSONKey       string `json:",optional"`
+	BaseURL             string
+	Model               string
+	MaxCompletionTokens int // 注意 MaxTokens 字段已经废弃
+	Temperature         float32
+}
+
+func (c OpenAIConfig) ProviderConfig() llmclient.ProviderConfig {
+	return llmclient.ProviderConfig{
+		ApiKey:        c.ApiKey,
+		ApiKeyEnv:     c.ApiKeyEnv,
+		ApiKeyFile:    c.ApiKeyFile,
+		ApiKeyJSONKey: c.ApiKeyJSONKey,
+		BaseURL:       c.BaseURL,
+		Model:         c.Model,
+	}
+}
+
+func (c Config) ChatEndpoint() llmclient.Endpoint {
+	return llmclient.ResolveEndpoint(c.OpenAI.ProviderConfig(), llmclient.ProviderConfig{}, c.OpenAI.Model)
+}
+
+func (c Config) EmbeddingEndpoint() llmclient.Endpoint {
+	fallback := c.OpenAI.ProviderConfig()
+	if c.Embedding.BaseURL != "" && c.Embedding.ApiKey == "" && c.Embedding.ApiKeyEnv == "" && c.Embedding.ApiKeyFile == "" && c.OpenAI.ApiKey != "" {
+		// 对话模型可能通过 ApiKeyFile 指向 Codex 网关；embedding 指定独立 BaseURL 时，
+		// 优先沿用旧 OpenAI.ApiKey，避免把向量请求误打到对话模型凭证。
+		fallback.ApiKeyEnv = ""
+		fallback.ApiKeyFile = ""
+		fallback.ApiKeyJSONKey = ""
+	}
+	return llmclient.ResolveEndpoint(c.Embedding, fallback, c.EmbeddingModel())
+}
+
+func (c Config) EmbeddingModel() string {
+	if c.Embedding.Model != "" {
+		return c.Embedding.Model
+	}
+	return c.VectorDB.EmbeddingModel
 }
 
 // VectorDBConfig 向量数据库配置

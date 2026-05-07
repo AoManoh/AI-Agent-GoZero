@@ -7,7 +7,12 @@ import (
 	"io"
 	"testing"
 
+	"GoZero-AI/internal/mcpsecurity"
 	"GoZero-AI/mcp/types/mcp"
+
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
 )
 
 type testMultipartFile struct {
@@ -83,6 +88,51 @@ func TestExtractTextStreamsMetadataAndChunks(t *testing.T) {
 	chunk3 := stream.sent[3].GetChunk()
 	if len(chunk1) != defaultChunkSize || len(chunk2) != defaultChunkSize || len(chunk3) != 123 {
 		t.Fatalf("unexpected chunk sizes: %d, %d, %d", len(chunk1), len(chunk2), len(chunk3))
+	}
+}
+
+func TestExtractTextAttachesAuthToken(t *testing.T) {
+	file := &testMultipartFile{Reader: bytes.NewReader([]byte("payload"))}
+	stream := &fakeStream{closeResp: &mcp.PdfRes{Content: "ok"}}
+
+	_, err := ExtractTextWithOptions(context.Background(), func(ctx context.Context) (ClientStream, error) {
+		md, ok := metadata.FromOutgoingContext(ctx)
+		if !ok {
+			t.Fatal("expected outgoing metadata")
+		}
+		values := md.Get(mcpsecurity.AuthTokenMetadataKey)
+		if len(values) != 1 || values[0] != "secret-token" {
+			t.Fatalf("auth token metadata = %#v, want secret-token", values)
+		}
+		return stream, nil
+	}, file, "resume.pdf", ExtractOptions{AuthToken: "secret-token"})
+	if err != nil {
+		t.Fatalf("ExtractTextWithOptions() error = %v", err)
+	}
+}
+
+func TestExtractTextStopsAtMaxUploadBytes(t *testing.T) {
+	file := &testMultipartFile{Reader: bytes.NewReader([]byte("payload"))}
+	stream := &fakeStream{closeResp: &mcp.PdfRes{Content: "ok"}}
+
+	_, err := ExtractTextWithOptions(context.Background(), func(ctx context.Context) (ClientStream, error) {
+		return stream, nil
+	}, file, "resume.pdf", ExtractOptions{MaxUploadBytes: 3})
+	if !errors.Is(err, ErrUploadTooLarge) {
+		t.Fatalf("ExtractTextWithOptions() error = %v, want ErrUploadTooLarge", err)
+	}
+	if !stream.closed {
+		t.Fatal("expected CloseSend to be called after size limit failure")
+	}
+	if len(stream.sent) != 1 {
+		t.Fatalf("sent request count = %d, want metadata only", len(stream.sent))
+	}
+}
+
+func TestIsUploadTooLargeMatchesGrpcResourceExhausted(t *testing.T) {
+	err := status.Error(codes.ResourceExhausted, "PDF 文件超过大小限制")
+	if !IsUploadTooLarge(err) {
+		t.Fatal("expected ResourceExhausted gRPC error to be upload-too-large")
 	}
 }
 

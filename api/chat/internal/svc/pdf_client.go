@@ -71,7 +71,9 @@ import (
 // 结构字段:
 //   - Client: MCP gRPC服务的客户端实例，负责实际的远程调用
 type PdfClient struct {
-	Client mcp.PdfProcessorClient // MCP gRPC服务的客户端实例，由GoZero zrpc框架管理
+	Client         mcp.PdfProcessorClient // MCP gRPC服务的客户端实例，由GoZero zrpc框架管理
+	authToken      string
+	maxUploadBytes int64
 }
 
 // NewPdfClient 创建PDF文档处理gRPC客户端实例
@@ -101,7 +103,7 @@ type PdfClient struct {
 // 返回值:
 //
 //	*PdfClient: 配置完成的PDF客户端实例，可用于后续的PDF处理调用
-func NewPdfClient(endPoint string) *PdfClient {
+func NewPdfClient(endPoint, authToken string, maxUploadBytes int64) *PdfClient {
 	// 创建zrpc客户端连接，使用MustNewClient确保初始化成功
 	// NonBlock: true 设置为非阻塞模式，提高并发性能
 	conn := zrpc.MustNewClient(zrpc.RpcClientConf{
@@ -118,7 +120,9 @@ func NewPdfClient(endPoint string) *PdfClient {
 	// 返回配置完成的PdfClient实例
 	return &PdfClient{
 		// 使用生成的gRPC客户端创建MCP服务的PdfProcessor客户端
-		Client: mcp.NewPdfProcessorClient(conn.Conn()),
+		Client:         mcp.NewPdfProcessorClient(conn.Conn()),
+		authToken:      authToken,
+		maxUploadBytes: maxUploadBytes,
 	}
 }
 
@@ -165,14 +169,17 @@ func NewPdfClient(endPoint string) *PdfClient {
 //	string: 提取的PDF文本内容，包含所有页面的文本信息
 //	error: 处理过程中的任何错误，包括网络、文件或解析错误
 func (c *PdfClient) ExtractTextFromPDF(ctx context.Context, file multipart.File, filename string) (string, error) {
-	content, err := pdfgrpc.ExtractText(ctx, func(ctx context.Context) (pdfgrpc.ClientStream, error) {
+	content, err := pdfgrpc.ExtractTextWithOptions(ctx, func(ctx context.Context) (pdfgrpc.ClientStream, error) {
 		stream, err := c.Client.ExtractTextFromPDF(ctx)
 		if err != nil {
 			logx.Errorf("创建 gRPC 流式客户端失败: %v", err)
 			return nil, err
 		}
 		return stream, nil
-	}, file, filename)
+	}, file, filename, pdfgrpc.ExtractOptions{
+		AuthToken:      c.authToken,
+		MaxUploadBytes: c.maxUploadBytes,
+	})
 	if err != nil {
 		logx.Errorf("PDF 文本提取失败: %v", err)
 		return "", err

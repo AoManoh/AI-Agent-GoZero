@@ -13,10 +13,12 @@ import (
 )
 
 type PdfClient struct {
-	Client mcp.PdfProcessorClient
+	Client         mcp.PdfProcessorClient
+	authToken      string
+	maxUploadBytes int64
 }
 
-func NewPdfClient(endPoint string) *PdfClient {
+func NewPdfClient(endPoint, authToken string, maxUploadBytes int64) *PdfClient {
 	conn := zrpc.MustNewClient(zrpc.RpcClientConf{
 		Endpoints: []string{endPoint},
 		NonBlock:  true,
@@ -26,19 +28,24 @@ func NewPdfClient(endPoint string) *PdfClient {
 	)))
 
 	return &PdfClient{
-		Client: mcp.NewPdfProcessorClient(conn.Conn()),
+		Client:         mcp.NewPdfProcessorClient(conn.Conn()),
+		authToken:      authToken,
+		maxUploadBytes: maxUploadBytes,
 	}
 }
 
 func (c *PdfClient) ExtractTextFromPDF(ctx context.Context, file multipart.File, filename string) (string, error) {
-	content, err := pdfgrpc.ExtractText(ctx, func(ctx context.Context) (pdfgrpc.ClientStream, error) {
+	content, err := pdfgrpc.ExtractTextWithOptions(ctx, func(ctx context.Context) (pdfgrpc.ClientStream, error) {
 		stream, err := c.Client.ExtractTextFromPDF(ctx)
 		if err != nil {
 			logx.Errorf("创建 gRPC 流式客户端失败: %v", err)
 			return nil, err
 		}
 		return stream, nil
-	}, file, filename)
+	}, file, filename, pdfgrpc.ExtractOptions{
+		AuthToken:      c.authToken,
+		MaxUploadBytes: c.maxUploadBytes,
+	})
 	if err != nil {
 		logx.Errorf("PDF 文本提取失败: %v", err)
 		return "", err

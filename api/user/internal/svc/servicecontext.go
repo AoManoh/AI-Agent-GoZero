@@ -2,17 +2,18 @@ package svc
 
 import (
 	"context"
+	"log"
 	"net/url"
 	"time"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/redis/go-redis/v9"
-	"github.com/sashabaranov/go-openai"
 	"github.com/zeromicro/go-zero/core/logx"
 	"github.com/zeromicro/go-zero/core/stores/sqlx"
 
 	"GoZero-AI/api/user/internal/config"
 	"GoZero-AI/api/user/model"
+	"GoZero-AI/internal/llmclient"
 )
 
 type ServiceContext struct {
@@ -30,9 +31,14 @@ type ServiceContext struct {
 
 func NewServiceContext(c config.Config) *ServiceContext {
 	sqlConn := sqlx.NewSqlConn("pgx", withPostgresConnectTimeout(c.Postgres.DataSource))
-	openAIConf := openai.DefaultConfig(c.OpenAI.ApiKey)
-	openAIConf.BaseURL = c.OpenAI.BaseURL
-	openAIClient := openai.NewClientWithConfig(openAIConf)
+	evaluationClient, err := llmclient.NewClient(c.EvaluationEndpoint())
+	if err != nil {
+		log.Fatalf("初始化评估模型客户端失败: %v", err)
+	}
+	embeddingClient, err := llmclient.NewClient(c.EmbeddingEndpoint())
+	if err != nil {
+		log.Fatalf("初始化向量模型客户端失败: %v", err)
+	}
 	redisClient := redis.NewClient(&redis.Options{
 		Addr:         c.Redis.Host,
 		Password:     c.RedisPassword(),
@@ -56,9 +62,9 @@ func NewServiceContext(c config.Config) *ServiceContext {
 		UsersModel:              model.NewUsersModel(sqlConn),
 		ChatSessionsModel:       model.NewChatSessionsModel(sqlConn),
 		SessionEvaluationsModel: model.NewSessionEvaluationsModel(sqlConn),
-		EvaluationGenerator:     NewEvaluationGenerator(openAIClient, c),
-		ResumeStore:             NewResumeStore(sqlConn, openAIClient, c.OpenAI.EmbeddingModel),
-		PdfClient:               NewPdfClient(c.MCP.Endpoint),
+		EvaluationGenerator:     NewEvaluationGenerator(evaluationClient, c),
+		ResumeStore:             NewResumeStore(sqlConn, embeddingClient, c.EmbeddingModel()),
+		PdfClient:               NewPdfClient(c.MCP.Endpoint, c.MCP.AuthToken, c.MCPMaxUploadBytes()),
 		RedisClient:             redisClient,
 		RefreshTokenTTL:         c.RefreshTokenTTL(),
 	}

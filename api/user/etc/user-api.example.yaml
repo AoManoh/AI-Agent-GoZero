@@ -15,15 +15,25 @@ Postgres:
   DataSource: "postgresql://root:your_password.@127.0.0.1:5432/gozero_ai_agent?sslmode=disable&TimeZone=Asia/Shanghai"
 
 OpenAI:
-  ApiKey: "your-openai-api-key"
-  BaseURL: "https://api.openai.com/v1"
-  EmbeddingModel: "text-embedding-3-small"
-  EvaluationModel: "gpt-4.1-mini"
+  ApiKey: "your-dashscope-api-key"
+  BaseURL: "https://dashscope.aliyuncs.com/compatible-mode/v1"
+  EmbeddingModel: "text-embedding-v2"
+  EvaluationModel: "qwen-plus"
   EvaluationTemp: 0.2
   MaxCompletionTokens: 1200
 
+Evaluation:
+  # 评估模型可与 embedding 使用不同网关和凭证。
+  # ApiKeyEnv: "OPENAI_API_KEY"
+  ApiKeyFile: "~/.codex/auth.json"
+  ApiKeyJSONKey: "OPENAI_API_KEY"
+  BaseURL: "http://sub2api.aomanoh.com:18080/v1"
+  Model: "gpt-5.4"
+
 MCP:
   Endpoint: "127.0.0.1:8080"
+  AuthToken: "your-mcp-auth-token"
+  MaxUploadBytes: 52428800
 
 Resume:
   MaxChunkSize: 1000
