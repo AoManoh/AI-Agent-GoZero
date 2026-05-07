@@ -5,6 +5,7 @@ package types
 type KnowledgeUploadInput struct {
 	Title   string
 	Content string
+	UserID  int64
 }
 
 // KnowledgeUploadOutput 是 logic 返回给 handler 的内部结果结构体。

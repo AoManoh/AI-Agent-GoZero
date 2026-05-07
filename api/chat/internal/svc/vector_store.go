@@ -115,7 +115,10 @@ func (vs *VectorStore) TestConnection() error {
 }
 
 // generateEmbedding 清洗 content 文本，并将其转换为 pgvector.Vector 类型的向量
-func (vs *VectorStore) generateEmbedding(content string) (pgvector.Vector, error) {
+func (vs *VectorStore) generateEmbedding(ctx context.Context, content string) (pgvector.Vector, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	if content == "" {
 		return pgvector.NewVector(nil), errors.New("内容不能为空")
 	}
@@ -124,7 +127,7 @@ func (vs *VectorStore) generateEmbedding(content string) (pgvector.Vector, error
 	// 这个结构体包含了一个 Data 字段，其中 Data 字段是一个 Embedding 结构体的切片
 	// 每个 Embedding 结构体包含一个 Embedding 字段，这个字段是一个 []float32 类型的向量
 	embedding, err := vs.OpenAIClient.CreateEmbeddings(
-		context.Background(),
+		ctx,
 		openai.EmbeddingRequest{
 			Model: openai.EmbeddingModel(vs.EmbeddingModel), // 使用配置文件中的模型名称
 			Input: []string{content},                        // 用户对话的上下文内容
@@ -159,7 +162,7 @@ func (vs *VectorStore) SaveMessageWithUser(ctx context.Context, chatId, role, co
 	}
 
 	// 步骤1：生成  pgvector.vector  文本向量
-	embedding, err := vs.generateEmbedding(content)
+	embedding, err := vs.generateEmbedding(ctx, content)
 	if err != nil {
 		return fmt.Errorf("生成嵌入失败: %w", err)
 	}
@@ -168,9 +171,7 @@ func (vs *VectorStore) SaveMessageWithUser(ctx context.Context, chatId, role, co
 	if err != nil {
 		return err
 	}
-	defer func() {
-		_ = tx.Rollback(ctx)
-	}()
+	defer rollbackTx(tx)
 
 	if userID != nil {
 		if err := ensureSessionWritable(ctx, tx, chatId, *userID); err != nil {
@@ -212,6 +213,14 @@ func (vs *VectorStore) GetMessage(chatId string, limit int) ([]types.VectorMessa
 }
 
 func (vs *VectorStore) GetMessageWithUser(chatId string, userID *int64, limit int) ([]types.VectorMessage, error) {
+	return vs.GetMessageWithUserContext(context.Background(), chatId, userID, limit)
+}
+
+func (vs *VectorStore) GetMessageWithUserContext(ctx context.Context, chatId string, userID *int64, limit int) ([]types.VectorMessage, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
 	// 1. 构建一条 SQL 语句，从表中获取消息
 	var (
 		sql  string
@@ -226,7 +235,7 @@ func (vs *VectorStore) GetMessageWithUser(chatId string, userID *int64, limit in
 	}
 
 	// 2. 传入指定用户 ID，获取他的历史对话数据，并做出限制，我们肯定不希望数据太多导致准确性降低
-	rows, err := vs.Pool.Query(context.Background(), sql, args...)
+	rows, err := vs.Pool.Query(ctx, sql, args...)
 	if err != nil {
 		return nil, fmt.Errorf("从数据库中获取当前用户消息失败: %w", err)
 	}
@@ -246,6 +255,9 @@ func (vs *VectorStore) GetMessageWithUser(chatId string, userID *int64, limit in
 			Role:    role,
 			Content: content,
 		})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("读取当前用户消息失败: %w", err)
 	}
 
 	// 4. 反转 messages 切片，因为数据库中的数据是按创建时间降序排列的
@@ -270,17 +282,28 @@ func (vs *VectorStore) GetMessageWithUser(chatId string, userID *int64, limit in
 //	title: 知识文档的标题(如PDF文件名)，用于结果展示和溯源
 //	chunk: 文档的一个分块片段，长度应控制在合理范围内
 func (vs *VectorStore) SaveKnowledge(title, chunk string) error {
+	return vs.SaveKnowledgeForUser(context.Background(), title, chunk, 1)
+}
+
+func (vs *VectorStore) SaveKnowledgeForUser(ctx context.Context, title, chunk string, userID int64) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if userID <= 0 {
+		return fmt.Errorf("知识所有者不能为空")
+	}
+
 	// 1. 将知识块内容转换为向量表示
 	// generateEmbedding()返回已序列化的向量数据
-	embeddingVector, err := vs.generateEmbedding(chunk)
+	embeddingVector, err := vs.generateEmbedding(ctx, chunk)
 	if err != nil {
 		return fmt.Errorf("知识块向量化失败: %w", err)
 	}
 
 	// 2. 将知识块和向量数据存储到knowledge_base表
 	// 与vector_store表分离，专门存储知识库数据
-	sql := `INSERT INTO knowledge_base (title, content, embedding) VALUES ($1, $2, $3)`
-	_, err = vs.Pool.Exec(context.Background(), sql, title, chunk, embeddingVector)
+	sql := `INSERT INTO knowledge_base (title, content, embedding, user_id) VALUES ($1, $2, $3, $4)`
+	_, err = vs.Pool.Exec(ctx, sql, title, chunk, embeddingVector, userID)
 	if err != nil {
 		return fmt.Errorf("保存知识块到数据库失败: %w", err)
 	}
@@ -315,17 +338,28 @@ func (vs *VectorStore) RetrieveKnowledge(query string, topK int) ([]types.Knowle
 }
 
 func (vs *VectorStore) RetrieveKnowledgeScoped(query string, topK int, userID *int64, chatID string) ([]types.KnowledgeChunk, error) {
+	return vs.RetrieveKnowledgeScopedContext(context.Background(), query, topK, userID, chatID)
+}
+
+func (vs *VectorStore) RetrieveKnowledgeScopedContext(ctx context.Context, query string, topK int, userID *int64, chatID string) ([]types.KnowledgeChunk, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
 	// 1. 将用户查询转换为向量表示
 	// 使用相同的embedding模型确保向量空间一致性
-	queryEmbeddingVector, err := vs.generateEmbedding(query)
+	queryEmbeddingVector, err := vs.generateEmbedding(ctx, query)
 	if err != nil {
 		return nil, fmt.Errorf("用户查询向量化失败: %w", err)
 	}
 
 	var results []scoredKnowledgeChunk
 
-	publicResults, err := vs.fetchPublicKnowledge(queryEmbeddingVector, topK, userID)
+	publicResults, err := vs.fetchPublicKnowledge(ctx, queryEmbeddingVector, topK, userID)
 	if err != nil {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return nil, err
+		}
 		// 当前环境可能仍保留 jsonb/旧维度知识库；这里降级到私有简历与消息链路，避免整条对话失败。
 		fmt.Printf("skip public knowledge retrieval due to schema/runtime mismatch: %v\n", err)
 	} else {
@@ -333,7 +367,7 @@ func (vs *VectorStore) RetrieveKnowledgeScoped(query string, topK int, userID *i
 	}
 
 	if userID != nil && chatID != "" {
-		resumeResults, err := vs.fetchResumeKnowledge(queryEmbeddingVector, topK, *userID, chatID)
+		resumeResults, err := vs.fetchResumeKnowledge(ctx, queryEmbeddingVector, topK, *userID, chatID)
 		if err != nil {
 			return nil, fmt.Errorf("私有简历检索失败: %w", err)
 		}
@@ -465,7 +499,11 @@ type scoredKnowledgeChunk struct {
 	Score float64
 }
 
-func (vs *VectorStore) fetchPublicKnowledge(queryEmbeddingVector pgvector.Vector, topK int, userID *int64) ([]scoredKnowledgeChunk, error) {
+func (vs *VectorStore) fetchPublicKnowledge(ctx context.Context, queryEmbeddingVector pgvector.Vector, topK int, userID *int64) ([]scoredKnowledgeChunk, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
 	sql := `SELECT id, title, content, embedding <-> $1 AS score
 FROM knowledge_base
 WHERE (user_id = 1`
@@ -481,7 +519,7 @@ LIMIT $`
 	sql += fmt.Sprintf("%d", len(args)+1)
 	args = append(args, topK)
 
-	rows, err := vs.Pool.Query(context.Background(), sql, args...)
+	rows, err := vs.Pool.Query(ctx, sql, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -507,12 +545,19 @@ LIMIT $`
 			Score: score,
 		})
 	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
 
 	return results, nil
 }
 
-func (vs *VectorStore) fetchResumeKnowledge(queryEmbeddingVector pgvector.Vector, topK int, userID int64, chatID string) ([]scoredKnowledgeChunk, error) {
-	rows, err := vs.Pool.Query(context.Background(), `SELECT id, '[resume]'::text AS title, content, embedding <-> $1 AS score
+func (vs *VectorStore) fetchResumeKnowledge(ctx context.Context, queryEmbeddingVector pgvector.Vector, topK int, userID int64, chatID string) ([]scoredKnowledgeChunk, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	rows, err := vs.Pool.Query(ctx, `SELECT id, '[resume]'::text AS title, content, embedding <-> $1 AS score
 FROM vector_store
 WHERE user_id = $2 AND chat_id = $3 AND doc_type = 'resume'
 ORDER BY score
@@ -542,6 +587,9 @@ LIMIT $4`, queryEmbeddingVector, userID, chatID, topK)
 			Score: score,
 		})
 	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
 
 	return results, nil
 }
@@ -565,42 +613,59 @@ func sortScoredKnowledge(results []scoredKnowledgeChunk) {
 // 返回值:
 //   - error: 操作过程中遇到的错误，如果成功则为nil
 func (vs *VectorStore) SaveKnowledgeBatch(title string, chunks []string) error {
+	return vs.SaveKnowledgeBatchForUser(title, chunks, 1)
+}
+
+func (vs *VectorStore) SaveKnowledgeBatchForUser(title string, chunks []string, userID int64) error {
+	return vs.SaveKnowledgeBatchForUserContext(context.Background(), title, chunks, userID)
+}
+
+func (vs *VectorStore) SaveKnowledgeBatchForUserContext(ctx context.Context, title string, chunks []string, userID int64) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
 	// 如果知识块切片为空，直接返回nil
 	if len(chunks) == 0 {
 		return nil
 	}
+	if userID <= 0 {
+		return fmt.Errorf("知识所有者不能为空")
+	}
 
-	// 创建上下文
-	ctx := context.Background()
+	type knowledgeEmbedding struct {
+		chunk     string
+		embedding pgvector.Vector
+	}
+
+	embeddings := make([]knowledgeEmbedding, 0, len(chunks))
+	for _, chunk := range chunks {
+		embedding, embedErr := vs.generateEmbedding(ctx, chunk)
+		if embedErr != nil {
+			return fmt.Errorf("知识块向量化失败: %w", embedErr)
+		}
+		embeddings = append(embeddings, knowledgeEmbedding{
+			chunk:     chunk,
+			embedding: embedding,
+		})
+	}
+
 	// 开启数据库事务
 	tx, err := vs.Pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return fmt.Errorf("创建事务失败: %w", err)
 	}
 
-	// 使用 defer 确保在发生错误时回滚事务
-	defer func() {
-		if err != nil {
-			_ = tx.Rollback(ctx)
-		}
-	}()
+	// 使用独立短超时上下文回滚，避免请求取消后事务清理被同一个 ctx 跳过。
+	defer rollbackTx(tx)
 
 	// 定义插入 SQL 语句
-	insertSQL := `INSERT INTO knowledge_base (title, content, embedding) VALUES ($1, $2, $3)`
+	insertSQL := `INSERT INTO knowledge_base (title, content, embedding, user_id) VALUES ($1, $2, $3, $4)`
 	// 遍历所有知识块
-	for _, chunk := range chunks {
-		// 生成知识块的向量表示
-		var embedding pgvector.Vector
-		embedding, err = vs.generateEmbedding(chunk)
-		if err != nil {
-			err = fmt.Errorf("知识块向量化失败: %w", err)
-			return err
-		}
-
+	for _, item := range embeddings {
 		// 执行 SQL 插入语句
-		if _, execErr := tx.Exec(ctx, insertSQL, title, chunk, embedding); execErr != nil {
-			err = fmt.Errorf("保存知识块到数据库失败: %w", execErr)
-			return err
+		if _, err := tx.Exec(ctx, insertSQL, title, item.chunk, item.embedding, userID); err != nil {
+			return fmt.Errorf("保存知识块到数据库失败: %w", err)
 		}
 	}
 
@@ -610,4 +675,10 @@ func (vs *VectorStore) SaveKnowledgeBatch(title string, chunks []string) error {
 	}
 
 	return nil
+}
+
+func rollbackTx(tx pgx.Tx) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_ = tx.Rollback(ctx)
 }

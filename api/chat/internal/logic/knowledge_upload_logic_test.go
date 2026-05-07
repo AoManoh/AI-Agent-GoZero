@@ -22,6 +22,7 @@ func TestValidateKnowledgeUploadInput(t *testing.T) {
 			input: &types.KnowledgeUploadInput{
 				Title:   "   ",
 				Content: "有效内容",
+				UserID:  1,
 			},
 			wantErr: true,
 		},
@@ -30,6 +31,15 @@ func TestValidateKnowledgeUploadInput(t *testing.T) {
 			input: &types.KnowledgeUploadInput{
 				Title:   "文档标题",
 				Content: "   ",
+				UserID:  1,
+			},
+			wantErr: true,
+		},
+		{
+			name: "empty owner",
+			input: &types.KnowledgeUploadInput{
+				Title:   "文档标题",
+				Content: "第一段内容",
 			},
 			wantErr: true,
 		},
@@ -38,6 +48,7 @@ func TestValidateKnowledgeUploadInput(t *testing.T) {
 			input: &types.KnowledgeUploadInput{
 				Title:   "文档标题",
 				Content: "第一段内容",
+				UserID:  1,
 			},
 			wantErr: false,
 		},

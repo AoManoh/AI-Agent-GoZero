@@ -200,7 +200,7 @@ func (l *ChatLogic) Chat(req *types2.InterviewAppChatReq) (<-chan *types2.ChatRe
 
 		// 2.2 新增：知识检索（RAG）
 		// 从向量数据库中检索与用户消息最相关的知识片段
-		knowledgeChunks, err := l.svcCtx.VectorStore.RetrieveKnowledgeScoped(req.Message, l.svcCtx.Config.VectorDB.Knowledge.TopK, scopedUserID, req.ChatId)
+		knowledgeChunks, err := l.svcCtx.VectorStore.RetrieveKnowledgeScopedContext(l.ctx, req.Message, l.svcCtx.Config.VectorDB.Knowledge.TopK, scopedUserID, req.ChatId)
 		if err != nil {
 			l.Logger.Errorf("知识检索失败: %v", err)
 			knowledgeChunks = []types2.KnowledgeChunk{} // 确保不为nil
@@ -391,7 +391,7 @@ func (l *ChatLogic) getSessionHistory(chatId string, knowledge []types2.Knowledg
 	// 步骤1: 从向量数据库检索历史对话记录
 	// 限制为最近10条消息，避免上下文过长影响AI响应质量
 	// VectorStore.GetMessage会自动按时间排序并返回正确的消息顺序
-	vectorMessages, err := l.svcCtx.VectorStore.GetMessageWithUser(chatId, userID, 10)
+	vectorMessages, err := l.svcCtx.VectorStore.GetMessageWithUserContext(l.ctx, chatId, userID, 10)
 	if err != nil {
 		// 历史消息检索失败，可能原因:
 		// - 数据库连接异常
@@ -615,7 +615,7 @@ func (l *ChatLogic) buildMessagesWithState(chatId, currentState string, knowledg
 	}
 	// 将历史消息转换为OpenAI API格式并添加到上下文
 	// 保持原有的角色信息和时间顺序，确保状态转换的逻辑性
-	history, err := l.svcCtx.VectorStore.GetMessageWithUser(chatId, userID, 10)
+	history, err := l.svcCtx.VectorStore.GetMessageWithUserContext(l.ctx, chatId, userID, 10)
 	if err != nil {
 		return nil, err
 	}
