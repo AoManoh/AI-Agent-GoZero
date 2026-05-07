@@ -4,12 +4,12 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"io"
 	"log"
 	"mime/multipart"
 	"os"
 	"path/filepath"
 
+	"GoZero-AI/internal/pdfgrpc"
 	"GoZero-AI/mcp/types/mcp"
 
 	"github.com/zeromicro/go-zero/zrpc"
@@ -18,14 +18,18 @@ import (
 
 func main() {
 	var (
-		pdfPath  string
-		endpoint string
-		output   string
+		pdfPath   string
+		endpoint  string
+		output    string
+		authToken string
+		maxBytes  int64
 	)
 
 	flag.StringVar(&pdfPath, "pdf", filepath.Join("notes", "国务院令第493号：生产安全事故报告和调查处理条例 - 国家煤矿安全监察局.pdf"), "Path to the PDF file to parse")
 	flag.StringVar(&endpoint, "endpoint", "127.0.0.1:8080", "MCP gRPC endpoint")
 	flag.StringVar(&output, "out", "", "Optional output file path")
+	flag.StringVar(&authToken, "token", "", "MCP service auth token")
+	flag.Int64Var(&maxBytes, "max-bytes", 50*1024*1024, "Maximum PDF upload bytes")
 	flag.Parse()
 
 	if pdfPath == "" {
@@ -40,7 +44,7 @@ func main() {
 
 	client := newPdfClient(endpoint)
 	var pdfFile multipart.File = file
-	content, err := extractText(client, pdfFile, filepath.Base(pdfPath))
+	content, err := extractText(context.Background(), client, pdfFile, filepath.Base(pdfPath), authToken, maxBytes)
 	if err != nil {
 		log.Fatalf("extract text failed: %v", err)
 	}
@@ -70,45 +74,11 @@ func newPdfClient(endpoint string) mcp.PdfProcessorClient {
 	return mcp.NewPdfProcessorClient(cli.Conn())
 }
 
-func extractText(client mcp.PdfProcessorClient, file multipart.File, filename string) (string, error) {
-	stream, err := client.ExtractTextFromPDF(context.Background())
-	if err != nil {
-		return "", err
-	}
-	defer func() {
-		_ = stream.CloseSend()
-	}()
-
-	if err := stream.Send(&mcp.PdfReq{
-		Data: &mcp.PdfReq_Metadata{
-			Metadata: &mcp.Metadata{
-				Filename: filename,
-				MimeType: "application/pdf",
-			},
-		},
-	}); err != nil {
-		return "", err
-	}
-
-	data, err := io.ReadAll(file)
-	if err != nil {
-		return "", err
-	}
-
-	if err := stream.Send(&mcp.PdfReq{
-		Data: &mcp.PdfReq_Chunk{Chunk: data},
-	}); err != nil {
-		return "", err
-	}
-
-	res, err := stream.CloseAndRecv()
-	if err != nil {
-		return "", err
-	}
-
-	if res.GetError() != "" {
-		return "", fmt.Errorf("%s", res.GetError())
-	}
-
-	return res.GetContent(), nil
+func extractText(ctx context.Context, client mcp.PdfProcessorClient, file multipart.File, filename, authToken string, maxBytes int64) (string, error) {
+	return pdfgrpc.ExtractTextWithOptions(ctx, func(ctx context.Context) (pdfgrpc.ClientStream, error) {
+		return client.ExtractTextFromPDF(ctx)
+	}, file, filename, pdfgrpc.ExtractOptions{
+		AuthToken:      authToken,
+		MaxUploadBytes: maxBytes,
+	})
 }

@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"GoZero-AI/internal/sessionmode"
+	"GoZero-AI/internal/statuserr"
 
 	"github.com/pgvector/pgvector-go"
 	"github.com/sashabaranov/go-openai"
@@ -120,10 +121,10 @@ func ensureResumeSessionWritable(ctx context.Context, reader sessionStateReader,
 	switch err {
 	case nil:
 		if state.UserId != userID {
-			return resumeSessionState{}, false, fmt.Errorf("无权访问该会话")
+			return resumeSessionState{}, false, statuserr.Forbidden("无权访问该会话")
 		}
 		if !state.IsActive {
-			return resumeSessionState{}, false, fmt.Errorf("会话已删除，请创建新会话")
+			return resumeSessionState{}, false, statuserr.Conflict("会话已删除，请创建新会话")
 		}
 		return state, true, nil
 	case sqlx.ErrNotFound:

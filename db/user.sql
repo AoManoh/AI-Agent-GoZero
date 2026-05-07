@@ -27,7 +27,7 @@ DO $$
     BEGIN
         IF NOT EXISTS (SELECT 1 FROM "public"."users" WHERE id = 1) THEN
             PERFORM setval(pg_get_serial_sequence('public.users', 'id'), 1, false);
-            INSERT INTO "public"."users" (id, username, password_hash) VALUES (1, 'your_username', MD5('your_password')); -- 请替换为真实的哈希密码
+            INSERT INTO "public"."users" (id, username, password_hash) VALUES (1, 'your_username', '$2a$10$b1r0Ng24On7XGaHKvOuzmOzr3do5f4Y7wmqvUidhDrO3Ujpw3XwYq'); -- 占位密码 your_password 的 bcrypt 哈希，部署前请替换
         END IF;
     END $$;
 

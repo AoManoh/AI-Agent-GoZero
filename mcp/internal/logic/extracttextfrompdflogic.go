@@ -32,12 +32,17 @@ import (
 	"context"
 	"io"
 	"os"
+	"strings"
 
+	"GoZero-AI/internal/mcpsecurity"
 	"GoZero-AI/mcp/internal/svc"
 	"GoZero-AI/mcp/types/mcp"
 	"GoZero-AI/mcp/utils"
 
 	"github.com/zeromicro/go-zero/core/logx"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
 )
 
 // ExtractTextFromPDFLogic PDF文本提取业务逻辑处理器
@@ -134,6 +139,10 @@ func NewExtractTextFromPDFLogic(ctx context.Context, svcCtx *svc.ServiceContext)
 //
 //	error: 处理过程中的任何错误，包括网络、文件或解析错误
 func (l *ExtractTextFromPDFLogic) ExtractTextFromPDF(stream mcp.PdfProcessor_ExtractTextFromPDFServer) error {
+	if err := l.authorizeStream(stream); err != nil {
+		return err
+	}
+
 	// 步骤1: 接收客户端发送的PDF文件元数据
 	// 第一条消息必须包含文件的元数据信息（文件名、MIME类型等）
 	metaData, err := stream.Recv()
@@ -148,6 +157,10 @@ func (l *ExtractTextFromPDFLogic) ExtractTextFromPDF(stream mcp.PdfProcessor_Ext
 	if data == nil {
 		logx.Errorf("接收客户端发送的PDF文件元数据为空")
 		return stream.SendAndClose(&mcp.PdfRes{Error: "缺少元数据"})
+	}
+	if strings.TrimSpace(data.Filename) == "" {
+		logx.Errorf("接收客户端发送的PDF文件名为空")
+		return stream.SendAndClose(&mcp.PdfRes{Error: "文件名不能为空"})
 	}
 
 	// 步骤2: 验证数据合法性，确保为PDF文件
@@ -170,7 +183,11 @@ func (l *ExtractTextFromPDFLogic) ExtractTextFromPDF(stream mcp.PdfProcessor_Ext
 
 	// 步骤4: 处理首个数据块（如果存在）
 	// 第一条消息可能同时包含元数据和数据块
+	var receivedBytes int64
 	if chunk := metaData.GetChunk(); chunk != nil {
+		if err := l.checkUploadSize(&receivedBytes, len(chunk)); err != nil {
+			return err
+		}
 		if _, err := tempFile.Write(chunk); err != nil {
 			logx.Errorf("写入首个数据块失败: %v", err)
 			return err
@@ -194,6 +211,9 @@ func (l *ExtractTextFromPDFLogic) ExtractTextFromPDF(stream mcp.PdfProcessor_Ext
 
 		// 提取并写入数据块（如果存在）
 		if chunk := req.GetChunk(); chunk != nil {
+			if err := l.checkUploadSize(&receivedBytes, len(chunk)); err != nil {
+				return err
+			}
 			if _, err := tempFile.Write(chunk); err != nil {
 				logx.Errorf("写入后续数据块失败: %v", err)
 				return err
@@ -213,6 +233,38 @@ func (l *ExtractTextFromPDFLogic) ExtractTextFromPDF(stream mcp.PdfProcessor_Ext
 	// 步骤7: 返回提取的文本
 	// 使用SendAndClose关闭流并返回最终结果
 	return stream.SendAndClose(&mcp.PdfRes{Content: pdfContent})
+}
+
+func (l *ExtractTextFromPDFLogic) authorizeStream(stream mcp.PdfProcessor_ExtractTextFromPDFServer) error {
+	expectedToken := l.svcCtx.Config.PDF.AuthToken
+	if expectedToken == "" {
+		return nil
+	}
+
+	md, ok := metadata.FromIncomingContext(stream.Context())
+	if !ok {
+		return status.Error(codes.Unauthenticated, "缺少 MCP 鉴权信息")
+	}
+	values := md.Get(mcpsecurity.AuthTokenMetadataKey)
+	if len(values) == 0 || !mcpsecurity.TokenMatches(expectedToken, values[0]) {
+		return status.Error(codes.Unauthenticated, "MCP 鉴权失败")
+	}
+
+	return nil
+}
+
+func (l *ExtractTextFromPDFLogic) checkUploadSize(receivedBytes *int64, chunkSize int) error {
+	if chunkSize <= 0 {
+		return nil
+	}
+
+	*receivedBytes += int64(chunkSize)
+	maxBytes := l.svcCtx.Config.PDFMaxUploadBytes()
+	if maxBytes > 0 && *receivedBytes > maxBytes {
+		return status.Error(codes.ResourceExhausted, "PDF 文件超过大小限制")
+	}
+
+	return nil
 }
 
 // extractPdfText 从本地文件路径提取PDF文本内容

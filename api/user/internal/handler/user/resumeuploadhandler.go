@@ -6,6 +6,7 @@ import (
 	logic "GoZero-AI/api/user/internal/logic/user"
 	"GoZero-AI/api/user/internal/svc"
 	"GoZero-AI/api/user/internal/types"
+	"GoZero-AI/internal/pdfgrpc"
 	"GoZero-AI/internal/pdfupload"
 	"GoZero-AI/internal/statuserr"
 	"github.com/zeromicro/go-zero/rest/httpx"
@@ -33,6 +34,10 @@ func ResumeUploadHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
 
 		content, err := svcCtx.PdfClient.ExtractTextFromPDF(r.Context(), file, header.Filename)
 		if err != nil {
+			if pdfgrpc.IsUploadTooLarge(err) {
+				httpx.ErrorCtx(r.Context(), w, pdfupload.ErrUploadLarge)
+				return
+			}
 			httpx.ErrorCtx(r.Context(), w, statuserr.New(http.StatusBadGateway, "PDF 文本提取失败，请稍后重试"))
 			return
 		}

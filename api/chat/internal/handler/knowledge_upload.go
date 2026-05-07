@@ -31,12 +31,16 @@ import (
 	"github.com/zeromicro/go-zero/core/logx"
 	"github.com/zeromicro/go-zero/rest/httpx"
 
+	chatAuth "GoZero-AI/api/chat/internal/auth"
 	"GoZero-AI/api/chat/internal/logic"
 	"GoZero-AI/api/chat/internal/svc"
 	"GoZero-AI/api/chat/internal/types"
+	"GoZero-AI/internal/pdfgrpc"
 	"GoZero-AI/internal/pdfupload"
 	"GoZero-AI/internal/statuserr"
 )
+
+const publicKnowledgeAdminUserID int64 = 1
 
 // KnowledgeUploadHandler 知识库文档上传处理器
 // 实现RAG系统的核心功能之一：外部知识导入，为AI提供专业领域知识支持
@@ -78,6 +82,11 @@ import (
 //	http.HandlerFunc: 符合Go-Zero框架规范的HTTP处理函数
 func KnowledgeUploadHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		userID, ok := requirePublicKnowledgeAdmin(w, r, svcCtx)
+		if !ok {
+			return
+		}
+
 		// 步骤1: 解析multipart/form-data请求，获取上传的文件
 		// r.FormFile("file")解析名为"file"的表单字段
 		// file: 文件内容流，header: 文件元信息(文件名、大小、类型等)
@@ -100,6 +109,10 @@ func KnowledgeUploadHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
 		content, err := svcCtx.PdfClient.ExtractTextFromPDF(r.Context(), file, header.Filename)
 		if err != nil {
 			logx.Errorf("PDF文本提取失败: %v", err)
+			if pdfgrpc.IsUploadTooLarge(err) {
+				httpx.ErrorCtx(r.Context(), w, pdfupload.ErrUploadLarge)
+				return
+			}
 			httpx.ErrorCtx(r.Context(), w, statuserr.New(http.StatusBadGateway, "PDF 文本提取失败，请稍后重试"))
 			return
 		}
@@ -122,6 +135,7 @@ func KnowledgeUploadHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
 		resp, err := l.KnowledgeUpload(&types.KnowledgeUploadInput{
 			Title:   title,   // PDF文件名，用作文档标题
 			Content: content, // 提取的文本内容，将被分块处理
+			UserID:  userID,  // 公共知识管理员 ID
 		})
 
 		// 步骤6: 处理业务逻辑响应并返回给前端
@@ -137,4 +151,31 @@ func KnowledgeUploadHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
 			httpx.OkJson(w, resp)
 		}
 	}
+}
+
+func requirePublicKnowledgeAdmin(w http.ResponseWriter, r *http.Request, svcCtx *svc.ServiceContext) (int64, bool) {
+	ctx := r.Context()
+	accessToken := bearerTokenFromHeader(r.Header.Get("Authorization"))
+	if accessToken == "" {
+		httpx.WriteJsonCtx(ctx, w, http.StatusUnauthorized, map[string]any{
+			"message": "公共知识上传需要登录",
+		})
+		return 0, false
+	}
+
+	userID, err := chatAuth.ParseAccessTokenUserID(svcCtx.Config.Auth.AccessSecret, accessToken)
+	if err != nil {
+		httpx.WriteJsonCtx(ctx, w, http.StatusUnauthorized, map[string]any{
+			"message": "access token 无效或已过期",
+		})
+		return 0, false
+	}
+	if userID != publicKnowledgeAdminUserID {
+		httpx.WriteJsonCtx(ctx, w, http.StatusForbidden, map[string]any{
+			"message": "仅管理员可上传公共知识",
+		})
+		return 0, false
+	}
+
+	return userID, true
 }

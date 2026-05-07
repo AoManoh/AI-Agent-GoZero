@@ -15,6 +15,7 @@ import (
 	"GoZero-AI/api/chat/internal/svc"
 	"GoZero-AI/api/chat/internal/types"
 	"GoZero-AI/api/chat/internal/utils"
+	"GoZero-AI/internal/pdfgrpc"
 	"GoZero-AI/internal/pdfupload"
 	"GoZero-AI/internal/statuserr"
 )
@@ -59,6 +60,10 @@ func ChatHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
 				pdfContent = content
 			} else {
 				logx.Errorf("PDF提取失败: %v", err)
+				if pdfgrpc.IsUploadTooLarge(err) {
+					httpx.ErrorCtx(ctx, w, pdfupload.ErrUploadLarge)
+					return
+				}
 				httpx.ErrorCtx(ctx, w, statuserr.New(http.StatusBadGateway, "PDF 文本提取失败，请稍后重试"))
 				return
 			}
@@ -99,24 +104,18 @@ func ChatHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
 				}
 
 				if resp.IsLatest {
+					if resp.Content != "" && !sendSSEData(w, flusher, resp.Content) {
+						return
+					}
 					if !sendSSEDone(w, flusher) {
 						return
 					}
 					return
 				}
 
-				// 新增优化，前端流式输出时以 markdown 格式渲染内容
-				// handler加个内容处理，符合前端markdown格式
-				safeContent := strings.ReplaceAll(resp.Content, "\n", "\\n")
-				safeContent = strings.ReplaceAll(safeContent, "\r", "\\r")
-
-				// 直接输出内容，不加JSON包装
-				// 格式化为 SSE 规范的 "data: xxx\n\n" 格式
-				_, err := fmt.Fprintf(w, "data: %s\n\n", safeContent)
-				if err != nil {
+				if !sendSSEData(w, flusher, resp.Content) {
 					return
 				}
-				flusher.Flush() // 立即发送给客户端
 			}
 		}
 	}
@@ -141,6 +140,17 @@ func setSSEHeader(w http.ResponseWriter) {
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.Header().Set("X-Accel-Buffering", "no")
 	w.Header().Set("Transfer-Encoding", "chunked")
+}
+
+func sendSSEData(w http.ResponseWriter, flusher http.Flusher, content string) bool {
+	safeContent := strings.ReplaceAll(content, "\n", "\\n")
+	safeContent = strings.ReplaceAll(safeContent, "\r", "\\r")
+
+	if _, err := fmt.Fprintf(w, "data: %s\n\n", safeContent); err != nil {
+		return false
+	}
+	flusher.Flush()
+	return true
 }
 
 func sendSSEDone(w http.ResponseWriter, flusher http.Flusher) bool {

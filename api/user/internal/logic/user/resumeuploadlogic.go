@@ -2,12 +2,13 @@ package user
 
 import (
 	"context"
-	"fmt"
+	"net/http"
 	"strings"
 
 	"GoZero-AI/api/user/internal/svc"
 	"GoZero-AI/api/user/internal/types"
 	"GoZero-AI/internal/sessionmode"
+	"GoZero-AI/internal/statuserr"
 
 	"github.com/zeromicro/go-zero/core/logx"
 )
@@ -34,12 +35,12 @@ func (l *ResumeUploadLogic) ResumeUpload(req *types.ResumeUploadReq, filename, c
 
 	chatID := strings.TrimSpace(req.ChatId)
 	if chatID == "" {
-		return nil, fmt.Errorf("chatId 不能为空")
+		return nil, statuserr.New(http.StatusBadRequest, "chatId 不能为空")
 	}
 
 	trimmedContent := strings.TrimSpace(content)
 	if trimmedContent == "" {
-		return nil, fmt.Errorf("PDF 未解析出有效文本")
+		return nil, statuserr.New(http.StatusBadRequest, "PDF 未解析出有效文本")
 	}
 
 	title := strings.TrimSpace(req.Title)

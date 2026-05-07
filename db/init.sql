@@ -26,7 +26,7 @@ CREATE TABLE "public"."users" (
 );
 
 INSERT INTO "public"."users" ("id", "username", "password_hash")
-VALUES (1, 'your_username', MD5('your_password'))
+VALUES (1, 'your_username', '$2a$10$b1r0Ng24On7XGaHKvOuzmOzr3do5f4Y7wmqvUidhDrO3Ujpw3XwYq')
 ON CONFLICT ("id") DO NOTHING;
 
 SELECT setval(pg_get_serial_sequence('public.users', 'id'), GREATEST((SELECT COALESCE(MAX(id), 1) FROM "public"."users"), 1), true);
