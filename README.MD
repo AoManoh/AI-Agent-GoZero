@@ -178,9 +178,15 @@ cp docker-compose.example.yml docker-compose.yml
 
 ```yaml
 OpenAI:
-  ApiKey: "your-openai-api-key"        # 替换为你的 OpenAI API Key
-  BaseURL: "https://api.openai.com/v1"
-  Model: "gpt-4"
+  ApiKeyFile: "~/.codex/auth.json"     # 可选：从 Codex auth 文件读取对话模型 key
+  ApiKeyJSONKey: "OPENAI_API_KEY"
+  BaseURL: "http://sub2api.aomanoh.com:18080/v1"
+  Model: "gpt-5.4"
+
+Embedding:
+  ApiKey: "your-embedding-api-key"     # embedding 可与对话模型使用不同凭证
+  BaseURL: "https://dashscope.aliyuncs.com/compatible-mode/v1"
+  Model: "text-embedding-v2"
 
 VectorDB:
   Password: "your-database-password"   # 替换为你的数据库密码

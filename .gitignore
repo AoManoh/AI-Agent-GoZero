@@ -1,5 +1,6 @@
 /.cursor/
 /.augment
+/.augmentignore
 /.env
 /default.etcd
 /notes
@@ -60,6 +61,7 @@ vendor/
 /api/user/etc/docker.yaml
 /mcp/etc/docker.yaml
 /mcp/etc/mcp.yaml
+/**/*.local.yaml
 /docker-compose.yml
 
 # 前端环境变量 (保留 example 文件)
