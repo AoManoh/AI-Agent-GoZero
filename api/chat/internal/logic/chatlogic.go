@@ -44,6 +44,7 @@ import (
 
 	chatAuth "GoZero-AI/api/chat/internal/auth"
 	"GoZero-AI/internal/chatflow"
+
 	"github.com/sashabaranov/go-openai"
 	"github.com/zeromicro/go-zero/core/logx"
 
@@ -401,8 +402,19 @@ func (l *ChatLogic) getSessionHistory(chatId string, knowledge []types2.Knowledg
 	}
 
 	// 步骤2: 构造系统消息基础内容
-	// 定义AI的基础角色和行为准则，为专业面试场景做定制
-	systemMessage := "你是一个专业的Go语言面试官，负责评估候选人的Go语言能力。请提出有深度的问题并评估回答。"
+	// 严格按照 consts.go 中精心设计的 Prompt 拼接，提供完整的"角色 + 规则 + 风格 + 策略 + 锁定"。
+	// 拼接顺序很重要：CoreRolePrompt (角色) → InterviewRulesPrompt (规则) → CommunicationStylePrompt (风格)
+	// → KnowledgeStrategyPrompt (策略) → RoleLockPrompt (反 prompt injection 兜底，必须放末尾以获得最高权重)。
+	// 旧的单行 fallback "你是一个专业的Go语言面试官..." 已废弃 —— 它无法约束模型在面对
+	// "详细讲下 XXX 技术原理" 类用户输入时切换为 chat assistant 角色。
+	style := selectInterviewStyle(chatId)
+	systemMessage := strings.Join([]string{
+		config.CoreRolePrompt,
+		config.InterviewRulesPrompt,
+		config.CommunicationStylePrompt,
+		buildInterviewStylePrompt(style),
+		config.KnowledgeStrategyPrompt,
+	}, "\n\n")
 
 	// 步骤3: 动态知识注入(RAG核心逻辑)
 	// 如果检索到相关知识片段，将其整合到系统提示词中
@@ -423,6 +435,7 @@ func (l *ChatLogic) getSessionHistory(chatId string, knowledge []types2.Knowledg
 			systemMessage += fmt.Sprintf("\n[知识片段%d] %s: %s", i+1, k.Title, truncatedContent)
 		}
 	}
+	systemMessage += "\n\n" + config.RoleLockPrompt
 
 	// 步骤4: 构造OpenAI API所需的消息格式
 	// 系统消息必须放在最前面，定义AI的角色和可用知识
@@ -556,6 +569,7 @@ func (l *ChatLogic) getSessionHistory(chatId string, knowledge []types2.Knowledg
 //	}
 func (l *ChatLogic) buildMessagesWithState(chatId, currentState string, knowledge []types2.KnowledgeChunk, userID *int64) ([]openai.ChatCompletionMessage, error) {
 	var sb strings.Builder
+	style := selectInterviewStyle(chatId)
 
 	// --- 阶段一：构建 AI 的核心身份与行为准则 ---
 
@@ -567,17 +581,22 @@ func (l *ChatLogic) buildMessagesWithState(chatId, currentState string, knowledg
 	sb.WriteString(config.CommunicationStylePrompt)
 	sb.WriteString("\n\n")
 
-	// 3. 注入面试规则
+	// 3. 注入本轮稳定面试官风格。风格由 chatId 决定，确保同一会话前后一致。
+	sb.WriteString(buildInterviewStylePrompt(style))
+	sb.WriteString("\n\n")
+
+	// 4. 注入面试规则
 	sb.WriteString(config.InterviewRulesPrompt)
 	sb.WriteString("\n\n")
 
-	// 4. (新增) 注入提问与评估的策略
+	// 5. (新增) 注入提问与评估的策略
 	sb.WriteString(config.KnowledgeStrategyPrompt)
 
 	// --- 阶段二：注入当前任务的动态上下文 ---
 
 	sb.WriteString("\n\n## 当前任务")
 	sb.WriteString("\n**当前面试阶段**: " + currentState)
+	sb.WriteString("\n**本轮面试风格**: " + style.Label)
 
 	switch currentState {
 	case types2.StateStart:
@@ -602,6 +621,9 @@ func (l *ChatLogic) buildMessagesWithState(chatId, currentState string, knowledg
 			sb.WriteString(fmt.Sprintf("\n- **知识 %d (%s)**: %s", i+1, k.Title, truncatedContent))
 		}
 	}
+
+	sb.WriteString("\n\n")
+	sb.WriteString(config.RoleLockPrompt)
 
 	// 获取最终的 systemMessage 字符串
 	systemMessage := sb.String()

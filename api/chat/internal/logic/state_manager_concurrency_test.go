@@ -68,3 +68,52 @@ func TestRecordTurnConcurrentDoesNotLoseUpdates(t *testing.T) {
 		t.Fatalf("len(events) = %d, want %d", len(events), turns)
 	}
 }
+
+func TestEvaluateAndUpdateStateConcurrentDoesNotError(t *testing.T) {
+	server, err := miniredis.Run()
+	if err != nil {
+		t.Fatalf("miniredis.Run() error = %v", err)
+	}
+	defer server.Close()
+
+	client := redis.NewClient(&redis.Options{Addr: server.Addr()})
+	defer client.Close()
+
+	manager := NewStateManager(context.Background(), &svc.ServiceContext{
+		RedisClient: client,
+	})
+	scope := ConversationScope{
+		ChatID: "sess-state-concurrent",
+		Mode:   "Interview",
+	}
+
+	const workers = 12
+	var wg sync.WaitGroup
+	errCh := make(chan error, workers)
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, err := manager.EvaluateAndUpdateState(scope, "你好，欢迎来到今天的 Go 后端面试，我们先聊聊 GMP 调度模型。")
+			if err != nil {
+				errCh <- err
+			}
+		}()
+	}
+	wg.Wait()
+	close(errCh)
+
+	for err := range errCh {
+		if err != nil {
+			t.Fatalf("EvaluateAndUpdateState() error = %v", err)
+		}
+	}
+
+	snapshot, err := manager.GetFlowState(scope)
+	if err != nil {
+		t.Fatalf("GetFlowState() error = %v", err)
+	}
+	if snapshot.InterviewState != "question" {
+		t.Fatalf("snapshot.InterviewState = %q, want question", snapshot.InterviewState)
+	}
+}

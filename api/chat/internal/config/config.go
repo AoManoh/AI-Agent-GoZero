@@ -11,9 +11,10 @@ type Config struct {
 	Auth struct {
 		AccessSecret string `json:",optional"`
 	}
-	OpenAI    OpenAIConfig
-	Embedding llmclient.ProviderConfig `json:",optional"`
-	VectorDB  VectorDBConfig           // 新增向量数据库配置
+	OpenAI          OpenAIConfig
+	Embedding       llmclient.ProviderConfig `json:",optional"`
+	StateTransition StateTransitionConfig    `json:",optional"`
+	VectorDB        VectorDBConfig           // 新增向量数据库配置
 	// MCPConfig MCP 服务配置
 	MCP struct {
 		Endpoint       string // MCP 服务地址
@@ -41,7 +42,34 @@ type OpenAIConfig struct {
 	Temperature         float32
 }
 
+// StateTransitionConfig 描述面试状态转移判定模型。
+// 该配置与主聊天模型、Embedding 模型解耦；未声明凭证或 BaseURL 时默认回退到 OpenAI 配置。
+type StateTransitionConfig struct {
+	Enabled             bool    `json:",optional"`
+	ApiKey              string  `json:",optional"`
+	ApiKeyEnv           string  `json:",optional"`
+	ApiKeyFile          string  `json:",optional"`
+	ApiKeyJSONKey       string  `json:",optional"`
+	BaseURL             string  `json:",optional"`
+	Model               string  `json:",optional"`
+	MaxCompletionTokens int     `json:",optional"`
+	Temperature         float32 `json:",optional"`
+	ReasoningEffort     string  `json:",optional"`
+	TimeoutMillis       int     `json:",optional"`
+}
+
 func (c OpenAIConfig) ProviderConfig() llmclient.ProviderConfig {
+	return llmclient.ProviderConfig{
+		ApiKey:        c.ApiKey,
+		ApiKeyEnv:     c.ApiKeyEnv,
+		ApiKeyFile:    c.ApiKeyFile,
+		ApiKeyJSONKey: c.ApiKeyJSONKey,
+		BaseURL:       c.BaseURL,
+		Model:         c.Model,
+	}
+}
+
+func (c StateTransitionConfig) ProviderConfig() llmclient.ProviderConfig {
 	return llmclient.ProviderConfig{
 		ApiKey:        c.ApiKey,
 		ApiKeyEnv:     c.ApiKeyEnv,
@@ -66,6 +94,45 @@ func (c Config) EmbeddingEndpoint() llmclient.Endpoint {
 		fallback.ApiKeyJSONKey = ""
 	}
 	return llmclient.ResolveEndpoint(c.Embedding, fallback, c.EmbeddingModel())
+}
+
+func (c Config) StateTransitionEndpoint() llmclient.Endpoint {
+	return llmclient.ResolveEndpoint(c.StateTransition.ProviderConfig(), c.OpenAI.ProviderConfig(), c.StateTransitionModel())
+}
+
+func (c Config) StateTransitionModel() string {
+	if c.StateTransition.Model != "" {
+		return c.StateTransition.Model
+	}
+	return c.OpenAI.Model
+}
+
+func (c Config) StateTransitionMaxCompletionTokens() int {
+	if c.StateTransition.MaxCompletionTokens > 0 {
+		return c.StateTransition.MaxCompletionTokens
+	}
+	return 128
+}
+
+func (c Config) StateTransitionTemperature() float32 {
+	if c.StateTransition.Temperature > 0 {
+		return c.StateTransition.Temperature
+	}
+	if c.OpenAI.Temperature > 0 {
+		return c.OpenAI.Temperature
+	}
+	return 1.0
+}
+
+func (c Config) StateTransitionReasoningEffort() string {
+	return c.StateTransition.ReasoningEffort
+}
+
+func (c Config) StateTransitionTimeoutMillis() int {
+	if c.StateTransition.TimeoutMillis > 0 {
+		return c.StateTransition.TimeoutMillis
+	}
+	return 3000
 }
 
 func (c Config) EmbeddingModel() string {

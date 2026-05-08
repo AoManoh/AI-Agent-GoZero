@@ -67,6 +67,18 @@ func TestTransitionStateDetailedFromQuestion(t *testing.T) {
 			wantReason: "follow_up_signal",
 		},
 		{
+			name:       "natural follow up phrase",
+			reply:      "那你接着讲讲，P 为什么不能简单省掉？",
+			wantState:  types.StateFollowUp,
+			wantReason: "follow_up_signal",
+		},
+		{
+			name:       "scenario follow up phrase",
+			reply:      "那如果下游阻塞且不支持 ctx，你会怎么避免 goroutine 泄漏？",
+			wantState:  types.StateFollowUp,
+			wantReason: "follow_up_signal",
+		},
+		{
 			name:       "evaluation signal",
 			reply:      "我们做个阶段性评估，总结一下你的优缺点。",
 			wantState:  types.StateEvaluate,

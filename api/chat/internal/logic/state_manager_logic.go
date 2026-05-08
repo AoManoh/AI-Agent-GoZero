@@ -125,6 +125,29 @@ func looksLikeOpeningQuestion(s string) bool {
 	return strings.ContainsAny(s, "？?")
 }
 
+func looksLikeFollowUpSignal(s string) bool {
+	return containsAny(s, []string{
+		"追问",
+		"详细说明",
+		"为什么",
+		"怎么实现",
+		"接着讲讲",
+		"继续讲讲",
+		"展开一下",
+		"具体说说",
+		"具体讲讲",
+		"你会怎么",
+		"会怎么",
+		"怎么避免",
+		"怎么保证",
+		"哪些操作",
+		"哪些场景",
+		"如果",
+		"假设",
+		"换个角度",
+	})
+}
+
 func (sm *StateManager) TransitionState(currentState, aiRes string) string {
 	nextState, _ := sm.TransitionStateDetailed(currentState, aiRes)
 	return nextState
@@ -142,7 +165,7 @@ func (sm *StateManager) TransitionStateDetailed(currentState, aiRes string) (str
 			return types.StateQuestion, "opening_question_signal"
 		}
 	case types.StateQuestion:
-		if containsAny(lowerRes, []string{"追问", "详细说明", "为什么", "怎么实现"}) {
+		if looksLikeFollowUpSignal(lowerRes) {
 			return types.StateFollowUp, "follow_up_signal"
 		}
 		if containsAny(lowerRes, []string{"评估", "总结", "表现", "优缺点"}) {
@@ -152,7 +175,7 @@ func (sm *StateManager) TransitionStateDetailed(currentState, aiRes string) (str
 		if containsAny(lowerRes, []string{"评估", "总结", "表现", "优缺点"}) {
 			return types.StateEvaluate, "evaluation_signal"
 		}
-		if containsAny(lowerRes, []string{"下一个问题", "新问题"}) {
+		if containsAny(lowerRes, []string{"下一个问题", "新问题", "换个主题", "另一个问题"}) {
 			return types.StateQuestion, "next_question_signal"
 		}
 	case types.StateEvaluate:
@@ -170,9 +193,22 @@ func (sm *StateManager) TransitionStateDetailed(currentState, aiRes string) (str
 
 func (sm *StateManager) EvaluateAndUpdateState(scope ConversationScope, aiResponse string) (*chatflow.Snapshot, error) {
 	key := chatflow.BuildContextKey(scope.ChatID, scope.UserID, scope.Mode)
+	transition := stateTransitionDecision{}
+	if snapshot, err := sm.GetFlowState(scope); err == nil {
+		transition = sm.decideTransition(snapshot.InterviewState, aiResponse)
+	} else {
+		transition = sm.decideTransition(types.StateStart, aiResponse)
+		transition.FromState = ""
+	}
+
 	snapshot, err := chatflow.MutateSnapshot(sm.context(), sm.svcCtx.RedisClient, key, types.StateStart, maxStateEvents, func(snapshot chatflow.Snapshot) (chatflow.Snapshot, *chatflow.Event, error) {
-		nextState, reason := sm.TransitionStateDetailed(snapshot.InterviewState, aiResponse)
 		from := snapshot.InterviewState
+		nextState := transition.NextState
+		reason := transition.Reason
+		if transition.FromState != from {
+			nextState, reason = sm.TransitionStateDetailed(from, aiResponse)
+			reason = "rule_after_state_changed_" + reason
+		}
 		snapshot.InterviewState = nextState
 		if nextState == types.StateEnd {
 			snapshot.LifecycleState = chatflow.LifecycleCompleted

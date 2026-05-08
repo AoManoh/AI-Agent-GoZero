@@ -27,7 +27,15 @@ OpenAI:
   # Model: "your-model-name"
 
   MaxCompletionTokens: 2048           # 最大token数，注意，原 MaxTokens 已废弃
-  Temperature: 0.75          # 温度参数
+  Temperature: 1.0          # gpt-5.4 等 beta 模型要求 temperature=1
+
+StateTransition:
+  Enabled: true
+  # 默认继承 OpenAI 的 ApiKey/BaseURL/Model；如需独立厂商，可在本块单独声明 ApiKey/BaseURL/Model。
+  MaxCompletionTokens: 128
+  Temperature: 1.0
+  ReasoningEffort: "low"
+  TimeoutMillis: 3000
 
 Embedding:
   ApiKey: "your-dashscope-api-key"

@@ -54,8 +54,16 @@ OpenAI:
   # ==========================================
   # 生成文本的最大token数量限制，控制输出长度和成本
   MaxCompletionTokens: 2048           # 最大token数，注意，原 MaxTokens 已废弃
-  # 模型创造性参数，值越大输出越变化，值越小输出越稳定
-  Temperature: 0.7          # 温度参数
+  # 模型创造性参数，gpt-5.4 等 beta 模型要求 temperature=1
+  Temperature: 1.0          # 温度参数
+
+StateTransition:
+  Enabled: true
+  # 默认继承 OpenAI 的 ApiKey/BaseURL/Model；如需独立厂商，可在本块单独声明 ApiKey/BaseURL/Model。
+  MaxCompletionTokens: 128
+  Temperature: 1.0
+  ReasoningEffort: "low"
+  TimeoutMillis: 3000
 
 Embedding:
   ApiKeyEnv: "DASHSCOPE_API_KEY"
