@@ -111,6 +111,23 @@ type (
 		Session  SessionItem      `json:"session"`
 		Messages []SessionMessage `json:"messages"`
 	}
+	DemoInterviewSceneRandomReq {
+		Limit int64 `form:"limit,optional"`
+	}
+	DemoInterviewSceneMessage {
+		Role      string `json:"role"`
+		Name      string `json:"name"`
+		Content   string `json:"content"`
+		CreatedAt string `json:"createdAt"`
+	}
+	DemoInterviewSceneRandomResp {
+		Available bool                        `json:"available"`
+		SessionId string                      `json:"sessionId,optional"`
+		Title     string                      `json:"title,optional"`
+		Mode      string                      `json:"mode,optional"`
+		ModeKey   string                      `json:"modeKey,optional"`
+		Messages  []DemoInterviewSceneMessage `json:"messages"`
+	}
 	DeleteSessionResp  {}
 	// 会话评估请求体
 	SessionEvaluationReq {
@@ -381,6 +398,10 @@ service user-api {
 	@doc "刷新访问令牌"
 	@handler RefreshTokenHandler
 	post /refresh (RefreshTokenReq) returns (RefreshTokenResp)
+
+	@doc "随机获取管理员演示面试场景，用于公开首页打字机动画"
+	@handler DemoInterviewSceneRandomHandler
+	get /demo/interview-scenes/random (DemoInterviewSceneRandomReq) returns (DemoInterviewSceneRandomResp)
 }
 
 // ----------------------------------------------------

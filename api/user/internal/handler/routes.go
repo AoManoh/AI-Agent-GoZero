@@ -16,6 +16,12 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 	server.AddRoutes(
 		[]rest.Route{
 			{
+				// 随机获取管理员演示面试场景，用于公开首页打字机动画
+				Method:  http.MethodGet,
+				Path:    "/demo/interview-scenes/random",
+				Handler: user.DemoInterviewSceneRandomHandler(serverCtx),
+			},
+			{
 				// 用户登录
 				Method:  http.MethodPost,
 				Path:    "/login",

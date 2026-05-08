@@ -19,6 +19,26 @@ type DeleteSessionReq struct {
 type DeleteSessionResp struct {
 }
 
+type DemoInterviewSceneMessage struct {
+	Role      string `json:"role"`
+	Name      string `json:"name"`
+	Content   string `json:"content"`
+	CreatedAt string `json:"createdAt"`
+}
+
+type DemoInterviewSceneRandomReq struct {
+	Limit int64 `form:"limit,optional"`
+}
+
+type DemoInterviewSceneRandomResp struct {
+	Available bool                        `json:"available"`
+	SessionId string                      `json:"sessionId,optional"`
+	Title     string                      `json:"title,optional"`
+	Mode      string                      `json:"mode,optional"`
+	ModeKey   string                      `json:"modeKey,optional"`
+	Messages  []DemoInterviewSceneMessage `json:"messages"`
+}
+
 type EvaluationDimension struct {
 	Key      string `json:"key"`
 	Label    string `json:"label"`
