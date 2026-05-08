@@ -22,27 +22,46 @@
   --display: 'Noto Serif SC', 'DM Sans', Georgia, serif;
   --sans: 'DM Sans', 'Noto Sans SC', system-ui, sans-serif;
 
-  --color-bg: #020204;
-  --color-bg-secondary: rgba(255, 255, 255, 0.05);
-  --color-border: rgba(255, 255, 255, 0.1);
-  --color-text-primary: #ffffff;
-  --color-text-secondary: rgba(255, 255, 255, 0.7);
-  --color-glow-1: #4ade80;
-  --color-glow-2: #3b82f6;
+  /* 兼容旧组件的别名 token，统一映射到 V8 黑白体系 */
+  --color-bg: var(--bg);
+  --color-bg-secondary: var(--panel);
+  --color-border: var(--b);
+  --color-text-primary: var(--t);
+  --color-text-secondary: var(--t2);
   --color-error: #ef4444;
+
+  /* 圆角 token：克制风，避免任意像素值散落各处 */
+  --radius-xs: 4px;     /* 行内 code、tag 等微元素 */
+  --radius-sm: 6px;     /* 列表项、按钮、输入框 */
+  --radius-md: 8px;     /* 中等卡片、消息气泡、CTA */
+  --radius-lg: 12px;    /* 大容器、对话窗口、auth-card */
+  --radius-pill: 999px; /* 完整胶囊形 */
+  --radius-circle: 50%; /* 圆形头像、点 */
 }
 
+/*
+ * 浅色主题 token 预留：本轮（dark-only baseline）不交付，仅用于阶段未来的浅色页面。
+ * 完整覆盖所有 V8 token 以避免后续接入时遗漏；不保证现阶段渲染正确。
+ */
 body.light-mode {
   --bg: #f8fafc;
   --bg2: #ffffff;
   --bg3: #ffffff;
-  --color-bg: #f8fafc;
-  --color-bg-secondary: #ffffff;
-  --color-border: rgba(0, 0, 0, 0.1);
-  --color-text-primary: #0f172a;
-  --color-text-secondary: #475569;
-  --t: #000000;
-  --t2: #333333;
+  --panel: rgba(0, 0, 0, .04);
+  --b: rgba(0, 0, 0, .1);
+  --bh: rgba(0, 0, 0, .2);
+  --sep: linear-gradient(90deg, transparent 0%, rgba(0, 0, 0, .12) 12%, rgba(0, 0, 0, .12) 88%, transparent 100%);
+
+  --t: #0f172a;
+  --t2: #475569;
+  --t3: #64748b;
+  --t4: #cbd5e1;
+
+  --color-bg: var(--bg);
+  --color-bg-secondary: var(--panel);
+  --color-border: var(--b);
+  --color-text-primary: var(--t);
+  --color-text-secondary: var(--t2);
 }
 
 * {
@@ -80,12 +99,16 @@ a {
   width: 100%;
 }
 
+/*
+ * 注：以下 .nav-button / .cta-button 为旧版兼容样式，新页面应使用 Home.vue 内部
+ * .btn-ng / .btn-ns / .btn-p / .btn-g 等基于 V8 token 的样式。
+ */
 .nav-button {
   background: rgba(255, 255, 255, 0.1);
-  border: 1px solid var(--color-border);
-  color: var(--color-text-primary);
+  border: 1px solid var(--b);
+  color: var(--t);
   padding: 8px 16px;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   font-weight: 500;
   transition: background-color 0.2s;
   cursor: pointer;
@@ -97,32 +120,30 @@ a {
 }
 
 .nav-button.primary {
-  background: var(--color-glow-1);
+  background: var(--t);
   border-color: transparent;
-  color: #fff;
+  color: var(--bg);
 }
 
 .nav-button.primary:hover {
-  background: #4f8fff;
-  color: #fff;
+  opacity: 0.85;
 }
 
 .cta-button {
   display: inline-block;
   padding: 14px 32px;
   border: none;
-  border-radius: 8px;
-  background: linear-gradient(90deg, var(--color-glow-1), var(--color-glow-2));
-  color: #fff;
+  border-radius: var(--radius-md);
+  background: var(--t);
+  color: var(--bg);
   font-size: 1.1rem;
   font-weight: 600;
   text-decoration: none;
   cursor: pointer;
-  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  transition: transform 0.2s ease, opacity 0.2s ease;
 }
 
 .cta-button:hover {
   transform: translateY(-2px);
-  box-shadow: 0 0 25px rgba(59, 130, 246, 0.5), 0 0 25px rgba(139, 92, 246, 0.5);
-  color: #fff;
+  opacity: 0.85;
 }

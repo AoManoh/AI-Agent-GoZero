@@ -1,5 +1,5 @@
 import { computed, ref } from "vue";
-import { authStorage } from "../api/index.js";
+import { authStorage } from "../api/core.js";
 import { useApi } from "./useApi";
 
 const authState = ref(authStorage.getSession());

@@ -1,12 +1,27 @@
 import axios from 'axios'
+import { ACCESS_TOKEN_KEY } from './core.js'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api'
 
+const readAccessToken = () => {
+  if (typeof window === 'undefined') return ''
+  return window.localStorage.getItem(ACCESS_TOKEN_KEY) || ''
+}
 
 // 创建axios实例
 const request = axios.create({
   baseURL: API_BASE_URL,
   timeout: 60000
+})
+
+// 自动附加 JWT Bearer token（与 core.js 行为对齐，避免登录后调用 admin/private 接口 401）
+request.interceptors.request.use((config) => {
+  const token = readAccessToken()
+  if (token) {
+    config.headers = config.headers || {}
+    config.headers.Authorization = `Bearer ${token}`
+  }
+  return config
 })
 
 // 封装SSE连接 - 支持FormData
@@ -24,13 +39,19 @@ export const connectSSEWithFormData = (url, formData) => {
     try {
       abortController = new AbortController()
 
+      const accessToken = readAccessToken()
+      const headers = {
+        // 不设置Content-Type，让浏览器自动设置multipart/form-data
+      }
+      if (accessToken) {
+        headers.Authorization = `Bearer ${accessToken}`
+      }
+
       const response = await fetch(fullUrl, {
         method: 'POST',
         body: formData,
         signal: abortController.signal,
-        headers: {
-          // 不设置Content-Type，让浏览器自动设置multipart/form-data
-        }
+        headers,
       })
 
       if (!response.ok) {
@@ -61,11 +82,15 @@ export const connectSSEWithFormData = (url, formData) => {
 
             for (const line of lines) {
               if (line.startsWith('data: ')) {
-                const data = line.slice(6) // 移除 'data: ' 前缀
-                if (data === '[DONE]') {
+                // 关键：不要 .trim()，否则代码块里 token 之间的前后空格会被吃掉，
+                // 导致 markdown 渲染出 "typegstruct{" 这种空格全丢的样子。
+                // 仅在判定 [DONE] 标记时用 trim 比较，传给 callback 的内容必须保留原样。
+                const data = line.slice(6).replace(/\r$/, '')
+                const dataTrimmed = data.trim()
+                if (dataTrimmed === '[DONE]') {
                   if (messageCallback) messageCallback('[DONE]')
-                } else if (data.trim()) {
-                  if (messageCallback) messageCallback(data.trim())
+                } else if (data) {
+                  if (messageCallback) messageCallback(data)
                 }
               } else if (line.trim() && !line.startsWith(':')) {
                 // 处理没有 'data: ' 前缀的行（某些SSE实现可能直接发送数据）

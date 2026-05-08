@@ -11,12 +11,32 @@
         <h2 class="auth-title">创建账户</h2>
         <form @submit.prevent="handleSubmit">
           <div class="form-group">
-            <label for="register-email">邮箱</label>
-            <input id="register-email" v-model="email" type="email" class="form-input" required />
+            <label for="register-username">用户名</label>
+            <input
+              id="register-username"
+              v-model="username"
+              type="text"
+              class="form-input"
+              autocomplete="username"
+              minlength="6"
+              maxlength="50"
+              required
+              :disabled="loading"
+            />
           </div>
           <div class="form-group">
             <label for="register-password">密码</label>
-            <input id="register-password" v-model="password" type="password" class="form-input" required />
+            <input
+              id="register-password"
+              v-model="password"
+              type="password"
+              class="form-input"
+              autocomplete="new-password"
+              minlength="6"
+              maxlength="50"
+              required
+              :disabled="loading"
+            />
           </div>
           <div class="form-group">
             <label for="register-confirm">确认密码</label>
@@ -25,11 +45,17 @@
               v-model="confirmPassword"
               type="password"
               class="form-input"
+              autocomplete="new-password"
+              minlength="6"
+              maxlength="50"
               required
+              :disabled="loading"
             />
-            <p class="error-message" v-if="showError">密码不匹配</p>
+            <p class="error-message" v-if="showError">两次密码不一致</p>
           </div>
-          <button type="submit" class="cta-button auth-button">注册</button>
+          <button type="submit" class="cta-button auth-button" :disabled="loading">
+            {{ loading ? "注册中…" : "注册" }}
+          </button>
         </form>
         <p class="switch-auth">
           已有账户？
@@ -43,22 +69,50 @@
 <script setup>
 import { computed, ref } from "vue";
 import { useRouter } from "vue-router";
+import { ElMessage } from "element-plus";
 import SiteHeader from "../components/SiteHeader.vue";
 import ThemeToggle from "../components/ThemeToggle.vue";
 import { useTheme } from "../composables/useTheme";
+import { useAuth } from "../composables/useAuth";
 
 const router = useRouter();
 const { theme, toggleTheme } = useTheme();
+const { register } = useAuth();
 
-const email = ref("");
+const username = ref("");
 const password = ref("");
 const confirmPassword = ref("");
+const loading = ref(false);
 
-const showError = computed(() => password.value && confirmPassword.value && password.value !== confirmPassword.value);
+const showError = computed(
+  () =>
+    Boolean(password.value) &&
+    Boolean(confirmPassword.value) &&
+    password.value !== confirmPassword.value
+);
 
-function handleSubmit() {
+async function handleSubmit() {
+  if (loading.value) return;
   if (showError.value) return;
-  router.push({ name: "Home" });
+  if (!username.value || !password.value) {
+    ElMessage.warning("请输入用户名和密码");
+    return;
+  }
+
+  loading.value = true;
+  try {
+    await register({
+      username: username.value,
+      password: password.value,
+      confirmPassword: confirmPassword.value,
+    });
+    ElMessage.success("注册成功，请登录");
+    router.push({ name: "Login" });
+  } catch (error) {
+    ElMessage.error(error?.message || "注册失败，请稍后再试");
+  } finally {
+    loading.value = false;
+  }
 }
 </script>
 
@@ -83,7 +137,7 @@ function handleSubmit() {
   max-width: 400px;
   background: var(--color-card-bg);
   border: 1px solid var(--color-border);
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
   backdrop-filter: blur(10px);
   padding: 40px;
@@ -112,7 +166,7 @@ function handleSubmit() {
   border: 1px solid var(--color-border);
   color: var(--color-text-primary);
   padding: 12px 16px;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   font-size: 1rem;
   transition: border-color 0.2s, box-shadow 0.2s;
 }
