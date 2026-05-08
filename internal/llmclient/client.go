@@ -1,6 +1,7 @@
 package llmclient
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -9,6 +10,12 @@ import (
 
 	"github.com/sashabaranov/go-openai"
 )
+
+// utf8BOM 是 UTF-8 字节序标记 (Byte Order Mark)。
+// Windows PowerShell 5.1 的 `Set-Content -Encoding UTF8` 与部分编辑器
+// 在保存文件时会写入此 3 字节前缀；多数解析器（含 Go encoding/json）
+// 不会把它当成空白符跳过，导致 JSON 解析或字段判定失败。
+var utf8BOM = []byte{0xEF, 0xBB, 0xBF}
 
 // ProviderConfig 描述一组兼容 OpenAI API 的服务凭证。
 type ProviderConfig struct {
@@ -105,6 +112,12 @@ func readAPIKeyFile(path, jsonKey string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("读取 API key 文件失败: %w", err)
 	}
+
+	// 容错：去除 UTF-8 BOM 前缀。
+	// 如果不剥离，TrimSpace 不会处理 BOM，导致下方 HasPrefix("{") 判定失败 →
+	// 整段含 BOM 的 JSON 文本会被当成纯 key 返回；上游用作 Bearer token 时
+	// 必然返回 401 INVALID_API_KEY，且报错信息无法直接指向 BOM 这个根因。
+	raw = bytes.TrimPrefix(raw, utf8BOM)
 
 	content := strings.TrimSpace(string(raw))
 	if content == "" {
