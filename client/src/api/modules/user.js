@@ -20,6 +20,15 @@ export const userEndpoints = {
       url: `/users/sessions/${encodeURIComponent(id)}`,
     };
   },
+  demoInterviewSceneRandom(params = {}) {
+    return {
+      service: "user",
+      method: "get",
+      url: "/users/demo/interview-scenes/random",
+      params,
+      timeout: 3000,
+    };
+  },
   resumeUpload(formData) {
     return {
       service: "user",

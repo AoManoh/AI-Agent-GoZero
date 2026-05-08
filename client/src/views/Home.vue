@@ -5,11 +5,6 @@
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none"><rect width="24" height="24" rx="5" fill="rgba(255,255,255,.08)" stroke="rgba(255,255,255,.12)" stroke-width="1"/><circle cx="12" cy="12" r="7" stroke="rgba(255,255,255,.45)" stroke-width="1"/><line x1="7" y1="10" x2="13" y2="10" stroke="rgba(255,255,255,.9)" stroke-width="1.5" stroke-linecap="round"/><line x1="11" y1="14" x2="17" y2="14" stroke="rgba(255,255,255,.9)" stroke-width="1.5" stroke-linecap="round"/></svg>
         AI 面试官
       </a>
-      <ul class="nav-links">
-        <li><a href="#">功能</a></li>
-        <li><a href="#">工作原理</a></li>
-        <li><a href="#">技术栈</a></li>
-      </ul>
       <div class="nav-r">
         <!-- 保留原有ThemeToggle逻辑，这里暂时写死为文字或者用组件 -->
         <!-- 如果后续还需要浅色模式，可以将 ThemeToggle 放回来 -->
@@ -26,6 +21,11 @@
             真正会<br>追问的<br><span class="dim">AI 面试官</span>
           </h1>
           <p class="hero-sub">每一轮回答都触发深度追问。AI 感知你的知识边界，复现真实技术面试的节奏与压力。</p>
+          <div class="feat-pills">
+            <span class="feat-pill">无限追问</span>
+            <span class="feat-pill">真题召回</span>
+            <span class="feat-pill">实时流式</span>
+          </div>
           <div class="hero-cta">
             <a class="btn-p" href="#" @click.prevent="goToChat">
               <span class="btn-ring"></span>
@@ -62,8 +62,18 @@
       </div>
     </div>
 
-    <div class="bottom-phrase">
-      不是题库，<span class="dim" style="color:rgba(255,255,255,0.7)">是真实的追问。</span>
+    <div class="bottom-cta-outer">
+      <div class="bottom-cta">
+        <div class="bcta-l">
+          <div class="bcta-eyebrow"><span class="edot"></span>准备好了吗？</div>
+          <div class="bcta-text">现在就开始你的第一场 AI 面试</div>
+        </div>
+        <a class="btn-p" href="#" @click.prevent="goToChat">
+          <span class="btn-ring"></span>
+          开始体验
+          <svg width="13" height="13" viewBox="0 0 13 13" fill="none"><path d="M2 6.5h9M8 4l3 2.5L8 9" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </a>
+      </div>
     </div>
   </div>
 </template>
@@ -71,24 +81,63 @@
 <script setup>
 import { ref, onMounted, onBeforeUnmount } from "vue";
 import { useRouter } from "vue-router";
+import { useApi } from "../composables/useApi";
 import { useTheme } from "../composables/useTheme";
 
 const router = useRouter();
+const api = useApi();
 const { theme, toggleTheme } = useTheme();
 
 const demoMsgsRef = ref(null);
 let demoTimer = null;
 let typeRafId = null;
+let activeScript = [];
+let isUnmounted = false;
 
 const goToChat = () => router.push("/chat");
 const goToLogin = () => router.push("/login");
 
 // --- Mock Terminal Animation Logic ---
-const SCRIPT = [
+const FALLBACK_SCRIPT = [
   { r: 'ai',  name: 'AI 面试官',    t: '请解释 Go 的 goroutine 调度器是如何工作的？' },
   { r: 'usr', name: '你',           t: 'goroutine 采用 M:N 模型，由 Go runtime 调度，将 M 个 goroutine 映射到 N 个线程...' },
   { r: 'ai',  name: 'AI · 追问 #1', t: '好。当 goroutine 触发阻塞 syscall 时，调度器如何处理？' },
 ];
+activeScript = FALLBACK_SCRIPT;
+
+const mapDemoSceneToScript = (scene) => {
+  if (!scene?.available || !Array.isArray(scene.messages)) {
+    return [];
+  }
+
+  return scene.messages
+    .map((message) => {
+      const content = String(message?.content || "").trim();
+      if (!content) return null;
+
+      const isUser = message?.role === "user";
+      return {
+        r: isUser ? "usr" : "ai",
+        name: message?.name || (isUser ? "你" : "AI 面试官"),
+        t: content,
+      };
+    })
+    .filter(Boolean);
+};
+
+const loadDemoSceneScript = async () => {
+  try {
+    const scene = await api.user.demoInterviewSceneRandom({ limit: 3 });
+    const nextScript = mapDemoSceneToScript(scene);
+    if (!isUnmounted && nextScript.length >= 2) {
+      activeScript = nextScript;
+    }
+  } catch (error) {
+    if (!isUnmounted) {
+      activeScript = FALLBACK_SCRIPT;
+    }
+  }
+};
 
 // 每个字符的最小渲染间隔（毫秒）。
 // 60ms ≈ 16-17 字/秒，肉眼能清晰感知到"逐字"节奏；
@@ -143,13 +192,14 @@ function runDemo() {
   let si = 0;
   function runNext() {
     if (!demoMsgsRef.value) return;
-    if (si >= SCRIPT.length) {
+    const script = activeScript.length ? activeScript : FALLBACK_SCRIPT;
+    if (si >= script.length) {
       si = 0;
       demoMsgsRef.value.innerHTML = '';
       demoTimer = setTimeout(runNext, 2000);
       return;
     }
-    const cfg = SCRIPT[si++];
+    const cfg = script[si++];
     const el = appendMsg(cfg);
     if (!el) return;
     const cur = el.parentElement.querySelector('.dcur');
@@ -165,9 +215,11 @@ function runDemo() {
 
 onMounted(() => {
   runDemo();
+  loadDemoSceneScript();
 });
 
 onBeforeUnmount(() => {
+  isUnmounted = true;
   clearTimeout(demoTimer);
   if (typeRafId !== null) cancelAnimationFrame(typeRafId);
 });
@@ -210,24 +262,6 @@ const startChat = () => {
   color: var(--t);
   text-decoration: none;
 }
-.nav-links {
-  display: flex;
-  gap: 32px;
-  list-style: none;
-  margin: 0;
-  padding: 0;
-}
-.nav-links a {
-  font-size: 14px;
-  color: var(--t2);
-  text-decoration: none;
-  transition: color .2s;
-  opacity: .9;
-}
-.nav-links a:hover {
-  color: var(--t);
-  opacity: 1;
-}
 .nav-r {
   display: flex;
   gap: 12px;
@@ -269,8 +303,13 @@ const startChat = () => {
   position: relative;
   z-index: 1;
   display: grid;
-  grid-template-columns: 1fr 1.6fr;
-  grid-template-rows: 540px;
+  /* 列比 1.05:1 让文字主角回归：原 1:1.6 下左列只有 ~360px，三行汉字
+     52px 字号被挤碎、视觉重心被推到右侧 demo。调为 1.05:1 后左列
+     ~446px、右列 ~426px，两侧视觉对等但左侧略主导，文字主角回归。 */
+  grid-template-columns: 1.05fr 1fr;
+  /* hero 高度由 content 撑出，标题缩小后不再强制 540px 留白；
+     min 480 让右侧 demo-win 区域有保底高度。 */
+  grid-template-rows: minmax(480px, auto);
   align-items: center;
   gap: 64px;
   padding: 60px 0;
@@ -322,10 +361,12 @@ const startChat = () => {
 }
 
 .hero-title {
-  font-size: clamp(46px, 5.5vw, 78px);
+  /* 字号克制：避免大屏 78px × 三行汉字带来的视觉压迫感，
+     收到 52px 上限把视觉重心留给右侧假终端 demo。 */
+  font-size: clamp(36px, 3.6vw, 52px);
   font-weight: 900;
   font-family: var(--display);
-  line-height: 1.08;
+  line-height: 1.12;
   letter-spacing: -.02em;
   margin-bottom: 22px;
   text-shadow: 0 0 0 transparent;
@@ -671,15 +712,72 @@ const startChat = () => {
   margin-top: 2px;
 }
 
-.bottom-phrase {
+/* Hero 左侧产品能力 pills：与 eyebrow 同视觉语言（mono / pill / 半透明边框），
+   填补标题缩小后 hero 左侧的视觉空旷。 */
+.feat-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 32px;
+}
+
+.feat-pill {
+  font: 12px var(--mono);
+  color: var(--t2);
+  border: 1px solid rgba(255,255,255,.12);
+  border-radius: var(--radius-pill);
+  padding: 5px 12px;
+  letter-spacing: .04em;
+  background: rgba(255,255,255,.025);
+}
+
+/* Metrics 后的底部 CTA 条：坐何页面收束、避免 #home min-height:100vh
+   在较高屏上让 metrics 之后出现大片黑空。与 metrics 同等
+   max-width 让视觉对位。 */
+.bottom-cta-outer {
   position: relative;
   z-index: 1;
-  text-align: center;
-  padding: 80px 0;
+  padding: 0 44px;
+  margin-top: 64px;
+  margin-bottom: 80px;
+}
+
+.bottom-cta {
+  max-width: 1320px;
+  margin: 0 auto;
+  padding: 36px 44px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 32px;
+  border: 1px solid rgba(255,255,255,.08);
+  border-radius: var(--radius-lg);
+  background: linear-gradient(135deg, rgba(255,255,255,.025) 0%, rgba(255,255,255,.01) 100%);
+}
+
+.bcta-l {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.bcta-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font: 12px var(--mono);
+  color: var(--t2);
+  letter-spacing: .04em;
+  width: fit-content;
+}
+
+.bcta-text {
   font-family: var(--display);
-  font-size: clamp(32px, 4vw, 56px);
-  font-weight: 900;
+  font-size: clamp(20px, 2.2vw, 30px);
+  font-weight: 700;
   letter-spacing: -.01em;
+  color: var(--t);
+  line-height: 1.2;
 }
 
 @media (max-width: 1024px) {
@@ -690,6 +788,16 @@ const startChat = () => {
   }
   .hero-left::before {
     inset: -20px;
+  }
+  .bottom-cta {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 20px;
+    padding: 28px 24px;
+  }
+  .bcta-l {
+    align-items: center;
+    text-align: center;
   }
   .eyebrow {
     margin: 0 auto 24px;
