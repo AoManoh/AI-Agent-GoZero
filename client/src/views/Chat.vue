@@ -1,27 +1,34 @@
 <template>
   <div class="page chat-page" id="chat">
     <div class="workbench">
-      <ChatSidebar @new-chat="handleNewChat" />
+      <ChatSidebar
+        :sessions="sessions"
+        :active-session-id="activeSessionId"
+        :username="username"
+        @new-chat="handleNewChat"
+        @select-session="handleSelectSession"
+      />
 
       <!-- Main Chat -->
       <div class="main-chat">
         <div class="mc-header">
           <div class="mc-title">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-            AI 模拟面试
+            {{ activeSession?.title || 'AI 模拟面试' }}
           </div>
           <button class="btn-ghost" @click="goHome">&larr; 结束面试</button>
         </div>
 
-        <ChatMessageList 
-          :messages="messages" 
-          :isConnecting="isConnecting" 
-          :isPending="isPending" 
+        <ChatMessageList
+          :messages="messages"
+          :isConnecting="isConnecting"
+          :isPending="isPending"
         />
 
-        <ChatInputDock 
+        <ChatInputDock
           :isConnecting="isConnecting"
-          @send-message="handleSendMessage" 
+          @send-message="handleSendMessage"
+          @stop-stream="handleStopStream"
         />
       </div>
     </div>
@@ -29,29 +36,16 @@
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, ref, watch } from "vue";
+import { computed, onBeforeUnmount, watch } from "vue";
 import { useRouter } from "vue-router";
 import ChatSidebar from "../components/ChatSidebar.vue";
 import ChatInputDock from "../components/ChatInputDock.vue";
 import ChatMessageList from "../components/ChatMessageList.vue";
 import { useChatStream } from "../composables/useChatStream";
+import { useInterviewSessions } from "../composables/useInterviewSessions";
+import { authStorage } from "../api/core.js";
 
 const router = useRouter();
-
-const createChatId = () => {
-  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
-    return crypto.randomUUID();
-  }
-  const randomPart = Math.random().toString(16).slice(2);
-  return `${Date.now()}-${randomPart}`;
-};
-
-const loadStoredChatId = () => {
-  if (typeof window !== "undefined") {
-    return window.localStorage.getItem("chatId");
-  }
-  return null;
-};
 
 const initialMessages = [
   {
@@ -63,27 +57,71 @@ const initialMessages = [
   },
 ];
 
-const { messages, isStreaming, startStream, pushUserMessage, dispose } =
-  useChatStream(initialMessages);
-const chatId = ref(loadStoredChatId() || createChatId());
+const {
+  sessions,
+  activeSessionId,
+  activeSession,
+  activateSession,
+  createSession,
+  updateActiveSession,
+} = useInterviewSessions(initialMessages);
+
+const username = authStorage.getSession().username || "";
+
+const {
+  messages,
+  isStreaming,
+  startStream,
+  stopStream,
+  pushUserMessage,
+  setMessages,
+  dispose,
+} = useChatStream(activeSession.value?.messages || initialMessages);
+
+// 用户主动点击"停止生成"按钮：中断当前 SSE 流，AI 消息会自动追加"已被用户中断"标记。
+const handleStopStream = () => {
+  stopStream();
+};
 
 const isPending = computed(() => {
   if (!isStreaming.value) return false;
   const lastMsg = messages.value[messages.value.length - 1];
-  if (lastMsg && lastMsg.isUser) return true;
-  return false;
+  return Boolean(lastMsg && lastMsg.isUser);
 });
 
+const isConnecting = computed(() => isStreaming.value);
+
+const deriveTitleFromMessage = (text) => {
+  if (!text) return "";
+  const trimmed = String(text).trim().replace(/\s+/g, " ");
+  return trimmed.length > 24 ? `${trimmed.slice(0, 24)}…` : trimmed;
+};
+
 watch(
-  () => chatId.value,
-  (value) => {
-    if (typeof window !== "undefined") {
-      window.localStorage.setItem("chatId", value);
-    }
+  () => activeSessionId.value,
+  () => {
+    setMessages(activeSession.value?.messages || initialMessages);
   }
 );
 
-const isConnecting = computed(() => isStreaming.value);
+watch(
+  messages,
+  (next) => {
+    if (!activeSession.value) return;
+    const updates = { messages: next };
+    if (
+      activeSession.value.title === "未命名会话" ||
+      !activeSession.value.title
+    ) {
+      const firstUser = next.find((m) => m.isUser && m.content);
+      if (firstUser) {
+        updates.title = deriveTitleFromMessage(firstUser.content) || "未命名会话";
+      }
+    }
+    updateActiveSession(updates);
+  },
+  { deep: true }
+);
 
 const handleSendMessage = (payload) => {
   const formData = new FormData();
@@ -94,12 +132,15 @@ const handleSendMessage = (payload) => {
   }
 
   pushUserMessage(payload.message);
-  startStream(formData, chatId.value);
+  startStream(formData, activeSessionId.value);
 };
 
 const handleNewChat = () => {
-  chatId.value = createChatId();
-  // Clear messages or handle session switch...
+  createSession({ messages: initialMessages });
+};
+
+const handleSelectSession = (sessionId) => {
+  activateSession(sessionId);
 };
 
 function goHome() {
@@ -170,7 +211,7 @@ onBeforeUnmount(() => {
   font-family: var(--sans);
   font-size: 13px;
   padding: 6px 12px;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   transition: background 0.2s;
 }
 

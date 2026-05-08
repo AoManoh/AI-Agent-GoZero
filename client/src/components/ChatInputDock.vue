@@ -49,7 +49,24 @@
         @keydown="handleKeydown"
       ></textarea>
 
-      <button class="inp-send" type="button" title="发送" :disabled="isConnecting" @click="handleSendMessage">
+      <!-- 流式中：显示停止按钮（红色方块），点击中断 SSE -->
+      <button
+        v-if="isConnecting"
+        class="inp-send inp-stop"
+        type="button"
+        title="停止生成"
+        @click="$emit('stop-stream')"
+      >
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
+      </button>
+      <!-- 空闲时：显示发送按钮 -->
+      <button
+        v-else
+        class="inp-send"
+        type="button"
+        title="发送"
+        @click="handleSendMessage"
+      >
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
       </button>
     </div>
@@ -68,7 +85,7 @@ const props = defineProps({
   }
 });
 
-const emit = defineEmits(["send-message"]);
+const emit = defineEmits(["send-message", "stop-stream"]);
 
 const fileList = ref([]);
 const knowledgeFileList = ref([]);
@@ -189,7 +206,7 @@ const handleKeydown = (event) => {
 .file-tag {
   font-size: 12px;
   padding: 4px 10px;
-  border-radius: 100px;
+  border-radius: var(--radius-pill);
   background: rgba(255, 255, 255, 0.1);
   border: 1px solid rgba(255, 255, 255, 0.1);
   color: var(--t2);
@@ -207,7 +224,7 @@ const handleKeydown = (event) => {
   max-width: 840px;
   background: rgba(18, 18, 24, 0.75);
   border: 1px solid rgba(255, 255, 255, 0.15);
-  border-radius: 16px;
+  border-radius: var(--radius-lg);
   padding: 14px 16px;
   display: flex;
   gap: 12px;
@@ -278,7 +295,7 @@ const handleKeydown = (event) => {
 .inp-send {
   width: 32px;
   height: 32px;
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   background: var(--t);
   border: none;
   cursor: pointer;
@@ -297,6 +314,17 @@ const handleKeydown = (event) => {
 .inp-send:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+/* 停止按钮：红色背景表明"中断"语义，与发送的白色按钮在视觉上明显区分 */
+.inp-stop {
+  background: #ef4444;
+  color: #fff;
+}
+
+.inp-stop:hover {
+  background: #dc2626;
+  transform: scale(1.05);
 }
 
 @media (max-width: 768px) {

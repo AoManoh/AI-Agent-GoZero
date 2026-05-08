@@ -1,20 +1,24 @@
 <template>
   <div class="ai-avatar-fallback" :class="type">
-    <!-- 插入 李÷ 图片url链接，保证图片大小为100% -->
-    <span v-if="type === 'interview'" >
-      <img src="http://pic.aomanoh.com/note/20250828030959474.jpeg" alt="AI Avatar" style="width: 100%; height: 100%;" />
-    </span>
-    <span v-else>🤖</span>
+    <span class="ai-avatar-glyph">{{ glyph }}</span>
   </div>
 </template>
 
 <script setup>
-defineProps({
+import { computed } from "vue";
+
+const props = defineProps({
   type: {
     type: String,
-    default: 'default'
-  }
-})
+    default: "default",
+  },
+});
+
+const glyph = computed(() => {
+  if (props.type === "interview") return "AI";
+  if (props.type === "super") return "S";
+  return "AI";
+});
 </script>
 
 <style scoped>
@@ -24,15 +28,24 @@ defineProps({
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 18px;
   border-radius: 50%;
+  font: 700 12px var(--mono);
+  letter-spacing: 0;
+}
+
+.ai-avatar-glyph {
+  user-select: none;
 }
 
 .interview {
-  background: linear-gradient(45deg, #2196f3, #2196f3);
+  background: var(--t);
+  color: var(--bg);
 }
 
-.default, .super {
-  background: linear-gradient(45deg, #3f51b5, #5677fc);
+.default,
+.super {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--b);
+  color: var(--t2);
 }
 </style> 

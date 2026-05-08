@@ -55,7 +55,7 @@ const sanitized = computed(() => {
   border: 1px solid rgba(255, 255, 255, 0.1);
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
   padding: 16px;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   overflow-x: auto;
   margin: 16px 0;
 }
@@ -68,7 +68,7 @@ body.light-mode .markdown :deep(pre) {
   font-family: var(--mono);
   background: rgba(255, 255, 255, 0.1);
   padding: 2px 6px;
-  border-radius: 4px;
+  border-radius: var(--radius-xs);
   font-size: 13.5px;
 }
 
@@ -91,8 +91,15 @@ body.light-mode .markdown :deep(pre) {
 }
 
 .markdown :deep(a) {
-  color: var(--color-glow-1);
+  color: var(--t);
   text-decoration: underline;
+  text-decoration-color: var(--bh);
+  text-underline-offset: 3px;
+  transition: text-decoration-color 0.2s;
+}
+
+.markdown :deep(a:hover) {
+  text-decoration-color: var(--t);
 }
 
 .markdown :deep(blockquote) {

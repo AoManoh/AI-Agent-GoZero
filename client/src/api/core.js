@@ -178,16 +178,15 @@ const connectSSEByFetch = (baseURL, endpoint) => {
 
         for (const line of lines) {
           if (line.startsWith("data: ")) {
-            const data = line.slice(6).trim();
+            const data = line.slice(6).replace(/\r$/, "");
+            const dataTrimmed = data.trim();
+            if (dataTrimmed === "[DONE]") {
+              messageCallback?.("[DONE]");
+              return;
+            }
             if (data) {
               messageCallback?.(data);
             }
-            continue;
-          }
-
-          const trimmedLine = line.trim();
-          if (trimmedLine && !trimmedLine.startsWith(":")) {
-            messageCallback?.(trimmedLine);
           }
         }
       }

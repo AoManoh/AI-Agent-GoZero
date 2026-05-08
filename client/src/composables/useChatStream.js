@@ -90,13 +90,41 @@ export function useChatStream(initialMessages = []) {
     }
   };
 
+  // stopStream 由用户主动触发（点击"停止"按钮），与 dispose 区别在于：
+  // - 关闭浏览器侧 SSE 连接（后端 net/http 检测到 client gone 后会停止写入并关闭 OpenAI 上游 stream）
+  // - 给最后一条 AI 消息追加"已被用户中断"标记，便于用户区分截断状态
+  // - 重置 isStreaming，让发送按钮重新可用
+  const stopStream = () => {
+    if (streamRef.value) {
+      streamRef.value.close();
+      streamRef.value = null;
+    }
+    const last = messages.value[messages.value.length - 1];
+    if (last && !last.isUser && last.isStreaming) {
+      last.content = (last.content || "") + "\n\n_（已被用户中断）_";
+      delete last.isStreaming;
+    }
+    isStreaming.value = false;
+  };
+
+  const setMessages = (nextMessages) => {
+    if (streamRef.value) {
+      streamRef.value.close();
+      streamRef.value = null;
+    }
+    isStreaming.value = false;
+    messages.value = Array.isArray(nextMessages) ? [...nextMessages] : [];
+  };
+
   return {
     messages,
     isStreaming,
     appendAIChunk,
     setStreaming,
     startStream,
+    stopStream,
     pushUserMessage,
+    setMessages,
     dispose,
   };
 }

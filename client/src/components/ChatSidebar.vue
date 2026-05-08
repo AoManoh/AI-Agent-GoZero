@@ -9,21 +9,89 @@
         <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M6 2v8M2 6h8"/></svg>
       </button>
     </div>
-    <div class="sb-section">Today</div>
-    <div class="sb-list">
-      <div class="s-item active"><span class="dot"></span>当前模拟面试</div>
+
+    <div class="sb-scroll">
+      <template v-for="group in groupedSessions" :key="group.label">
+        <div v-if="group.items.length > 0" class="sb-section">{{ group.label }}</div>
+        <div v-if="group.items.length > 0" class="sb-list">
+          <div
+            v-for="session in group.items"
+            :key="session.id"
+            class="s-item"
+            :class="{ active: session.id === activeSessionId }"
+            :title="session.title"
+            @click="$emit('select-session', session.id)"
+          >
+            <span class="dot"></span>{{ session.title || '未命名会话' }}
+          </div>
+        </div>
+      </template>
+      <div v-if="!sessions.length" class="sb-empty">暂无会话，点击 + 新建</div>
     </div>
+
     <div class="sb-footer">
-      <button class="btn-ghost" style="width:100%; text-align:left; padding:8px 12px; display:flex; align-items:center; gap:8px;">
+      <button class="btn-ghost user-btn" type="button">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20.94c1.5 0 2.75 1.06 4 1.06 3 0 6-8 6-12.22A4.91 4.91 0 0 0 17 5c-2.22 0-4 1.44-5 2-1-.56-2.78-2-5-2a4.9 4.9 0 0 0-5 4.78C2 14 5 22 8 22c1.25 0 2.5-1.06 4-1.06Z"/></svg>
-        候选人
+        {{ username || '候选人' }}
       </button>
     </div>
   </div>
 </template>
 
 <script setup>
-defineEmits(["new-chat"]);
+import { computed } from "vue";
+
+const props = defineProps({
+  sessions: {
+    type: Array,
+    default: () => [],
+  },
+  activeSessionId: {
+    type: String,
+    default: "",
+  },
+  username: {
+    type: String,
+    default: "",
+  },
+});
+
+defineEmits(["new-chat", "select-session"]);
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+const groupedSessions = computed(() => {
+  const now = Date.now();
+  const todayStart = new Date(now);
+  todayStart.setHours(0, 0, 0, 0);
+  const todayStartTs = todayStart.getTime();
+  const sevenDaysAgoTs = todayStartTs - 7 * DAY_MS;
+
+  const today = [];
+  const week = [];
+  const older = [];
+
+  const sorted = [...props.sessions].sort(
+    (a, b) => (b.updatedAt || 0) - (a.updatedAt || 0)
+  );
+
+  sorted.forEach((session) => {
+    const ts = session.updatedAt || session.createdAt || 0;
+    if (ts >= todayStartTs) {
+      today.push(session);
+    } else if (ts >= sevenDaysAgoTs) {
+      week.push(session);
+    } else {
+      older.push(session);
+    }
+  });
+
+  return [
+    { label: "Today", items: today },
+    { label: "Previous 7 Days", items: week },
+    { label: "Older", items: older },
+  ];
+});
 </script>
 
 <style scoped>
@@ -57,7 +125,7 @@ defineEmits(["new-chat"]);
 .btn-new {
   width: 28px;
   height: 28px;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   border: 1px solid rgba(255, 255, 255, 0.1);
   background: transparent;
   color: var(--t2);
@@ -73,8 +141,24 @@ defineEmits(["new-chat"]);
   color: var(--t);
 }
 
+.sb-scroll {
+  flex: 1;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.08) transparent;
+}
+
+.sb-scroll::-webkit-scrollbar {
+  width: 6px;
+}
+
+.sb-scroll::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 3px;
+}
+
 .sb-section {
-  padding: 20px 20px 8px;
+  padding: 16px 20px 6px;
   font-size: 11px;
   font-family: var(--mono);
   color: rgba(255, 255, 255, 0.4);
@@ -83,17 +167,23 @@ defineEmits(["new-chat"]);
 }
 
 .sb-list {
-  flex: 1;
-  overflow-y: auto;
   padding: 0 12px;
   display: flex;
   flex-direction: column;
   gap: 4px;
 }
 
+.sb-empty {
+  padding: 32px 20px;
+  text-align: center;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.35);
+  font-family: var(--mono);
+}
+
 .s-item {
   padding: 10px 12px;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   font-size: 13.5px;
   color: var(--t2);
   cursor: pointer;
@@ -148,6 +238,17 @@ defineEmits(["new-chat"]);
 .btn-ghost:hover {
   background: rgba(255, 255, 255, 0.1);
   color: var(--t);
+}
+
+.user-btn {
+  width: 100%;
+  text-align: left;
+  padding: 8px 12px;
+  color: var(--t);
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 @media (max-width: 768px) {

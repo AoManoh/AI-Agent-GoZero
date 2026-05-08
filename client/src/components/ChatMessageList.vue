@@ -3,8 +3,7 @@
     <div class="msg-container">
       <div v-for="(msg, index) in messages" :key="index" class="msg" :class="msg.isUser ? 'usr' : 'ai'">
         <div class="m-avatar">
-          <img v-if="msg.isUser" src="http://pic.aomanoh.com/note/20250903035824302.jpg" alt="User" />
-          <span v-else>AI</span>
+          <span>{{ msg.isUser ? 'U' : 'AI' }}</span>
         </div>
         <div class="m-body">
           <div class="m-name">
@@ -146,30 +145,23 @@ const processMessageContent = (content) => {
 .m-avatar {
   width: 28px;
   height: 28px;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   display: flex;
   align-items: center;
   justify-content: center;
   font: 700 12px var(--mono);
   flex-shrink: 0;
-  overflow: hidden;
-}
-
-.m-avatar img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
 }
 
 .msg.ai .m-avatar {
-  background: #fff;
-  color: #000;
+  background: var(--t);
+  color: var(--bg);
 }
 
 .msg.usr .m-avatar {
-  background: transparent;
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  color: var(--t2);
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--b);
+  color: var(--t3);
 }
 
 .m-body {
@@ -192,7 +184,7 @@ const processMessageContent = (content) => {
   font-size: 11px;
   padding: 2px 8px;
   background: rgba(255, 255, 255, 0.08);
-  border-radius: 4px;
+  border-radius: var(--radius-xs);
   font-weight: normal;
   color: var(--t2);
   font-family: var(--mono);
