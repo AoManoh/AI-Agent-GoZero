@@ -27,6 +27,14 @@ type KnowledgeUploadReq {
 	File string `form:"file"`
 }
 
+// KnowledgeTextUploadReq 外部工具资料包导入请求结构体
+// 用于将 Grok Search、openACE、openPic 等工具产出的文本资料导入公共知识库。
+type KnowledgeTextUploadReq {
+	Title   string `json:"title"`
+	Content string `json:"content"`
+	Source  string `json:"source,optional"`
+}
+
 // KnowledgeUploadRes 公共知识上传响应结构体
 type KnowledgeUploadRes {
 	Msg    string `json:"msg"`
@@ -43,5 +51,9 @@ service chat {
 	@doc "公共知识库 PDF 上传接口，使用 multipart/form-data，要求 file(PDF) part 和管理员 Bearer token"
 	@handler KnowledgeUpload
 	post /api/ai/knowledge/upload (KnowledgeUploadReq) returns (KnowledgeUploadRes)
+
+	@doc "公共知识库文本资料包导入接口，使用 JSON，要求管理员 Bearer token"
+	@handler KnowledgeTextUpload
+	post /api/ai/knowledge/text (KnowledgeTextUploadReq) returns (KnowledgeUploadRes)
 }
 

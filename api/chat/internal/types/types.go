@@ -9,6 +9,12 @@ type InterviewAppChatReq struct {
 	Mode    string `form:"mode,optional"`
 }
 
+type KnowledgeTextUploadReq struct {
+	Title   string `json:"title"`
+	Content string `json:"content"`
+	Source  string `json:"source,optional"`
+}
+
 type KnowledgeUploadReq struct {
 	File string `form:"file"`
 }

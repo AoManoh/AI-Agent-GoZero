@@ -21,6 +21,12 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 				Handler: ChatHandler(serverCtx),
 			},
 			{
+				// 公共知识库文本资料包导入接口，使用 JSON，要求管理员 Bearer token
+				Method:  http.MethodPost,
+				Path:    "/api/ai/knowledge/text",
+				Handler: KnowledgeTextUploadHandler(serverCtx),
+			},
+			{
 				// 公共知识库 PDF 上传接口，使用 multipart/form-data，要求 file(PDF) part 和管理员 Bearer token
 				Method:  http.MethodPost,
 				Path:    "/api/ai/knowledge/upload",
