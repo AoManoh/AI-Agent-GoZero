@@ -34,9 +34,6 @@
             </a>
             <a class="btn-g" href="#">了解工作原理</a>
           </div>
-          <div class="hero-meta">
-            <span>Go 后端</span><span>·</span><span>系统设计</span><span>·</span><span>分布式</span><span>·</span><span>数据库</span>
-          </div>
         </div>
 
         <div class="hero-right">
@@ -81,7 +78,7 @@ const { theme, toggleTheme } = useTheme();
 
 const demoMsgsRef = ref(null);
 let demoTimer = null;
-let typeTimer = null;
+let typeRafId = null;
 
 const goToChat = () => router.push("/chat");
 const goToLogin = () => router.push("/login");
@@ -93,28 +90,53 @@ const SCRIPT = [
   { r: 'ai',  name: 'AI · 追问 #1', t: '好。当 goroutine 触发阻塞 syscall 时，调度器如何处理？' },
 ];
 
+// 每个字符的最小渲染间隔（毫秒）。
+// 60ms ≈ 16-17 字/秒，肉眼能清晰感知到"逐字"节奏；
+// 低于 35ms 会被浏览器合并到同一帧 paint，视觉上变成"一坨一坨"出现。
+const CHAR_DELAY_MS = 60;
+
 function appendMsg(cfg) {
   const container = demoMsgsRef.value;
   if (!container) return null;
   const div = document.createElement('div');
   div.className = `dmsg ${cfg.r}`;
+  // 关键结构：
+  //   .dbody 是包裹 dlbl + dbbl 的列容器，必须明确 flex:1 1 auto 让它 stretch 到
+  //   dmsg 剩余空间（固定宽度），否则它默认 hug-content，会让 .dbbl max-width 85%
+  //   的百分比基数跟着 content 每字变化 → 换行位置每字符重算 → 视觉"上下乱吐"。
+  //   .dbbl 自己保持 hug-content（inline-block），跟 content 一字字增长，
+  //   触达固定 max-width 后自然换行，换行位置稳定。
+  //   所有消息（含用户消息）都带打字光标，作为"逐字输入"的视觉锚点。
   div.innerHTML = `<div class="dav">${cfg.r === 'ai' ? 'AI' : 'U'}</div>
-    <div><div class="dlbl">${cfg.name}</div>
-    <div class="dbbl"><span class="content"></span>${cfg.r === 'ai' ? '<span class="dcur"></span>' : ''}</div></div>`;
+    <div class="dbody"><div class="dlbl">${cfg.name}</div>
+    <div class="dbbl"><span class="content"></span><span class="dcur"></span></div></div>`;
   container.appendChild(div);
   requestAnimationFrame(() => div.classList.add('show'));
   return div.querySelector('.content');
 }
 
+// typeText 用 requestAnimationFrame + 时间戳累计来逐字吐字。
+// 相比 setInterval：
+// 1. RAF 与浏览器 vsync 同步，每帧最多吐 1 个字符，避免多字符在同一帧合并渲染；
+// 2. 后台 tab 时 RAF 暂停，回到前台不会"补吐"一大段文字；
+// 3. 时间戳节流让节奏不受单帧延迟影响，整体打字节奏稳定。
 function typeText(el, text, cb) {
   let i = 0;
-  typeTimer = setInterval(() => {
-    el.textContent += text[i++];
-    if (i >= text.length) {
-      clearInterval(typeTimer);
-      if (cb) cb();
+  let lastTs = 0;
+  function step(ts) {
+    if (!lastTs) lastTs = ts;
+    if (ts - lastTs >= CHAR_DELAY_MS) {
+      el.textContent += text[i++];
+      lastTs = ts;
+      if (i >= text.length) {
+        typeRafId = null;
+        if (cb) cb();
+        return;
+      }
     }
-  }, 35); // Adjusted speed
+    typeRafId = requestAnimationFrame(step);
+  }
+  typeRafId = requestAnimationFrame(step);
 }
 
 function runDemo() {
@@ -147,7 +169,7 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   clearTimeout(demoTimer);
-  clearInterval(typeTimer);
+  if (typeRafId !== null) cancelAnimationFrame(typeRafId);
 });
 
 const startChat = () => {
@@ -217,7 +239,7 @@ const startChat = () => {
   border: none;
   cursor: pointer;
   padding: 6px 12px;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   transition: color .2s;
   opacity: .75;
 }
@@ -231,7 +253,7 @@ const startChat = () => {
   border: none;
   cursor: pointer;
   padding: 8px 20px;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   transition: opacity .2s;
 }
 .btn-ns:hover {
@@ -277,7 +299,7 @@ const startChat = () => {
   font: 12px var(--mono);
   color: var(--t2);
   border: 1px solid rgba(255,255,255,.14);
-  border-radius: 100px;
+  border-radius: var(--radius-pill);
   padding: 5px 14px;
   margin-bottom: 36px;
   letter-spacing: .04em;
@@ -330,24 +352,6 @@ const startChat = () => {
   margin-top: auto;
 }
 
-.hero-meta {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding-top: 28px;
-  border-top: 1px solid rgba(255,255,255,.07);
-  overflow: hidden;
-  flex-wrap: nowrap;
-  margin-top: 32px;
-}
-
-.hero-meta span {
-  font: 11px var(--mono);
-  color: rgba(255,255,255,.4);
-  letter-spacing: .08em;
-  white-space: nowrap;
-}
-
 .btn-p {
   position: relative;
   display: inline-flex;
@@ -359,7 +363,7 @@ const startChat = () => {
   border: none;
   cursor: pointer;
   padding: 14px 28px;
-  border-radius: 11px;
+  border-radius: var(--radius-md);
   text-decoration: none;
   transition: opacity .2s, transform .15s;
   box-shadow: 0 0 40px rgba(237,237,235,.1), 0 0 80px rgba(237,237,235,.04);
@@ -375,7 +379,7 @@ const startChat = () => {
   position: absolute;
   inset: -6px;
   border: 1px solid rgba(237,237,235,.2);
-  border-radius: 16px;
+  border-radius: 10px;
   pointer-events: none;
   animation: ring 3.6s ease-in-out infinite;
 }
@@ -395,7 +399,7 @@ const startChat = () => {
   border: 1px solid var(--b);
   cursor: pointer;
   padding: 13px 24px;
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   text-decoration: none;
   transition: all .2s;
 }
@@ -417,7 +421,7 @@ const startChat = () => {
   position: absolute;
   inset: 0;
   overflow: hidden;
-  border-radius: 18px;
+  border-radius: var(--radius-lg);
   pointer-events: none;
   z-index: 0;
 }
@@ -450,7 +454,7 @@ const startChat = () => {
   height: 440px;
   background: rgba(8,8,14,.85);
   border: 1px solid rgba(255,255,255,0.1);
-  border-radius: 16px;
+  border-radius: var(--radius-lg);
   backdrop-filter: blur(20px);
   display: flex;
   flex-direction: column;
@@ -528,12 +532,32 @@ const startChat = () => {
   color: var(--t3);
 }
 
+:deep(.dbody) {
+  /* stretch 到 dmsg 剩余空间（固定宽度），切断 dbbl max-width 85% 百分比
+     与 content max-content 之间的循环依赖，这是换行位置稳定的前提。
+     min-width: 0 让它可以缩小到不被 content 撑破 flex 容器。 */
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
 :deep(.dbbl) {
-  border-radius: 10px;
+  /* inline-block 让气泡自己 hug-content 随字增长（视觉上边吐边长）；
+     父 .dbody 已 stretch，所以 max-width: 85% 的基数是固定的，
+     气泡触达这个固定阈值才换行，换行点永远稳定。 */
+  display: inline-block;
+  vertical-align: top;
+  border-radius: var(--radius-md);
   padding: 12px 16px;
   font-size: 14px;
   line-height: 1.65;
   max-width: 85%;
+  /* 只在长英文 token 撑破边界时才断词，不用 overflow-wrap:anywhere，
+     避免每个字符位置都成为潜在断点，减少 word-break 重算时的跳变。 */
+  word-break: break-word;
+  /* text-wrap: stable 是现代浏览器的稳定换行算法：
+     逐字增量时优先保留既有换行位置，只对新增内容做局部换行决策。
+     Chrome 120+ / Safari 17.4+ 原生支持；老浏览器忽略不影响。 */
+  text-wrap: stable;
 }
 
 :deep(.dmsg.ai .dbbl) {
@@ -602,7 +626,7 @@ const startChat = () => {
   margin: 0 auto;
   display: flex;
   background: var(--bg3);
-  border-radius: 48px;
+  border-radius: 24px;
   overflow: hidden;
   border: 2px solid rgba(255,255,255,.15);
   box-shadow: 0 0 0 2px rgba(255,255,255,.05) inset;
@@ -676,12 +700,9 @@ const startChat = () => {
   .hero-cta {
     justify-content: center;
   }
-  .hero-meta {
-    justify-content: center;
-  }
   .metrics {
     flex-wrap: wrap;
-    border-radius: 24px;
+    border-radius: var(--radius-lg);
   }
   .met {
     min-width: 50%;
