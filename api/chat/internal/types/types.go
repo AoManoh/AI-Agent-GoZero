@@ -9,6 +9,64 @@ type InterviewAppChatReq struct {
 	Mode    string `form:"mode,optional"`
 }
 
+type KnowledgeChunkItem struct {
+	ChunkId   int64   `json:"chunkId"`
+	Title     string  `json:"title"`
+	Content   string  `json:"content"`
+	Score     float64 `json:"score,optional"`
+	CreatedAt string  `json:"createdAt,optional"`
+}
+
+type KnowledgeDocumentChunksReq struct {
+	Id    int64 `path:"id"`
+	Limit int64 `form:"limit,optional"`
+}
+
+type KnowledgeDocumentChunksResp struct {
+	Document KnowledgeDocumentItem `json:"document"`
+	Chunks   []KnowledgeChunkItem  `json:"chunks"`
+	Meta     KnowledgeManagerMeta  `json:"meta"`
+}
+
+type KnowledgeDocumentItem struct {
+	DocumentId int64  `json:"documentId"`
+	Title      string `json:"title"`
+	Scope      string `json:"scope"`
+	OwnerId    int64  `json:"ownerId"`
+	ChunkCount int64  `json:"chunkCount"`
+	Preview    string `json:"preview"`
+	CreatedAt  string `json:"createdAt"`
+	UpdatedAt  string `json:"updatedAt"`
+}
+
+type KnowledgeDocumentsReq struct {
+	Limit int64 `form:"limit,optional"`
+}
+
+type KnowledgeDocumentsResp struct {
+	Documents []KnowledgeDocumentItem `json:"documents"`
+	Total     int64                   `json:"total"`
+	Meta      KnowledgeManagerMeta    `json:"meta"`
+}
+
+type KnowledgeManagerMeta struct {
+	SchemaVersion string `json:"schemaVersion"`
+	Available     bool   `json:"available"`
+	Scope         string `json:"scope"`
+	GeneratedAt   string `json:"generatedAt"`
+}
+
+type KnowledgeTestQueryReq struct {
+	Query string `json:"query"`
+	TopK  int64  `json:"topK,optional"`
+}
+
+type KnowledgeTestQueryResp struct {
+	Results []KnowledgeChunkItem `json:"results"`
+	Total   int64                `json:"total"`
+	Meta    KnowledgeManagerMeta `json:"meta"`
+}
+
 type KnowledgeTextUploadReq struct {
 	Title   string `json:"title"`
 	Content string `json:"content"`

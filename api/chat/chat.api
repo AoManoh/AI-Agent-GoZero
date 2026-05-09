@@ -41,6 +41,73 @@ type KnowledgeUploadRes {
 	Chunks int    `json:"chunks"`
 }
 
+// KnowledgeDocumentsReq 知识库文档列表请求
+type KnowledgeDocumentsReq {
+	Limit int64 `form:"limit,optional"`
+}
+
+// KnowledgeManagerMeta 知识库管理响应元信息
+type KnowledgeManagerMeta {
+	SchemaVersion string `json:"schemaVersion"`
+	Available     bool   `json:"available"`
+	Scope         string `json:"scope"`
+	GeneratedAt   string `json:"generatedAt"`
+}
+
+// KnowledgeDocumentItem 知识库文档聚合项
+type KnowledgeDocumentItem {
+	DocumentId int64  `json:"documentId"`
+	Title      string `json:"title"`
+	Scope      string `json:"scope"`
+	OwnerId    int64  `json:"ownerId"`
+	ChunkCount int64  `json:"chunkCount"`
+	Preview    string `json:"preview"`
+	CreatedAt  string `json:"createdAt"`
+	UpdatedAt  string `json:"updatedAt"`
+}
+
+// KnowledgeDocumentsResp 知识库文档列表响应
+type KnowledgeDocumentsResp {
+	Documents []KnowledgeDocumentItem `json:"documents"`
+	Total     int64                   `json:"total"`
+	Meta      KnowledgeManagerMeta    `json:"meta"`
+}
+
+// KnowledgeDocumentChunksReq 知识库文档分块请求
+type KnowledgeDocumentChunksReq {
+	Id    int64 `path:"id"`
+	Limit int64 `form:"limit,optional"`
+}
+
+// KnowledgeChunkItem 知识库分块与召回项
+type KnowledgeChunkItem {
+	ChunkId   int64   `json:"chunkId"`
+	Title     string  `json:"title"`
+	Content   string  `json:"content"`
+	Score     float64 `json:"score,optional"`
+	CreatedAt string  `json:"createdAt,optional"`
+}
+
+// KnowledgeDocumentChunksResp 知识库文档分块响应
+type KnowledgeDocumentChunksResp {
+	Document KnowledgeDocumentItem `json:"document"`
+	Chunks   []KnowledgeChunkItem  `json:"chunks"`
+	Meta     KnowledgeManagerMeta  `json:"meta"`
+}
+
+// KnowledgeTestQueryReq 知识库测试召回请求
+type KnowledgeTestQueryReq {
+	Query string `json:"query"`
+	TopK  int64  `json:"topK,optional"`
+}
+
+// KnowledgeTestQueryResp 知识库测试召回响应
+type KnowledgeTestQueryResp {
+	Results []KnowledgeChunkItem `json:"results"`
+	Total   int64                `json:"total"`
+	Meta    KnowledgeManagerMeta `json:"meta"`
+}
+
 // chat 服务提供 AI 面试官聊天功能
 // 支持 SSE 流式响应，实现实时对话交互
 service chat {
@@ -55,5 +122,17 @@ service chat {
 	@doc "公共知识库文本资料包导入接口，使用 JSON，要求管理员 Bearer token"
 	@handler KnowledgeTextUpload
 	post /api/ai/knowledge/text (KnowledgeTextUploadReq) returns (KnowledgeUploadRes)
+
+	@doc "知识库文档列表接口，匿名只读公共知识，登录后包含当前用户知识"
+	@handler KnowledgeDocuments
+	get /api/ai/knowledge/documents (KnowledgeDocumentsReq) returns (KnowledgeDocumentsResp)
+
+	@doc "知识库文档分块预览接口"
+	@handler KnowledgeDocumentChunks
+	get /api/ai/knowledge/documents/:id/chunks (KnowledgeDocumentChunksReq) returns (KnowledgeDocumentChunksResp)
+
+	@doc "知识库测试召回接口，用于管理页验证 TopK 检索命中"
+	@handler KnowledgeTestQuery
+	post /api/ai/knowledge/test-query (KnowledgeTestQueryReq) returns (KnowledgeTestQueryResp)
 }
 

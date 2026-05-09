@@ -21,6 +21,24 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 				Handler: ChatHandler(serverCtx),
 			},
 			{
+				// 知识库文档列表接口，匿名只读公共知识，登录后包含当前用户知识
+				Method:  http.MethodGet,
+				Path:    "/api/ai/knowledge/documents",
+				Handler: KnowledgeDocumentsHandler(serverCtx),
+			},
+			{
+				// 知识库文档分块预览接口
+				Method:  http.MethodGet,
+				Path:    "/api/ai/knowledge/documents/:id/chunks",
+				Handler: KnowledgeDocumentChunksHandler(serverCtx),
+			},
+			{
+				// 知识库测试召回接口，用于管理页验证 TopK 检索命中
+				Method:  http.MethodPost,
+				Path:    "/api/ai/knowledge/test-query",
+				Handler: KnowledgeTestQueryHandler(serverCtx),
+			},
+			{
 				// 公共知识库文本资料包导入接口，使用 JSON，要求管理员 Bearer token
 				Method:  http.MethodPost,
 				Path:    "/api/ai/knowledge/text",
