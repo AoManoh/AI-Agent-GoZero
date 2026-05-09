@@ -77,3 +77,16 @@ vendor/
 
 # 临时测试用脚本
 /scripts/
+
+# openACE / ACE 本地索引与缓存：永远不进版本库
+# (实际缓存默认在 ~/.cache/openace-mcp，但兜底防止任何子目录意外生成)
+**/.openace/
+**/.ace/
+**/openace-cache/
+**/.openace-cache/
+
+# 浏览器临时 profile（演示截图工作流产生的运行时数据）
+# 即使将来 /docs/ 或 /skills/ 解禁，这类目录也不应入库
+**/chrome-profile/
+**/chrome-profile-formal/
+**/chrome-profile-*/
