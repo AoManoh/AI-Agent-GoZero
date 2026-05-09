@@ -112,6 +112,12 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 				Handler: user.ResumeArtifactDetailHandler(serverCtx),
 			},
 			{
+				// 分析当前用户指定简历资料，返回技能、亮点、风险和建议追问题
+				Method:  http.MethodGet,
+				Path:    "/resume/artifacts/:id/analysis",
+				Handler: user.ResumeArtifactAnalysisHandler(serverCtx),
+			},
+			{
 				// 上传当前用户私有简历，使用 multipart/form-data，并要求 file(PDF) + chatId，title/mode 为可选表单字段
 				Method:  http.MethodPost,
 				Path:    "/resume/upload",

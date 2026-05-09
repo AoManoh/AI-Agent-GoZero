@@ -387,6 +387,23 @@ type ReportSnapshot struct {
 	NextAction string `json:"nextAction,optional"`
 }
 
+type ResumeArtifactAnalysisReq struct {
+	Id           string `path:"id"`
+	DirectionKey string `form:"directionKey,optional"`
+	Limit        int64  `form:"limit,optional"`
+}
+
+type ResumeArtifactAnalysisResp struct {
+	Artifact           ResumeArtifactItem       `json:"artifact"`
+	Summary            string                   `json:"summary"`
+	Skills             []ResumeSkillSignal      `json:"skills"`
+	Projects           []ResumeProjectHighlight `json:"projects"`
+	Risks              []ResumeRiskSignal       `json:"risks"`
+	FocusMatches       []ResumeFocusMatch       `json:"focusMatches"`
+	SuggestedQuestions []InterviewPlanQuestion  `json:"suggestedQuestions"`
+	AnalysisMeta       ReportMeta               `json:"analysisMeta"`
+}
+
 type ResumeArtifactChunk struct {
 	Index   int64  `json:"index"`
 	Content string `json:"content"`
@@ -421,6 +438,34 @@ type ResumeArtifactsReq struct {
 type ResumeArtifactsResp struct {
 	Artifacts []ResumeArtifactItem `json:"artifacts"`
 	Total     int64                `json:"total"`
+}
+
+type ResumeFocusMatch struct {
+	Key             string   `json:"key"`
+	Label           string   `json:"label"`
+	MatchScore      int64    `json:"matchScore"`
+	Evidence        []string `json:"evidence"`
+	PlannedQuestion int64    `json:"plannedQuestion"`
+}
+
+type ResumeProjectHighlight struct {
+	Title    string   `json:"title"`
+	Summary  string   `json:"summary"`
+	Evidence []string `json:"evidence"`
+}
+
+type ResumeRiskSignal struct {
+	Key        string `json:"key"`
+	Label      string `json:"label"`
+	Severity   string `json:"severity"`
+	Suggestion string `json:"suggestion"`
+}
+
+type ResumeSkillSignal struct {
+	Key      string   `json:"key"`
+	Label    string   `json:"label"`
+	Score    int64    `json:"score"`
+	Evidence []string `json:"evidence"`
 }
 
 type ResumeUploadReq struct {

@@ -633,6 +633,11 @@ type (
 	ResumeArtifactDetailReq {
 		Id string `path:"id"`
 	}
+	ResumeArtifactAnalysisReq {
+		Id           string `path:"id"`
+		DirectionKey string `form:"directionKey,optional"`
+		Limit        int64  `form:"limit,optional"`
+	}
 	ResumeArtifactItem {
 		ArtifactId       string `json:"artifactId"`
 		Title            string `json:"title"`
@@ -649,6 +654,30 @@ type (
 		Index   int64  `json:"index"`
 		Content string `json:"content"`
 	}
+	ResumeSkillSignal {
+		Key      string   `json:"key"`
+		Label    string   `json:"label"`
+		Score    int64    `json:"score"`
+		Evidence []string `json:"evidence"`
+	}
+	ResumeProjectHighlight {
+		Title    string   `json:"title"`
+		Summary  string   `json:"summary"`
+		Evidence []string `json:"evidence"`
+	}
+	ResumeRiskSignal {
+		Key        string `json:"key"`
+		Label      string `json:"label"`
+		Severity   string `json:"severity"`
+		Suggestion string `json:"suggestion"`
+	}
+	ResumeFocusMatch {
+		Key             string   `json:"key"`
+		Label           string   `json:"label"`
+		MatchScore      int64    `json:"matchScore"`
+		Evidence        []string `json:"evidence"`
+		PlannedQuestion int64    `json:"plannedQuestion"`
+	}
 	ResumeArtifactsResp {
 		Artifacts []ResumeArtifactItem `json:"artifacts"`
 		Total     int64                `json:"total"`
@@ -657,6 +686,16 @@ type (
 		Artifact ResumeArtifactItem    `json:"artifact"`
 		Chunks   []ResumeArtifactChunk `json:"chunks"`
 		Meta     ReportMeta            `json:"meta"`
+	}
+	ResumeArtifactAnalysisResp {
+		Artifact           ResumeArtifactItem       `json:"artifact"`
+		Summary            string                   `json:"summary"`
+		Skills             []ResumeSkillSignal      `json:"skills"`
+		Projects           []ResumeProjectHighlight `json:"projects"`
+		Risks              []ResumeRiskSignal       `json:"risks"`
+		FocusMatches       []ResumeFocusMatch       `json:"focusMatches"`
+		SuggestedQuestions []InterviewPlanQuestion  `json:"suggestedQuestions"`
+		AnalysisMeta       ReportMeta               `json:"analysisMeta"`
 	}
 )
 
@@ -809,5 +848,9 @@ service user-api {
 	@doc "获取当前用户指定简历资料详情和分块预览"
 	@handler ResumeArtifactDetailHandler
 	get /resume/artifacts/:id (ResumeArtifactDetailReq) returns (ResumeArtifactDetailResp)
+
+	@doc "分析当前用户指定简历资料，返回技能、亮点、风险和建议追问题"
+	@handler ResumeArtifactAnalysisHandler
+	get /resume/artifacts/:id/analysis (ResumeArtifactAnalysisReq) returns (ResumeArtifactAnalysisResp)
 }
 
