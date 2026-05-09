@@ -19,10 +19,10 @@ const currentYear = computed(() => new Date().getFullYear());
 </script>
 
 <style scoped>
-/* 简化版：删除品牌区，只保留底部一行 copyright 居中。
-   仍与 Home 哑光黑视觉语言连续，顶部一条细分隔线与 metrics 结束过渡。 */
+/* 与 SiteHeader 镜像一致：透明 bg + 顶部细分隔线 + outer 0 44 padding +
+   inner max-width 1320 + height 80。这样 footer 看起来就是 "底部 nav"，
+   与顶部 SiteHeader 视觉重量对称。 */
 .app-footer {
-  background: rgba(2, 2, 4, 0.6);
   width: 100%;
   margin-top: auto;
   border-top: 1px solid rgba(255, 255, 255, 0.08);
@@ -30,16 +30,18 @@ const currentYear = computed(() => new Date().getFullYear());
   z-index: 2;
 }
 
+/* outer：调 padding、不控高，在包裹中仅提供左右 44px 边距 */
 .footer-bottom {
-  background: rgba(2, 2, 4, 0.4);
+  padding: 0 44px;
 }
 
-/* 与 hero-outer 同构的对齐基准：max-width 1320 + margin auto + padding 24 44。
-   justify-content: center 让版权文本水平居中于整个 footer。 */
+/* inner：与 .site-header-inner 同构：max-width 1320 + margin auto +
+   padding 0 + height 80 + flex 居中。 */
 .footer-bottom-content {
   max-width: 1320px;
   margin: 0 auto;
-  padding: 24px 44px;
+  padding: 0;
+  height: 80px;
   display: flex;
   justify-content: center;
   align-items: center;
@@ -62,8 +64,12 @@ const currentYear = computed(() => new Date().getFullYear());
 }
 
 @media (max-width: 768px) {
+  .footer-bottom {
+    padding: 0 20px;
+  }
+
   .footer-bottom-content {
-    padding: 18px 20px;
+    height: 64px;
   }
 
   .copyright {
