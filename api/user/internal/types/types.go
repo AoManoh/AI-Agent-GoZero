@@ -525,6 +525,14 @@ type SessionFlowStateResp struct {
 	StateMeta      ReportMeta       `json:"stateMeta"`
 }
 
+type SessionFocusProgress struct {
+	Key                string `json:"key"`
+	Label              string `json:"label"`
+	PlannedQuestions   int64  `json:"plannedQuestions"`
+	CompletedQuestions int64  `json:"completedQuestions"`
+	ProgressPercent    int64  `json:"progressPercent"`
+}
+
 type SessionInterviewPlanReq struct {
 	Id    string `path:"id"`
 	Limit int64  `form:"limit,optional"`
@@ -547,6 +555,25 @@ type SessionMessage struct {
 	Role      string `json:"role"`
 	Content   string `json:"content"`
 	CreatedAt string `json:"createdAt"`
+}
+
+type SessionProgressReq struct {
+	Id        string `path:"id"`
+	PlanLimit int64  `form:"planLimit,optional"`
+}
+
+type SessionProgressResp struct {
+	Session              SessionItem            `json:"session"`
+	Config               SessionConfigSnapshot  `json:"config"`
+	TotalQuestions       int64                  `json:"totalQuestions"`
+	CompletedQuestions   int64                  `json:"completedQuestions"`
+	CurrentQuestionIndex int64                  `json:"currentQuestionIndex"`
+	ProgressPercent      int64                  `json:"progressPercent"`
+	UserTurns            int64                  `json:"userTurns"`
+	AssistantTurns       int64                  `json:"assistantTurns"`
+	FocusProgress        []SessionFocusProgress `json:"focusProgress"`
+	NextQuestion         *InterviewPlanQuestion `json:"nextQuestion,optional"`
+	ProgressMeta         ReportMeta             `json:"progressMeta"`
 }
 
 type SessionReportOverview struct {

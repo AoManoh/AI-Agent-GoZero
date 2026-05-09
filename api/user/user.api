@@ -157,6 +157,30 @@ type (
 		Id    string `path:"id"`
 		Limit int64  `form:"limit,optional"`
 	}
+	SessionProgressReq {
+		Id        string `path:"id"`
+		PlanLimit int64  `form:"planLimit,optional"`
+	}
+	SessionFocusProgress {
+		Key                string `json:"key"`
+		Label              string `json:"label"`
+		PlannedQuestions   int64  `json:"plannedQuestions"`
+		CompletedQuestions int64  `json:"completedQuestions"`
+		ProgressPercent    int64  `json:"progressPercent"`
+	}
+	SessionProgressResp {
+		Session              SessionItem            `json:"session"`
+		Config               SessionConfigSnapshot  `json:"config"`
+		TotalQuestions       int64                  `json:"totalQuestions"`
+		CompletedQuestions   int64                  `json:"completedQuestions"`
+		CurrentQuestionIndex int64                  `json:"currentQuestionIndex"`
+		ProgressPercent      int64                  `json:"progressPercent"`
+		UserTurns            int64                  `json:"userTurns"`
+		AssistantTurns       int64                  `json:"assistantTurns"`
+		FocusProgress        []SessionFocusProgress `json:"focusProgress"`
+		NextQuestion         *InterviewPlanQuestion `json:"nextQuestion,optional"`
+		ProgressMeta         ReportMeta             `json:"progressMeta"`
+	}
 	InterviewPlanQuestion {
 		Key                  string   `json:"key"`
 		DirectionKey         string   `json:"directionKey"`
@@ -729,6 +753,10 @@ service user-api {
 	@doc "获取指定会话的面试计划题目"
 	@handler SessionInterviewPlanHandler
 	get /sessions/:id/interview-plan (SessionInterviewPlanReq) returns (InterviewPlanResp)
+
+	@doc "获取指定会话的面试进度和下一题建议"
+	@handler SessionProgressHandler
+	get /sessions/:id/progress (SessionProgressReq) returns (SessionProgressResp)
 
 	@doc "结束指定会话并标记面试完成"
 	@handler FinishSessionHandler

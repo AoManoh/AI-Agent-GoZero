@@ -178,6 +178,12 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 				Handler: user.SessionInterviewPlanHandler(serverCtx),
 			},
 			{
+				// 获取指定会话的面试进度和下一题建议
+				Method:  http.MethodGet,
+				Path:    "/sessions/:id/progress",
+				Handler: user.SessionProgressHandler(serverCtx),
+			},
+			{
 				// 获取指定会话的报告详情
 				Method:  http.MethodGet,
 				Path:    "/sessions/:id/report",
