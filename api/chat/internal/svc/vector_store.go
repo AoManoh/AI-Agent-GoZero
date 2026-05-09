@@ -52,6 +52,43 @@ type VectorStore struct {
 	EmbeddingModel string         // 向量模型名称
 }
 
+type SessionInterviewConfig struct {
+	DirectionKey          string
+	DirectionLabel        string
+	DifficultyLevel       int64
+	DifficultyLabel       string
+	InterviewerStyle      string
+	InterviewerStyleLabel string
+	FocusAreas            []byte
+	FollowUpDepth         string
+	EstimatedMinutes      int64
+	ProgressPercent       int64
+}
+
+type KnowledgeDocument struct {
+	DocumentID int64
+	OwnerID    int64
+	Title      string
+	Preview    string
+	ChunkCount int64
+	CreatedAt  time.Time
+	UpdatedAt  time.Time
+}
+
+type KnowledgeDocumentChunk struct {
+	ID        int64
+	Title     string
+	Content   string
+	CreatedAt time.Time
+}
+
+type KnowledgeSearchResult struct {
+	ID      int64
+	Title   string
+	Content string
+	Score   float64
+}
+
 type execQuerier interface {
 	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
 	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
@@ -59,6 +96,7 @@ type execQuerier interface {
 
 var (
 	ErrSessionDeleted      = statuserr.Conflict("会话已删除，请创建新会话")
+	ErrSessionCompleted    = statuserr.Conflict("面试已结束，请创建新会话")
 	ErrSessionAccessDenied = statuserr.Forbidden("无权访问该会话")
 )
 
@@ -388,6 +426,157 @@ func (vs *VectorStore) RetrieveKnowledgeScopedContext(ctx context.Context, query
 	return knowledge, nil
 }
 
+func (vs *VectorStore) ListKnowledgeDocuments(ctx context.Context, userID *int64, limit int) ([]KnowledgeDocument, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if limit <= 0 {
+		limit = 20
+	}
+
+	whereSQL, args := knowledgeAccessWhere(userID, 1)
+	query := fmt.Sprintf(`SELECT
+min(id) AS document_id,
+user_id,
+title,
+count(*) AS chunk_count,
+min(created_at) AS created_at,
+max(created_at) AS updated_at,
+left(coalesce(min(content), ''), 240) AS preview
+FROM knowledge_base
+WHERE %s
+GROUP BY user_id, title
+ORDER BY max(created_at) DESC, min(id) DESC
+LIMIT $%d`, whereSQL, len(args)+1)
+	args = append(args, limit)
+
+	rows, err := vs.Pool.Query(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	documents := make([]KnowledgeDocument, 0)
+	for rows.Next() {
+		var doc KnowledgeDocument
+		if err := rows.Scan(&doc.DocumentID, &doc.OwnerID, &doc.Title, &doc.ChunkCount, &doc.CreatedAt, &doc.UpdatedAt, &doc.Preview); err != nil {
+			return nil, err
+		}
+		documents = append(documents, doc)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return documents, nil
+}
+
+func (vs *VectorStore) LoadKnowledgeDocumentChunks(ctx context.Context, documentID int64, userID *int64, limit int) (KnowledgeDocument, []KnowledgeDocumentChunk, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if limit <= 0 {
+		limit = 50
+	}
+
+	whereSQL, args := knowledgeAccessWhere(userID, 2)
+	args = append([]any{documentID}, args...)
+	row := vs.Pool.QueryRow(ctx, fmt.Sprintf(`SELECT user_id, title
+FROM knowledge_base
+WHERE id = $1 AND %s
+LIMIT 1`, whereSQL), args...)
+
+	var (
+		ownerID int64
+		title   string
+	)
+	if err := row.Scan(&ownerID, &title); err != nil {
+		return KnowledgeDocument{}, nil, err
+	}
+
+	var document KnowledgeDocument
+	if err := vs.Pool.QueryRow(ctx, `SELECT
+min(id) AS document_id,
+user_id,
+title,
+count(*) AS chunk_count,
+min(created_at) AS created_at,
+max(created_at) AS updated_at,
+left(coalesce(min(content), ''), 240) AS preview
+FROM knowledge_base
+WHERE user_id = $1 AND title = $2
+GROUP BY user_id, title`, ownerID, title).Scan(
+		&document.DocumentID,
+		&document.OwnerID,
+		&document.Title,
+		&document.ChunkCount,
+		&document.CreatedAt,
+		&document.UpdatedAt,
+		&document.Preview,
+	); err != nil {
+		return KnowledgeDocument{}, nil, err
+	}
+
+	rows, err := vs.Pool.Query(ctx, `SELECT id, title, content, created_at
+FROM knowledge_base
+WHERE user_id = $1 AND title = $2
+ORDER BY created_at ASC, id ASC
+LIMIT $3`, ownerID, title, limit)
+	if err != nil {
+		return KnowledgeDocument{}, nil, err
+	}
+	defer rows.Close()
+
+	chunks := make([]KnowledgeDocumentChunk, 0)
+	for rows.Next() {
+		var chunk KnowledgeDocumentChunk
+		if err := rows.Scan(&chunk.ID, &chunk.Title, &chunk.Content, &chunk.CreatedAt); err != nil {
+			return KnowledgeDocument{}, nil, err
+		}
+		chunks = append(chunks, chunk)
+	}
+	if err := rows.Err(); err != nil {
+		return KnowledgeDocument{}, nil, err
+	}
+
+	return document, chunks, nil
+}
+
+func (vs *VectorStore) SearchKnowledge(ctx context.Context, query string, topK int, userID *int64) ([]KnowledgeSearchResult, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if topK <= 0 {
+		topK = 5
+	}
+
+	queryEmbeddingVector, err := vs.generateEmbedding(ctx, strings.TrimSpace(query))
+	if err != nil {
+		return nil, fmt.Errorf("知识库测试查询向量化失败: %w", err)
+	}
+
+	scoredResults, err := vs.fetchPublicKnowledge(ctx, queryEmbeddingVector, topK, userID)
+	if err != nil {
+		return nil, err
+	}
+	sortScoredKnowledge(scoredResults)
+	if len(scoredResults) > topK {
+		scoredResults = scoredResults[:topK]
+	}
+
+	results := make([]KnowledgeSearchResult, 0, len(scoredResults))
+	for _, item := range scoredResults {
+		results = append(results, KnowledgeSearchResult{
+			ID:      item.ID,
+			Title:   item.Title,
+			Content: item.Content,
+			Score:   item.Score,
+		})
+	}
+
+	return results, nil
+}
+
 func ensureChatSession(ctx context.Context, db execQuerier, chatId string, userID *int64, role, content, mode string) error {
 	if userID == nil {
 		return nil
@@ -437,12 +626,56 @@ func (vs *VectorStore) ResolveSessionMode(ctx context.Context, chatId string, us
 	return effectiveSessionMode(storedMode, requestedMode), nil
 }
 
+func (vs *VectorStore) LoadSessionInterviewConfig(ctx context.Context, chatId string, userID *int64) (SessionInterviewConfig, bool, error) {
+	if userID == nil || strings.TrimSpace(chatId) == "" {
+		return SessionInterviewConfig{}, false, nil
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	var config SessionInterviewConfig
+	row := vs.Pool.QueryRow(ctx, `SELECT
+direction_key,
+direction_label,
+difficulty_level,
+difficulty_label,
+interviewer_style,
+interviewer_style_label,
+focus_areas,
+follow_up_depth,
+estimated_minutes,
+progress_percent
+FROM chat_sessions
+WHERE session_id = $1 AND user_id = $2 AND is_active = true
+LIMIT 1`, chatId, *userID)
+	if err := row.Scan(
+		&config.DirectionKey,
+		&config.DirectionLabel,
+		&config.DifficultyLevel,
+		&config.DifficultyLabel,
+		&config.InterviewerStyle,
+		&config.InterviewerStyleLabel,
+		&config.FocusAreas,
+		&config.FollowUpDepth,
+		&config.EstimatedMinutes,
+		&config.ProgressPercent,
+	); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return SessionInterviewConfig{}, false, nil
+		}
+		return SessionInterviewConfig{}, false, err
+	}
+	return config, true, nil
+}
+
 func ensureSessionWritable(ctx context.Context, db execQuerier, chatId string, userID int64) error {
-	row := db.QueryRow(ctx, `SELECT user_id, is_active FROM chat_sessions WHERE session_id = $1 LIMIT 1`, chatId)
+	row := db.QueryRow(ctx, `SELECT user_id, is_active, completed_at IS NOT NULL FROM chat_sessions WHERE session_id = $1 LIMIT 1`, chatId)
 
 	var ownerID int64
 	var isActive bool
-	if err := row.Scan(&ownerID, &isActive); err != nil {
+	var isCompleted bool
+	if err := row.Scan(&ownerID, &isActive, &isCompleted); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil
 		}
@@ -453,6 +686,9 @@ func ensureSessionWritable(ctx context.Context, db execQuerier, chatId string, u
 	}
 	if !isActive {
 		return ErrSessionDeleted
+	}
+	if isCompleted {
+		return ErrSessionCompleted
 	}
 
 	return nil
@@ -489,9 +725,18 @@ func effectiveSessionMode(storedMode, requestedMode string) string {
 	return sessionmode.NormalizeKey(requestedMode)
 }
 
+func knowledgeAccessWhere(userID *int64, startIndex int) (string, []any) {
+	if userID == nil || *userID == publicKnowledgeOwnerID {
+		return fmt.Sprintf("user_id = %d", publicKnowledgeOwnerID), nil
+	}
+
+	return fmt.Sprintf("(user_id = %d OR user_id = $%d)", publicKnowledgeOwnerID, startIndex), []any{*userID}
+}
+
 const (
-	defaultSessionTitle = "新对话"
-	defaultSessionMode  = sessionmode.DefaultKey
+	defaultSessionTitle    = "新对话"
+	defaultSessionMode     = sessionmode.DefaultKey
+	publicKnowledgeOwnerID = 1
 )
 
 type scoredKnowledgeChunk struct {

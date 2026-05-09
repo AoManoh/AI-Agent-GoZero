@@ -36,13 +36,21 @@ func (l *CreateSessionLogic) CreateSession(req *types.CreateSessionReq) (*types.
 		title = "新对话"
 	}
 	mode := normalizeSessionMode(req.Mode)
+	config, configResp, err := buildSessionCreateConfig(req)
+	if err != nil {
+		return nil, err
+	}
+	if title == "新对话" {
+		title = configResp.DirectionLabel + "面试"
+	}
 
-	session, err := l.svcCtx.ChatSessionsModel.Create(l.ctx, userID, uuid.NewString(), title, mode)
+	session, err := l.svcCtx.ChatSessionsModel.CreateWithConfig(l.ctx, userID, uuid.NewString(), title, mode, config)
 	if err != nil {
 		return nil, err
 	}
 
 	return &types.CreateSessionResp{
 		Session: buildSessionItem(*session),
+		Config:  buildSessionConfigSnapshot(*session),
 	}, nil
 }

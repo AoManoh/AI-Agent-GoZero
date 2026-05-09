@@ -69,12 +69,18 @@ type (
 	SessionsReq  {}
 	// 创建会话请求体
 	CreateSessionReq {
-		Title string `json:"title,optional"`
-		Mode  string `json:"mode,optional"`
+		Title            string   `json:"title,optional"`
+		Mode             string   `json:"mode,optional"`
+		DirectionKey     string   `json:"directionKey,optional"`
+		Difficulty       int64    `json:"difficulty,optional"`
+		FocusKeys        []string `json:"focusKeys,optional"`
+		InterviewerStyle string   `json:"interviewerStyle,optional"`
+		EstimatedMinutes int64    `json:"estimatedMinutes,optional"`
 	}
 	// 创建会话响应体
 	CreateSessionResp {
-		Session SessionItem `json:"session"`
+		Session SessionItem           `json:"session"`
+		Config  SessionConfigSnapshot `json:"config"`
 	}
 	// 会话列表项
 	SessionItem {
@@ -87,6 +93,58 @@ type (
 		CreatedAt     string `json:"createdAt"`
 		UpdatedAt     string `json:"updatedAt"`
 		LastMessageAt string `json:"lastMessageAt,optional"`
+		CompletedAt   string `json:"completedAt,optional"`
+	}
+	FocusAreaSelection {
+		Key   string `json:"key"`
+		Label string `json:"label"`
+	}
+	SessionConfigSnapshot {
+		DirectionKey          string               `json:"directionKey"`
+		DirectionLabel        string               `json:"directionLabel"`
+		DifficultyLevel       int64                `json:"difficultyLevel"`
+		DifficultyLabel       string               `json:"difficultyLabel"`
+		InterviewerStyle      string               `json:"interviewerStyle"`
+		InterviewerStyleLabel string               `json:"interviewerStyleLabel"`
+		FocusAreas            []FocusAreaSelection `json:"focusAreas"`
+		FollowUpDepth         string               `json:"followUpDepth"`
+		EstimatedMinutes      int64                `json:"estimatedMinutes"`
+		ProgressPercent       int64                `json:"progressPercent"`
+		DurationSeconds       int64                `json:"durationSeconds"`
+		StartedAt             string               `json:"startedAt,optional"`
+		CompletedAt           string               `json:"completedAt,optional"`
+	}
+	InterviewPresetsReq  {}
+	InterviewDirectionPreset {
+		Key             string   `json:"key"`
+		Label           string   `json:"label"`
+		Description     string   `json:"description"`
+		QuestionCount   int64    `json:"questionCount"`
+		DifficultyRange []int64  `json:"difficultyRange"`
+		FocusKeys       []string `json:"focusKeys"`
+	}
+	InterviewDifficultyPreset {
+		Level                int64  `json:"level"`
+		Label                string `json:"label"`
+		Description          string `json:"description"`
+		DefaultFollowUpDepth string `json:"defaultFollowUpDepth"`
+	}
+	InterviewFocusOption {
+		Key         string `json:"key"`
+		Label       string `json:"label"`
+		Description string `json:"description"`
+	}
+	InterviewStyleOption {
+		Key         string `json:"key"`
+		Label       string `json:"label"`
+		Description string `json:"description"`
+	}
+	InterviewPresetsResp {
+		Directions        []InterviewDirectionPreset  `json:"directions"`
+		Difficulties      []InterviewDifficultyPreset `json:"difficulties"`
+		FocusOptions      []InterviewFocusOption      `json:"focusOptions"`
+		InterviewerStyles []InterviewStyleOption      `json:"interviewerStyles"`
+		DefaultConfig     SessionConfigSnapshot       `json:"defaultConfig"`
 	}
 	// 会话列表响应体
 	SessionsResp {
@@ -95,6 +153,19 @@ type (
 	}
 	// 会话详情请求体
 	SessionDetailReq {
+		Id string `path:"id"`
+	}
+	SessionBootstrapReq {
+		Id string `path:"id"`
+	}
+	FinishSessionReq {
+		Id string `path:"id"`
+	}
+	FinishSessionResp {
+		Session SessionItem           `json:"session"`
+		Config  SessionConfigSnapshot `json:"config"`
+	}
+	SessionReportReq {
 		Id string `path:"id"`
 	}
 	DeleteSessionReq {
@@ -110,6 +181,14 @@ type (
 	SessionDetailResp {
 		Session  SessionItem      `json:"session"`
 		Messages []SessionMessage `json:"messages"`
+	}
+	SessionBootstrapResp {
+		Session       SessionItem               `json:"session"`
+		Config        SessionConfigSnapshot     `json:"config"`
+		Messages      []SessionMessage          `json:"messages"`
+		FlowState     *SessionFlowStateResp     `json:"flowState,optional"`
+		ReportSummary *SessionReportSummaryResp `json:"reportSummary,optional"`
+		BootstrapMeta ReportMeta                `json:"bootstrapMeta"`
 	}
 	DemoInterviewSceneRandomReq {
 		Limit int64 `form:"limit,optional"`
@@ -360,6 +439,90 @@ type (
 		ModeDetail    ReportCenterModeDetailResp `json:"modeDetail"`
 		BootstrapMeta ReportMeta                 `json:"bootstrapMeta"`
 	}
+	WorkbenchStats {
+		CompletedInterviews int64   `json:"completedInterviews"`
+		AverageScore        float64 `json:"averageScore"`
+		LastPracticeAt      string  `json:"lastPracticeAt,optional"`
+	}
+	WorkbenchContinueSession {
+		Session  SessionItem           `json:"session"`
+		Config   SessionConfigSnapshot `json:"config"`
+		Progress int64                 `json:"progress"`
+		Depth    string                `json:"depth"`
+	}
+	AbilityRadarPoint {
+		Key      string `json:"key"`
+		Label    string `json:"label"`
+		Score    int64  `json:"score"`
+		MaxScore int64  `json:"maxScore"`
+	}
+	WorkbenchResumeSummary {
+		Total           int64  `json:"total"`
+		LatestSessionId string `json:"latestSessionId,optional"`
+		LatestTitle     string `json:"latestTitle,optional"`
+		LatestUpdatedAt string `json:"latestUpdatedAt,optional"`
+		ChunkCount      int64  `json:"chunkCount"`
+	}
+	WorkbenchKnowledgeSummary {
+		Documents     int64  `json:"documents"`
+		Chunks        int64  `json:"chunks"`
+		LatestTitle   string `json:"latestTitle,optional"`
+		LatestAddedAt string `json:"latestAddedAt,optional"`
+	}
+	WorkbenchAction {
+		Key         string `json:"key"`
+		Label       string `json:"label"`
+		Description string `json:"description"`
+		Route       string `json:"route"`
+	}
+	WorkbenchBootstrapReq  {}
+	WorkbenchBootstrapResp {
+		User             ProfileResp               `json:"user"`
+		Stats            WorkbenchStats            `json:"stats"`
+		ContinueSession  *WorkbenchContinueSession `json:"continueSession,optional"`
+		RecentSessions   []SessionItem             `json:"recentSessions"`
+		AbilityRadar     []AbilityRadarPoint       `json:"abilityRadar"`
+		ResumeSummary    WorkbenchResumeSummary    `json:"resumeSummary"`
+		KnowledgeSummary WorkbenchKnowledgeSummary `json:"knowledgeSummary"`
+		NextActions      []WorkbenchAction         `json:"nextActions"`
+		WorkbenchMeta    ReportMeta                `json:"workbenchMeta"`
+	}
+	SessionReportOverview {
+		Score           float64 `json:"score"`
+		MaxScore        int64   `json:"maxScore"`
+		Summary         string  `json:"summary"`
+		Status          string  `json:"status"`
+		DurationSeconds int64   `json:"durationSeconds"`
+		QuestionCount   int64   `json:"questionCount"`
+		UserTurns       int64   `json:"userTurns"`
+		AssistantTurns  int64   `json:"assistantTurns"`
+	}
+	SessionReportTag {
+		Key   string `json:"key"`
+		Label string `json:"label"`
+		Level string `json:"level"`
+	}
+	SessionReportQuestionCard {
+		TurnIndex int64              `json:"turnIndex"`
+		Depth     string             `json:"depth"`
+		Question  string             `json:"question"`
+		Answer    string             `json:"answer"`
+		AiComment string             `json:"aiComment"`
+		Score     int64              `json:"score"`
+		MaxScore  int64              `json:"maxScore"`
+		Tags      []SessionReportTag `json:"tags"`
+	}
+	SessionReportResp {
+		Session       SessionItem                 `json:"session"`
+		Config        SessionConfigSnapshot       `json:"config"`
+		Overview      SessionReportOverview       `json:"overview"`
+		Radar         []AbilityRadarPoint         `json:"radar"`
+		QuestionCards []SessionReportQuestionCard `json:"questionCards"`
+		Strengths     []string                    `json:"strengths"`
+		Risks         []string                    `json:"risks"`
+		Suggestions   []string                    `json:"suggestions"`
+		ReportMeta    ReportMeta                  `json:"reportMeta"`
+	}
 	// 私有简历上传请求体
 	// 当前运行时要求 multipart/form-data 中额外包含名为 `file` 的 PDF 文件 part；
 	// file 由 handler 手工读取，因此未在 goctl type 中展开。
@@ -375,6 +538,31 @@ type (
 		Title    string `json:"title"`
 		Filename string `json:"filename"`
 		Chunks   int    `json:"chunks"`
+	}
+	ResumeArtifactsReq  {}
+	ResumeArtifactDetailReq {
+		Id string `path:"id"`
+	}
+	ResumeArtifactItem {
+		ArtifactId       string `json:"artifactId"`
+		Title            string `json:"title"`
+		ChunkCount       int64  `json:"chunkCount"`
+		BoundSessionId   string `json:"boundSessionId"`
+		BoundSessionName string `json:"boundSessionName"`
+		UpdatedAt        string `json:"updatedAt"`
+	}
+	ResumeArtifactChunk {
+		Index   int64  `json:"index"`
+		Content string `json:"content"`
+	}
+	ResumeArtifactsResp {
+		Artifacts []ResumeArtifactItem `json:"artifacts"`
+		Total     int64                `json:"total"`
+	}
+	ResumeArtifactDetailResp {
+		Artifact ResumeArtifactItem    `json:"artifact"`
+		Chunks   []ResumeArtifactChunk `json:"chunks"`
+		Meta     ReportMeta            `json:"meta"`
 	}
 )
 
@@ -424,6 +612,14 @@ service user-api {
 	@handler ProfileHandler
 	get /profile (ProfileReq) returns (ProfileResp)
 
+	@doc "获取当前用户工作台首屏聚合数据"
+	@handler WorkbenchBootstrapHandler
+	get /workbench/bootstrap (WorkbenchBootstrapReq) returns (WorkbenchBootstrapResp)
+
+	@doc "获取新建面试配置页预设选项"
+	@handler InterviewPresetsHandler
+	get /interview/presets (InterviewPresetsReq) returns (InterviewPresetsResp)
+
 	@doc "获取当前用户会话列表"
 	@handler SessionsHandler
 	get /sessions (SessionsReq) returns (SessionsResp)
@@ -452,6 +648,18 @@ service user-api {
 	@handler CreateSessionHandler
 	post /sessions (CreateSessionReq) returns (CreateSessionResp)
 
+	@doc "获取指定会话的面试页单入口数据"
+	@handler SessionBootstrapHandler
+	get /sessions/:id/bootstrap (SessionBootstrapReq) returns (SessionBootstrapResp)
+
+	@doc "结束指定会话并标记面试完成"
+	@handler FinishSessionHandler
+	post /sessions/:id/finish (FinishSessionReq) returns (FinishSessionResp)
+
+	@doc "获取指定会话的报告详情"
+	@handler SessionReportHandler
+	get /sessions/:id/report (SessionReportReq) returns (SessionReportResp)
+
 	@doc "获取指定会话详情"
 	@handler SessionDetailHandler
 	get /sessions/:id (SessionDetailReq) returns (SessionDetailResp)
@@ -475,5 +683,13 @@ service user-api {
 	@doc "上传当前用户私有简历，使用 multipart/form-data，并要求 file(PDF) + chatId，title/mode 为可选表单字段"
 	@handler ResumeUploadHandler
 	post /resume/upload (ResumeUploadReq) returns (ResumeUploadResp)
+
+	@doc "获取当前用户简历资料列表，当前按绑定会话聚合"
+	@handler ResumeArtifactsHandler
+	get /resume/artifacts (ResumeArtifactsReq) returns (ResumeArtifactsResp)
+
+	@doc "获取当前用户指定简历资料详情和分块预览"
+	@handler ResumeArtifactDetailHandler
+	get /resume/artifacts/:id (ResumeArtifactDetailReq) returns (ResumeArtifactDetailResp)
 }
 

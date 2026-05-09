@@ -204,6 +204,14 @@ func (s *stubChatSessionsModel) Create(ctx context.Context, userID int64, sessio
 	panic("unexpected Create call")
 }
 
+func (s *stubChatSessionsModel) CreateWithConfig(ctx context.Context, userID int64, sessionID, title, mode string, config model.SessionCreateConfig) (*model.ChatSession, error) {
+	panic("unexpected CreateWithConfig call")
+}
+
+func (s *stubChatSessionsModel) Complete(ctx context.Context, userID int64, sessionID string) (*model.ChatSession, error) {
+	panic("unexpected Complete call")
+}
+
 func (s *stubChatSessionsModel) Deactivate(ctx context.Context, userID int64, sessionID string) error {
 	panic("unexpected Deactivate call")
 }

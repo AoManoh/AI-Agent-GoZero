@@ -46,6 +46,12 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 	server.AddRoutes(
 		[]rest.Route{
 			{
+				// 获取新建面试配置页预设选项
+				Method:  http.MethodGet,
+				Path:    "/interview/presets",
+				Handler: user.InterviewPresetsHandler(serverCtx),
+			},
+			{
 				// 用户退出登录
 				Method:  http.MethodPost,
 				Path:    "/logout",
@@ -88,6 +94,18 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 				Handler: user.ReportCenterSessionsHandler(serverCtx),
 			},
 			{
+				// 获取当前用户简历资料列表，当前按绑定会话聚合
+				Method:  http.MethodGet,
+				Path:    "/resume/artifacts",
+				Handler: user.ResumeArtifactsHandler(serverCtx),
+			},
+			{
+				// 获取当前用户指定简历资料详情和分块预览
+				Method:  http.MethodGet,
+				Path:    "/resume/artifacts/:id",
+				Handler: user.ResumeArtifactDetailHandler(serverCtx),
+			},
+			{
 				// 上传当前用户私有简历，使用 multipart/form-data，并要求 file(PDF) + chatId，title/mode 为可选表单字段
 				Method:  http.MethodPost,
 				Path:    "/resume/upload",
@@ -118,10 +136,22 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 				Handler: user.DeleteSessionHandler(serverCtx),
 			},
 			{
+				// 获取指定会话的面试页单入口数据
+				Method:  http.MethodGet,
+				Path:    "/sessions/:id/bootstrap",
+				Handler: user.SessionBootstrapHandler(serverCtx),
+			},
+			{
 				// 获取指定会话的结构化评估
 				Method:  http.MethodGet,
 				Path:    "/sessions/:id/evaluation",
 				Handler: user.SessionEvaluationHandler(serverCtx),
+			},
+			{
+				// 结束指定会话并标记面试完成
+				Method:  http.MethodPost,
+				Path:    "/sessions/:id/finish",
+				Handler: user.FinishSessionHandler(serverCtx),
 			},
 			{
 				// 获取指定会话的流程状态
@@ -130,10 +160,22 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 				Handler: user.SessionFlowStateHandler(serverCtx),
 			},
 			{
+				// 获取指定会话的报告详情
+				Method:  http.MethodGet,
+				Path:    "/sessions/:id/report",
+				Handler: user.SessionReportHandler(serverCtx),
+			},
+			{
 				// 获取指定会话的报告摘要
 				Method:  http.MethodGet,
 				Path:    "/sessions/:id/report-summary",
 				Handler: user.SessionReportSummaryHandler(serverCtx),
+			},
+			{
+				// 获取当前用户工作台首屏聚合数据
+				Method:  http.MethodGet,
+				Path:    "/workbench/bootstrap",
+				Handler: user.WorkbenchBootstrapHandler(serverCtx),
 			},
 		},
 		rest.WithJwt(serverCtx.Config.Auth.AccessSecret),

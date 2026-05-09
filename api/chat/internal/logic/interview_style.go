@@ -18,6 +18,11 @@ var interviewStyles = []interviewStyle{
 		Prompt: "问题清晰、节奏稳定，按“核心概念 -> 项目实践 -> 边界风险”推进；少铺垫，不跳题。",
 	},
 	{
+		Key:    "senior",
+		Label:  "资深技术官",
+		Prompt: "像资深工程负责人一样推进面试，关注事实、边界、取舍和工程落地；追问稳定克制，不替候选人作答。",
+	},
+	{
 		Key:    "pressure",
 		Label:  "压力面试官",
 		Prompt: "节奏稍快，会挑战模糊表述，要求候选人给出证据、取舍和边界；保持尊重，禁止羞辱、讽刺或人身攻击。",
@@ -58,6 +63,19 @@ func selectInterviewStyle(chatID string) interviewStyle {
 	hasher := fnv.New32a()
 	_, _ = hasher.Write([]byte(trimmed))
 	return interviewStyles[int(hasher.Sum32())%len(interviewStyles)]
+}
+
+func selectInterviewStyleByKey(key, chatID string) interviewStyle {
+	trimmed := strings.TrimSpace(key)
+	if trimmed == "" {
+		return selectInterviewStyle(chatID)
+	}
+	for _, style := range interviewStyles {
+		if style.Key == trimmed {
+			return style
+		}
+	}
+	return selectInterviewStyle(chatID)
 }
 
 func buildInterviewStylePrompt(style interviewStyle) string {

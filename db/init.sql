@@ -69,15 +69,29 @@ CREATE TABLE "public"."chat_sessions" (
                                           "user_id" BIGINT NOT NULL REFERENCES "public"."users"("id") ON DELETE CASCADE,
                                           "title" VARCHAR(200) NOT NULL DEFAULT '新对话',
                                           "mode" VARCHAR(64) NOT NULL DEFAULT 'Interview',
+                                          "direction_key" VARCHAR(64) NOT NULL DEFAULT 'go_backend',
+                                          "direction_label" VARCHAR(80) NOT NULL DEFAULT 'Go 后端',
+                                          "difficulty_level" INTEGER NOT NULL DEFAULT 3,
+                                          "difficulty_label" VARCHAR(32) NOT NULL DEFAULT '中级',
+                                          "interviewer_style" VARCHAR(64) NOT NULL DEFAULT 'senior',
+                                          "interviewer_style_label" VARCHAR(80) NOT NULL DEFAULT '资深技术官',
+                                          "focus_areas" JSONB NOT NULL DEFAULT '[]'::jsonb,
+                                          "follow_up_depth" VARCHAR(16) NOT NULL DEFAULT 'N+3',
+                                          "estimated_minutes" INTEGER NOT NULL DEFAULT 30,
+                                          "progress_percent" INTEGER NOT NULL DEFAULT 0,
                                           "created_at" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                                           "updated_at" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                                           "last_message_at" TIMESTAMPTZ,
+                                          "started_at" TIMESTAMPTZ,
+                                          "completed_at" TIMESTAMPTZ,
+                                          "duration_seconds" INTEGER NOT NULL DEFAULT 0,
                                           "message_count" INTEGER NOT NULL DEFAULT 0,
                                           "is_active" BOOLEAN NOT NULL DEFAULT true
 );
 
 CREATE INDEX idx_chat_sessions_user_id_last_message_at ON chat_sessions (user_id, last_message_at DESC);
 CREATE INDEX idx_chat_sessions_user_id_is_active ON chat_sessions (user_id, is_active);
+CREATE INDEX idx_chat_sessions_user_completed_at ON chat_sessions (user_id, completed_at DESC);
 
 CREATE TABLE "public"."session_evaluations" (
                                                 "id" BIGSERIAL PRIMARY KEY,

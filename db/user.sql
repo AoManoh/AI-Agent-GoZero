@@ -333,10 +333,25 @@ SET "mode" = 'Interview'
 WHERE "mode" IS NULL OR btrim("mode") = '';
 ALTER TABLE "public"."chat_sessions" ALTER COLUMN "mode" SET NOT NULL;
 ALTER TABLE "public"."chat_sessions" ALTER COLUMN "mode" SET DEFAULT 'Interview';
+ALTER TABLE "public"."chat_sessions" ADD COLUMN IF NOT EXISTS "direction_key" VARCHAR(64) NOT NULL DEFAULT 'go_backend';
+ALTER TABLE "public"."chat_sessions" ADD COLUMN IF NOT EXISTS "direction_label" VARCHAR(80) NOT NULL DEFAULT 'Go 后端';
+ALTER TABLE "public"."chat_sessions" ADD COLUMN IF NOT EXISTS "difficulty_level" INTEGER NOT NULL DEFAULT 3;
+ALTER TABLE "public"."chat_sessions" ADD COLUMN IF NOT EXISTS "difficulty_label" VARCHAR(32) NOT NULL DEFAULT '中级';
+ALTER TABLE "public"."chat_sessions" ADD COLUMN IF NOT EXISTS "interviewer_style" VARCHAR(64) NOT NULL DEFAULT 'senior';
+ALTER TABLE "public"."chat_sessions" ADD COLUMN IF NOT EXISTS "interviewer_style_label" VARCHAR(80) NOT NULL DEFAULT '资深技术官';
+ALTER TABLE "public"."chat_sessions" ADD COLUMN IF NOT EXISTS "focus_areas" JSONB NOT NULL DEFAULT '[]'::jsonb;
+ALTER TABLE "public"."chat_sessions" ADD COLUMN IF NOT EXISTS "follow_up_depth" VARCHAR(16) NOT NULL DEFAULT 'N+3';
+ALTER TABLE "public"."chat_sessions" ADD COLUMN IF NOT EXISTS "estimated_minutes" INTEGER NOT NULL DEFAULT 30;
+ALTER TABLE "public"."chat_sessions" ADD COLUMN IF NOT EXISTS "progress_percent" INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE "public"."chat_sessions" ADD COLUMN IF NOT EXISTS "started_at" TIMESTAMPTZ;
+ALTER TABLE "public"."chat_sessions" ADD COLUMN IF NOT EXISTS "completed_at" TIMESTAMPTZ;
+ALTER TABLE "public"."chat_sessions" ADD COLUMN IF NOT EXISTS "duration_seconds" INTEGER NOT NULL DEFAULT 0;
 DROP INDEX IF EXISTS idx_chat_sessions_user_last_message;
 CREATE INDEX idx_chat_sessions_user_last_message ON "public"."chat_sessions" (user_id, last_message_at DESC);
 DROP INDEX IF EXISTS idx_chat_sessions_user_active;
 CREATE INDEX idx_chat_sessions_user_active ON "public"."chat_sessions" (user_id, is_active);
+DROP INDEX IF EXISTS idx_chat_sessions_user_completed_at;
+CREATE INDEX idx_chat_sessions_user_completed_at ON "public"."chat_sessions" (user_id, completed_at DESC);
 
 COMMENT ON TABLE "public"."chat_sessions" IS '存储用户工作台中的会话元数据，用于会话列表、恢复与排序';
 COMMENT ON COLUMN "public"."chat_sessions"."id" IS '会话元数据主键';
@@ -344,9 +359,22 @@ COMMENT ON COLUMN "public"."chat_sessions"."session_id" IS '对外暴露的会�
 COMMENT ON COLUMN "public"."chat_sessions"."user_id" IS '会话所属用户ID';
 COMMENT ON COLUMN "public"."chat_sessions"."title" IS '会话标题，默认由首条用户消息或默认值生成';
 COMMENT ON COLUMN "public"."chat_sessions"."mode" IS '会话所属工作模式，当前规范值为 Interview/Research/Memory/Coach';
+COMMENT ON COLUMN "public"."chat_sessions"."direction_key" IS '面试方向键，例如 go_backend/system_design/frontend_vue';
+COMMENT ON COLUMN "public"."chat_sessions"."direction_label" IS '面试方向展示名';
+COMMENT ON COLUMN "public"."chat_sessions"."difficulty_level" IS '面试难度等级，范围 1-5';
+COMMENT ON COLUMN "public"."chat_sessions"."difficulty_label" IS '面试难度展示名';
+COMMENT ON COLUMN "public"."chat_sessions"."interviewer_style" IS '面试官人格键，例如 senior/pressure/humorous';
+COMMENT ON COLUMN "public"."chat_sessions"."interviewer_style_label" IS '面试官人格展示名';
+COMMENT ON COLUMN "public"."chat_sessions"."focus_areas" IS '面试侧重点 JSON 数组，保存创建会话时的配置快照';
+COMMENT ON COLUMN "public"."chat_sessions"."follow_up_depth" IS '追问深度标签，例如 N+3/N+5';
+COMMENT ON COLUMN "public"."chat_sessions"."estimated_minutes" IS '预计面试时长，单位分钟';
+COMMENT ON COLUMN "public"."chat_sessions"."progress_percent" IS '当前面试进度百分比，用于工作台继续入口';
 COMMENT ON COLUMN "public"."chat_sessions"."created_at" IS '会话创建时间';
 COMMENT ON COLUMN "public"."chat_sessions"."updated_at" IS '会话最近一次元数据更新时间';
 COMMENT ON COLUMN "public"."chat_sessions"."last_message_at" IS '会话最近一条消息时间';
+COMMENT ON COLUMN "public"."chat_sessions"."started_at" IS '面试开始时间';
+COMMENT ON COLUMN "public"."chat_sessions"."completed_at" IS '面试完成时间';
+COMMENT ON COLUMN "public"."chat_sessions"."duration_seconds" IS '面试持续时长，单位秒';
 COMMENT ON COLUMN "public"."chat_sessions"."message_count" IS '会话消息条数，用于工作台统计';
 COMMENT ON COLUMN "public"."chat_sessions"."is_active" IS '会话是否仍处于活跃状态';
 

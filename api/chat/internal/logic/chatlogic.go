@@ -37,6 +37,7 @@ package logic
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -211,7 +212,14 @@ func (l *ChatLogic) Chat(req *types2.InterviewAppChatReq) (<-chan *types2.ChatRe
 		if _, err := stateManager.UpdateExecutionState(scope, chatflow.ExecutionGenerating, "model_stream_start"); err != nil {
 			l.Logger.Errorf("更新 flow 执行状态失败: %v", err)
 		}
-		openSession, err := l.buildMessagesWithState(req.ChatId, currentState, knowledgeChunks, scopedUserID)
+		var sessionConfig *svc.SessionInterviewConfig
+		if loadedConfig, found, err := l.svcCtx.VectorStore.LoadSessionInterviewConfig(l.ctx, req.ChatId, scopedUserID); err == nil && found {
+			sessionConfig = &loadedConfig
+		} else if err != nil {
+			l.Logger.Errorf("读取会话配置失败: %v", err)
+		}
+
+		openSession, err := l.buildMessagesWithState(req.ChatId, currentState, knowledgeChunks, scopedUserID, sessionConfig)
 		if err != nil {
 			l.Logger.Errorf("构建消息失败: %v", err)
 			_, _ = stateManager.UpdateExecutionState(scope, chatflow.ExecutionFailed, "build_messages_failed")
@@ -567,9 +575,12 @@ func (l *ChatLogic) getSessionHistory(chatId string, knowledge []types2.Knowledg
 //		// 返回包含状态感知系统消息和历史对话的完整上下文
 //		return messages, nil
 //	}
-func (l *ChatLogic) buildMessagesWithState(chatId, currentState string, knowledge []types2.KnowledgeChunk, userID *int64) ([]openai.ChatCompletionMessage, error) {
+func (l *ChatLogic) buildMessagesWithState(chatId, currentState string, knowledge []types2.KnowledgeChunk, userID *int64, sessionConfig *svc.SessionInterviewConfig) ([]openai.ChatCompletionMessage, error) {
 	var sb strings.Builder
 	style := selectInterviewStyle(chatId)
+	if sessionConfig != nil {
+		style = selectInterviewStyleByKey(sessionConfig.InterviewerStyle, chatId)
+	}
 
 	// --- 阶段一：构建 AI 的核心身份与行为准则 ---
 
@@ -584,6 +595,11 @@ func (l *ChatLogic) buildMessagesWithState(chatId, currentState string, knowledg
 	// 3. 注入本轮稳定面试官风格。风格由 chatId 决定，确保同一会话前后一致。
 	sb.WriteString(buildInterviewStylePrompt(style))
 	sb.WriteString("\n\n")
+
+	if sessionConfig != nil {
+		sb.WriteString(buildSessionConfigPrompt(*sessionConfig))
+		sb.WriteString("\n\n")
+	}
 
 	// 4. 注入面试规则
 	sb.WriteString(config.InterviewRulesPrompt)
@@ -649,4 +665,43 @@ func (l *ChatLogic) buildMessagesWithState(chatId, currentState string, knowledg
 	}
 
 	return messages, nil
+}
+
+func buildSessionConfigPrompt(config svc.SessionInterviewConfig) string {
+	var focusAreas []struct {
+		Key   string `json:"key"`
+		Label string `json:"label"`
+	}
+	if len(config.FocusAreas) > 0 {
+		_ = json.Unmarshal(config.FocusAreas, &focusAreas)
+	}
+	focusLabels := make([]string, 0, len(focusAreas))
+	for _, area := range focusAreas {
+		label := strings.TrimSpace(area.Label)
+		if label == "" {
+			label = strings.TrimSpace(area.Key)
+		}
+		if label != "" {
+			focusLabels = append(focusLabels, label)
+		}
+	}
+	if len(focusLabels) == 0 {
+		focusLabels = append(focusLabels, "并发与调度", "数据库", "系统设计")
+	}
+
+	return "# 本轮面试配置\n" +
+		"- **方向**: " + defaultPromptValue(config.DirectionLabel, "Go 后端") + "\n" +
+		"- **难度**: " + defaultPromptValue(config.DifficultyLabel, "中级") + fmt.Sprintf(" (%d/5)\n", config.DifficultyLevel) +
+		"- **追问深度**: " + defaultPromptValue(config.FollowUpDepth, "N+3") + "\n" +
+		"- **侧重点**: " + strings.Join(focusLabels, "、") + "\n" +
+		"- **预计时长**: " + fmt.Sprintf("%d 分钟\n", config.EstimatedMinutes) +
+		"- **执行要求**: 每轮只提出一个主问题；追问必须优先围绕方向、难度和侧重点展开；如果候选人回答空泛，要求补充具体机制、边界条件或项目证据。"
+}
+
+func defaultPromptValue(value, fallback string) string {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return fallback
+	}
+	return trimmed
 }
