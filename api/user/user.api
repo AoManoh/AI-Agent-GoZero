@@ -168,6 +168,10 @@ type (
 	SessionReportReq {
 		Id string `path:"id"`
 	}
+	SessionEvaluationRefreshReq {
+		Id    string `path:"id"`
+		Force bool   `json:"force,optional"`
+	}
 	DeleteSessionReq {
 		Id string `path:"id"`
 	}
@@ -671,6 +675,10 @@ service user-api {
 	@doc "获取指定会话的结构化评估"
 	@handler SessionEvaluationHandler
 	get /sessions/:id/evaluation (SessionEvaluationReq) returns (SessionEvaluationResp)
+
+	@doc "显式刷新指定会话的结构化评估"
+	@handler SessionEvaluationRefreshHandler
+	post /sessions/:id/evaluation/refresh (SessionEvaluationRefreshReq) returns (SessionEvaluationResp)
 
 	@doc "获取指定会话的报告摘要"
 	@handler SessionReportSummaryHandler

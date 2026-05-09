@@ -435,6 +435,11 @@ type SessionDetailResp struct {
 	Messages []SessionMessage `json:"messages"`
 }
 
+type SessionEvaluationRefreshReq struct {
+	Id    string `path:"id"`
+	Force bool   `json:"force,optional"`
+}
+
 type SessionEvaluationReq struct {
 	Id string `path:"id"`
 }

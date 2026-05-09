@@ -72,7 +72,33 @@ func (l *SessionEvaluationLogic) SessionEvaluation(req *types.SessionEvaluationR
 		return nil, err
 	}
 
-	record, err := l.getOrRefreshEvaluationRecord(session, userID)
+	record, err := l.resolveEvaluationRecord(session, userID, false)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, buildErr := buildResponseFromRecord(*session, record)
+	if buildErr != nil {
+		return nil, statuserr.Internal("评估结果暂不可用，请稍后重试")
+	}
+	return resp, nil
+}
+
+func (l *SessionEvaluationLogic) SessionEvaluationRefresh(req *types.SessionEvaluationRefreshReq) (*types.SessionEvaluationResp, error) {
+	userID, err := currentUserID(l.ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	session, err := l.svcCtx.ChatSessionsModel.FindOneBySessionID(l.ctx, userID, req.Id)
+	if err != nil {
+		if errors.Is(err, model.ErrNotFound) {
+			return nil, statuserr.NotFound("会话不存在或已删除")
+		}
+		return nil, err
+	}
+
+	record, err := l.refreshEvaluationRecord(session, userID, req.Force)
 	if err != nil {
 		return nil, err
 	}
@@ -85,7 +111,7 @@ func (l *SessionEvaluationLogic) SessionEvaluation(req *types.SessionEvaluationR
 }
 
 func (l *SessionEvaluationLogic) getOrRefreshEvaluationRecord(session *model.ChatSession, userID int64) (*model.SessionEvaluation, error) {
-	return l.resolveEvaluationRecord(session, userID, true)
+	return l.refreshEvaluationRecord(session, userID, false)
 }
 
 func (l *SessionEvaluationLogic) resolveEvaluationRecord(session *model.ChatSession, userID int64, allowRefresh bool) (*model.SessionEvaluation, error) {
@@ -105,25 +131,49 @@ func (l *SessionEvaluationLogic) resolveEvaluationRecord(session *model.ChatSess
 	if !allowRefresh {
 		if err != nil {
 			if errors.Is(err, model.ErrNotFound) {
-				return nil, statuserr.ServiceUnavailable("报告摘要暂不可用，请先生成评估")
+				return nil, statuserr.ServiceUnavailable("评估快照暂不可用，请先刷新评估")
 			}
-			return nil, statuserr.ServiceUnavailable("报告摘要暂不可用，请稍后重试")
+			return nil, statuserr.ServiceUnavailable("评估快照暂不可用，请稍后重试")
 		}
-		return nil, statuserr.ServiceUnavailable("报告摘要暂不可用，请先刷新评估")
+		return nil, statuserr.ServiceUnavailable("评估快照已过期，请刷新评估")
 	}
 	if err != nil && !errors.Is(err, model.ErrNotFound) {
 		return nil, statuserr.ServiceUnavailable("会话评估暂不可用，请稍后重试")
 	}
 
 	if existing != nil || errors.Is(err, model.ErrNotFound) {
-		return l.refreshEvaluationIfNeeded(session, userID, existing, latestWatermark)
+		return l.refreshEvaluationIfNeeded(session, userID, existing, latestWatermark, false)
 	}
 
 	return nil, statuserr.ServiceUnavailable("会话评估暂不可用，请稍后重试")
 }
 
-func (l *SessionEvaluationLogic) refreshEvaluationIfNeeded(session *model.ChatSession, userID int64, existing *model.SessionEvaluation, latestWatermark evaluationMessageWatermarkRow) (*model.SessionEvaluation, error) {
-	if existing != nil && !shouldRefreshEvaluation(existing, latestWatermark) {
+func (l *SessionEvaluationLogic) refreshEvaluationRecord(session *model.ChatSession, userID int64, force bool) (*model.SessionEvaluation, error) {
+	if session == nil {
+		return nil, statuserr.NotFound("会话不存在或已删除")
+	}
+
+	latestWatermark, err := l.loadLatestEvaluationMessageWatermark(session.SessionId, userID)
+	if err != nil {
+		return nil, statuserr.ServiceUnavailable("会话评估暂不可用，请稍后重试")
+	}
+
+	existing, err := l.svcCtx.SessionEvaluationsModel.FindOneBySessionID(l.ctx, userID, session.SessionId)
+	if err == nil && !force && !shouldRefreshEvaluation(existing, latestWatermark) {
+		return existing, nil
+	}
+	if err != nil && !errors.Is(err, model.ErrNotFound) {
+		return nil, statuserr.ServiceUnavailable("会话评估暂不可用，请稍后重试")
+	}
+	if errors.Is(err, model.ErrNotFound) {
+		existing = nil
+	}
+
+	return l.refreshEvaluationIfNeeded(session, userID, existing, latestWatermark, force)
+}
+
+func (l *SessionEvaluationLogic) refreshEvaluationIfNeeded(session *model.ChatSession, userID int64, existing *model.SessionEvaluation, latestWatermark evaluationMessageWatermarkRow, force bool) (*model.SessionEvaluation, error) {
+	if existing != nil && !force && !shouldRefreshEvaluation(existing, latestWatermark) {
 		return existing, nil
 	}
 
@@ -136,7 +186,7 @@ func (l *SessionEvaluationLogic) refreshEvaluationIfNeeded(session *model.ChatSe
 
 		currentExisting, err := l.svcCtx.SessionEvaluationsModel.FindOneBySessionID(l.ctx, userID, session.SessionId)
 		switch {
-		case err == nil && !shouldRefreshEvaluation(currentExisting, currentLatestWatermark):
+		case err == nil && !force && !shouldRefreshEvaluation(currentExisting, currentLatestWatermark):
 			refreshed = currentExisting
 			return nil
 		case err != nil && !errors.Is(err, model.ErrNotFound):

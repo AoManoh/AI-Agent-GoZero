@@ -42,7 +42,7 @@ func (l *SessionReportLogic) SessionReport(req *types.SessionReportReq) (*types.
 		return nil, err
 	}
 
-	record, err := NewSessionEvaluationLogic(l.ctx, l.svcCtx).getOrRefreshEvaluationRecord(session, userID)
+	record, err := NewSessionEvaluationLogic(l.ctx, l.svcCtx).resolveEvaluationRecord(session, userID, false)
 	if err != nil {
 		return nil, err
 	}

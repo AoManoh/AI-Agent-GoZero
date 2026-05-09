@@ -148,6 +148,12 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 				Handler: user.SessionEvaluationHandler(serverCtx),
 			},
 			{
+				// 显式刷新指定会话的结构化评估
+				Method:  http.MethodPost,
+				Path:    "/sessions/:id/evaluation/refresh",
+				Handler: user.SessionEvaluationRefreshHandler(serverCtx),
+			},
+			{
 				// 结束指定会话并标记面试完成
 				Method:  http.MethodPost,
 				Path:    "/sessions/:id/finish",

@@ -301,7 +301,57 @@ func completeEvaluationRecordForTest(t *testing.T, sessionID string, now time.Ti
 	}
 }
 
-func TestSessionEvaluationStaleCacheRefreshesAndPersists(t *testing.T) {
+func TestSessionEvaluationStaleCacheIsReadOnlyUnavailable(t *testing.T) {
+	now := time.Date(2026, 4, 16, 21, 0, 0, 0, time.UTC)
+	session := &model.ChatSession{
+		SessionId: "sess-stale-read",
+		UserId:    7,
+		Title:     "stale read",
+		Mode:      "Interview",
+		IsActive:  true,
+		LastMessageAt: sql.NullTime{
+			Time:  now.Add(-5 * time.Minute),
+			Valid: true,
+		},
+	}
+	staleRecord := completeEvaluationRecordForTest(t, session.SessionId, now)
+	staleRecord.SourceLastMessageID = sql.NullInt64{Int64: 40, Valid: true}
+	staleRecord.SourceLastMessageAt = sql.NullTime{Time: now.Add(-30 * time.Minute), Valid: true}
+
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New() error = %v", err)
+	}
+	defer db.Close()
+
+	mock.ExpectQuery(`select id as last_message_id, created_at as last_message_at`).
+		WithArgs(session.SessionId, session.UserId).
+		WillReturnRows(sqlmock.NewRows([]string{"last_message_id", "last_message_at"}).AddRow(int64(43), now.Add(-5*time.Minute)))
+
+	evalModel := &stubSessionEvaluationsModel{record: staleRecord}
+	logic := NewSessionEvaluationLogic(withUserID(context.Background(), session.UserId), &svc.ServiceContext{
+		DB:                      sqlx.NewSqlConnFromDB(db),
+		ChatSessionsModel:       &stubChatSessionsModel{session: session},
+		SessionEvaluationsModel: evalModel,
+	})
+
+	_, err = logic.SessionEvaluation(&types.SessionEvaluationReq{Id: session.SessionId})
+	if err == nil {
+		t.Fatal("SessionEvaluation() error = nil, want unavailable error")
+	}
+	code, ok := statuserr.StatusCode(err)
+	if !ok || code != 503 {
+		t.Fatalf("status code = %d, ok=%v, want 503/true", code, ok)
+	}
+	if evalModel.upsertCalls != 0 {
+		t.Fatalf("upsertCalls = %d, want 0", evalModel.upsertCalls)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("sql expectations: %v", err)
+	}
+}
+
+func TestSessionEvaluationRefreshStaleCacheRefreshesAndPersists(t *testing.T) {
 	now := time.Date(2026, 4, 16, 21, 0, 0, 0, time.UTC)
 	session := &model.ChatSession{
 		SessionId: "sess-stale",
@@ -354,9 +404,9 @@ func TestSessionEvaluationStaleCacheRefreshesAndPersists(t *testing.T) {
 		SessionEvaluationsModel: evalModel,
 	})
 
-	resp, err := logic.SessionEvaluation(&types.SessionEvaluationReq{Id: session.SessionId})
+	resp, err := logic.SessionEvaluationRefresh(&types.SessionEvaluationRefreshReq{Id: session.SessionId})
 	if err != nil {
-		t.Fatalf("SessionEvaluation() error = %v", err)
+		t.Fatalf("SessionEvaluationRefresh() error = %v", err)
 	}
 	if resp.ScoreSource == "" {
 		t.Fatalf("resp.ScoreSource should not be empty")
