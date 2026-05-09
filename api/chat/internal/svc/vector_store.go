@@ -27,6 +27,8 @@ package svc
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"strings"
@@ -69,6 +71,10 @@ type KnowledgeDocument struct {
 	DocumentID int64
 	OwnerID    int64
 	Title      string
+	Source     string
+	Visibility string
+	Status     string
+	Version    int64
 	Preview    string
 	ChunkCount int64
 	CreatedAt  time.Time
@@ -340,8 +346,11 @@ func (vs *VectorStore) SaveKnowledgeForUser(ctx context.Context, title, chunk st
 
 	// 2. 将知识块和向量数据存储到knowledge_base表
 	// 与vector_store表分离，专门存储知识库数据
-	sql := `INSERT INTO knowledge_base (title, content, embedding, user_id) VALUES ($1, $2, $3, $4)`
-	_, err = vs.Pool.Exec(ctx, sql, title, chunk, embeddingVector, userID)
+	source := defaultKnowledgeSource("", title)
+	visibility := knowledgeVisibilityForUser(userID)
+	sql := `INSERT INTO knowledge_base (title, content, embedding, user_id, source, visibility, status, version, content_hash, updated_at)
+VALUES ($1, $2, $3, $4, $5, $6, 'ready', 1, $7, now())`
+	_, err = vs.Pool.Exec(ctx, sql, title, chunk, embeddingVector, userID, source, visibility, knowledgeContentHash(chunk))
 	if err != nil {
 		return fmt.Errorf("保存知识块到数据库失败: %w", err)
 	}
@@ -439,15 +448,19 @@ func (vs *VectorStore) ListKnowledgeDocuments(ctx context.Context, userID *int64
 min(id) AS document_id,
 user_id,
 title,
+coalesce(max(source), '') AS source,
+coalesce(max(visibility), case when user_id = %d then 'public' else 'private' end) AS visibility,
+coalesce(max(status), 'ready') AS status,
+coalesce(max(version), 1) AS version,
 count(*) AS chunk_count,
 min(created_at) AS created_at,
-max(created_at) AS updated_at,
+coalesce(max(updated_at), max(created_at)) AS updated_at,
 left(coalesce(min(content), ''), 240) AS preview
 FROM knowledge_base
 WHERE %s
 GROUP BY user_id, title
 ORDER BY max(created_at) DESC, min(id) DESC
-LIMIT $%d`, whereSQL, len(args)+1)
+LIMIT $%d`, publicKnowledgeOwnerID, whereSQL, len(args)+1)
 	args = append(args, limit)
 
 	rows, err := vs.Pool.Query(ctx, query, args...)
@@ -459,7 +472,7 @@ LIMIT $%d`, whereSQL, len(args)+1)
 	documents := make([]KnowledgeDocument, 0)
 	for rows.Next() {
 		var doc KnowledgeDocument
-		if err := rows.Scan(&doc.DocumentID, &doc.OwnerID, &doc.Title, &doc.ChunkCount, &doc.CreatedAt, &doc.UpdatedAt, &doc.Preview); err != nil {
+		if err := rows.Scan(&doc.DocumentID, &doc.OwnerID, &doc.Title, &doc.Source, &doc.Visibility, &doc.Status, &doc.Version, &doc.ChunkCount, &doc.CreatedAt, &doc.UpdatedAt, &doc.Preview); err != nil {
 			return nil, err
 		}
 		documents = append(documents, doc)
@@ -499,9 +512,13 @@ LIMIT 1`, whereSQL), args...)
 min(id) AS document_id,
 user_id,
 title,
+coalesce(max(source), '') AS source,
+coalesce(max(visibility), case when user_id = $1 then 'public' else 'private' end) AS visibility,
+coalesce(max(status), 'ready') AS status,
+coalesce(max(version), 1) AS version,
 count(*) AS chunk_count,
 min(created_at) AS created_at,
-max(created_at) AS updated_at,
+coalesce(max(updated_at), max(created_at)) AS updated_at,
 left(coalesce(min(content), ''), 240) AS preview
 FROM knowledge_base
 WHERE user_id = $1 AND title = $2
@@ -509,6 +526,10 @@ GROUP BY user_id, title`, ownerID, title).Scan(
 		&document.DocumentID,
 		&document.OwnerID,
 		&document.Title,
+		&document.Source,
+		&document.Visibility,
+		&document.Status,
+		&document.Version,
 		&document.ChunkCount,
 		&document.CreatedAt,
 		&document.UpdatedAt,
@@ -727,10 +748,10 @@ func effectiveSessionMode(storedMode, requestedMode string) string {
 
 func knowledgeAccessWhere(userID *int64, startIndex int) (string, []any) {
 	if userID == nil || *userID == publicKnowledgeOwnerID {
-		return fmt.Sprintf("user_id = %d", publicKnowledgeOwnerID), nil
+		return fmt.Sprintf("(visibility = 'public' OR user_id = %d) AND status = 'ready'", publicKnowledgeOwnerID), nil
 	}
 
-	return fmt.Sprintf("(user_id = %d OR user_id = $%d)", publicKnowledgeOwnerID, startIndex), []any{*userID}
+	return fmt.Sprintf("((visibility = 'public' OR user_id = %d) OR user_id = $%d) AND status = 'ready'", publicKnowledgeOwnerID, startIndex), []any{*userID}
 }
 
 const (
@@ -751,13 +772,13 @@ func (vs *VectorStore) fetchPublicKnowledge(ctx context.Context, queryEmbeddingV
 
 	sql := `SELECT id, title, content, embedding <-> $1 AS score
 FROM knowledge_base
-WHERE (user_id = 1`
+WHERE ((visibility = 'public' OR user_id = 1)`
 	args := []any{queryEmbeddingVector}
 	if userID != nil {
 		sql += ` OR user_id = $2`
 		args = append(args, *userID)
 	}
-	sql += `) AND embedding IS NOT NULL`
+	sql += `) AND status = 'ready' AND embedding IS NOT NULL`
 	sql += `
 ORDER BY score
 LIMIT $`
@@ -866,6 +887,10 @@ func (vs *VectorStore) SaveKnowledgeBatchForUser(title string, chunks []string, 
 }
 
 func (vs *VectorStore) SaveKnowledgeBatchForUserContext(ctx context.Context, title string, chunks []string, userID int64) error {
+	return vs.SaveKnowledgeBatchForUserContextWithMeta(ctx, title, chunks, userID, "")
+}
+
+func (vs *VectorStore) SaveKnowledgeBatchForUserContextWithMeta(ctx context.Context, title string, chunks []string, userID int64, source string) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -905,11 +930,14 @@ func (vs *VectorStore) SaveKnowledgeBatchForUserContext(ctx context.Context, tit
 	defer rollbackTx(tx)
 
 	// 定义插入 SQL 语句
-	insertSQL := `INSERT INTO knowledge_base (title, content, embedding, user_id) VALUES ($1, $2, $3, $4)`
+	knowledgeSource := defaultKnowledgeSource(source, title)
+	visibility := knowledgeVisibilityForUser(userID)
+	insertSQL := `INSERT INTO knowledge_base (title, content, embedding, user_id, source, visibility, status, version, content_hash, updated_at)
+VALUES ($1, $2, $3, $4, $5, $6, 'ready', 1, $7, now())`
 	// 遍历所有知识块
 	for _, item := range embeddings {
 		// 执行 SQL 插入语句
-		if _, err := tx.Exec(ctx, insertSQL, title, item.chunk, item.embedding, userID); err != nil {
+		if _, err := tx.Exec(ctx, insertSQL, title, item.chunk, item.embedding, userID, knowledgeSource, visibility, knowledgeContentHash(item.chunk)); err != nil {
 			return fmt.Errorf("保存知识块到数据库失败: %w", err)
 		}
 	}
@@ -920,6 +948,26 @@ func (vs *VectorStore) SaveKnowledgeBatchForUserContext(ctx context.Context, tit
 	}
 
 	return nil
+}
+
+func defaultKnowledgeSource(source, title string) string {
+	trimmedSource := strings.TrimSpace(source)
+	if trimmedSource != "" {
+		return trimmedSource
+	}
+	return strings.TrimSpace(title)
+}
+
+func knowledgeVisibilityForUser(userID int64) string {
+	if userID == publicKnowledgeOwnerID {
+		return "public"
+	}
+	return "private"
+}
+
+func knowledgeContentHash(content string) string {
+	sum := sha256.Sum256([]byte(strings.TrimSpace(content)))
+	return hex.EncodeToString(sum[:])
 }
 
 func rollbackTx(tx pgx.Tx) {

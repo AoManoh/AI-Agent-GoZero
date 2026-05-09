@@ -56,12 +56,19 @@ CREATE TABLE "public"."knowledge_base" (
                                            "title" VARCHAR(255) NOT NULL,
                                            "content" TEXT NOT NULL,
                                            "embedding" vector(1536) NOT NULL,
-                                           "created_at" TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                                           "source" TEXT NOT NULL DEFAULT '',
+                                           "visibility" VARCHAR(32) NOT NULL DEFAULT 'public',
+                                           "status" VARCHAR(32) NOT NULL DEFAULT 'ready',
+                                           "version" BIGINT NOT NULL DEFAULT 1,
+                                           "content_hash" VARCHAR(64),
+                                           "created_at" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                                           "updated_at" TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 -- 创建索引
 CREATE INDEX idx_knowledge_base_title ON knowledge_base (title);
 CREATE INDEX idx_knowledge_base_user_id ON knowledge_base (user_id);
+CREATE INDEX idx_knowledge_base_visibility_status ON knowledge_base (visibility, status, updated_at DESC);
 
 CREATE TABLE "public"."chat_sessions" (
                                           "id" BIGSERIAL PRIMARY KEY,

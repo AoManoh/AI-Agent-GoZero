@@ -135,6 +135,7 @@ func KnowledgeUploadHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
 		resp, err := l.KnowledgeUpload(&types.KnowledgeUploadInput{
 			Title:   title,   // PDF文件名，用作文档标题
 			Content: content, // 提取的文本内容，将被分块处理
+			Source:  title,   // PDF 文件名同时作为知识来源
 			UserID:  userID,  // 公共知识管理员 ID
 		})
 

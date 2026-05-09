@@ -32,6 +32,10 @@ type KnowledgeDocumentItem struct {
 	DocumentId int64  `json:"documentId"`
 	Title      string `json:"title"`
 	Scope      string `json:"scope"`
+	Source     string `json:"source,optional"`
+	Visibility string `json:"visibility"`
+	Status     string `json:"status"`
+	Version    int64  `json:"version"`
 	OwnerId    int64  `json:"ownerId"`
 	ChunkCount int64  `json:"chunkCount"`
 	Preview    string `json:"preview"`

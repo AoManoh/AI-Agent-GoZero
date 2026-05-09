@@ -28,6 +28,7 @@ func KnowledgeTextUploadHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
 		resp, err := l.KnowledgeUpload(&types.KnowledgeUploadInput{
 			Title:   strings.TrimSpace(req.Title),
 			Content: buildToolKnowledgeContent(req.Source, req.Content),
+			Source:  strings.TrimSpace(req.Source),
 			UserID:  userID,
 		})
 		if err != nil {

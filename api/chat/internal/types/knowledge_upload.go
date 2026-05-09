@@ -5,6 +5,7 @@ package types
 type KnowledgeUploadInput struct {
 	Title   string
 	Content string
+	Source  string
 	UserID  int64
 }
 

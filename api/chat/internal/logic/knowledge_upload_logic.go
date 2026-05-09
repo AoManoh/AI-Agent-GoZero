@@ -139,7 +139,7 @@ func (l *KnowledgeUploadLogic) KnowledgeUpload(req *types.KnowledgeUploadInput) 
 	// 步骤2: 批量存储知识块到向量数据库
 	// 遍历每个分块，逐一进行向量化和存储处理
 	// 采用原子操作，要么全部成功，要么全部失败。禁止上传一半失败，数据库里留下僵尸数据的情况
-	if err := l.svcCtx.VectorStore.SaveKnowledgeBatchForUserContext(l.ctx, req.Title, chunks, req.UserID); err != nil {
+	if err := l.svcCtx.VectorStore.SaveKnowledgeBatchForUserContextWithMeta(l.ctx, req.Title, chunks, req.UserID, req.Source); err != nil {
 		logx.Errorf("保存知识失败: %v", err)
 		return nil, err
 	}

@@ -166,15 +166,22 @@ func buildKnowledgeManagerMeta(userID *int64) types.KnowledgeManagerMeta {
 }
 
 func buildKnowledgeDocumentItem(document svc.KnowledgeDocument) types.KnowledgeDocumentItem {
-	scope := "private"
-	if document.OwnerID == 1 {
+	scope := document.Visibility
+	if scope == "" && document.OwnerID == 1 {
 		scope = "public"
+	}
+	if scope == "" {
+		scope = "private"
 	}
 
 	return types.KnowledgeDocumentItem{
 		DocumentId: document.DocumentID,
 		Title:      document.Title,
 		Scope:      scope,
+		Source:     document.Source,
+		Visibility: document.Visibility,
+		Status:     document.Status,
+		Version:    document.Version,
 		OwnerId:    document.OwnerID,
 		ChunkCount: document.ChunkCount,
 		Preview:    truncateKnowledgeContent(document.Preview, 180),
