@@ -37,7 +37,6 @@ package logic
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -49,10 +48,9 @@ import (
 	"github.com/sashabaranov/go-openai"
 	"github.com/zeromicro/go-zero/core/logx"
 
-	"GoZero-AI/api/chat/internal/config"
+	"GoZero-AI/api/chat/internal/interviewer"
 	"GoZero-AI/api/chat/internal/svc"
 	types2 "GoZero-AI/api/chat/internal/types"
-	"GoZero-AI/api/chat/internal/utils"
 )
 
 // ChatLogic AI面试对话的核心业务逻辑处理器
@@ -409,48 +407,19 @@ func (l *ChatLogic) getSessionHistory(chatId string, knowledge []types2.Knowledg
 		return nil, fmt.Errorf("检索会话历史失败: %w", err)
 	}
 
-	// 步骤2: 构造系统消息基础内容
-	// 严格按照 consts.go 中精心设计的 Prompt 拼接，提供完整的"角色 + 规则 + 风格 + 策略 + 锁定"。
-	// 拼接顺序很重要：CoreRolePrompt (角色) → InterviewRulesPrompt (规则) → CommunicationStylePrompt (风格)
-	// → KnowledgeStrategyPrompt (策略) → RoleLockPrompt (反 prompt injection 兜底，必须放末尾以获得最高权重)。
-	// 旧的单行 fallback "你是一个专业的Go语言面试官..." 已废弃 —— 它无法约束模型在面对
-	// "详细讲下 XXX 技术原理" 类用户输入时切换为 chat assistant 角色。
-	style := selectInterviewStyle(chatId)
-	systemMessage := strings.Join([]string{
-		config.CoreRolePrompt,
-		config.InterviewRulesPrompt,
-		config.CommunicationStylePrompt,
-		buildInterviewStylePrompt(style),
-		config.KnowledgeStrategyPrompt,
-	}, "\n\n")
-
-	// 步骤3: 动态知识注入(RAG核心逻辑)
-	// 如果检索到相关知识片段，将其整合到系统提示词中
-	// 这是RAG系统的关键环节，让AI基于最新相关知识进行对话
-	if len(knowledge) > 0 {
-		systemMessage += "\n\n相关背景知识："
-
-		// 遍历知识片段，按相似度优先级进行注入
-		// 每个片段包含标题和内容，便于AI理解知识来源
-		for i, k := range knowledge {
-			// 步骤3.1: 智能内容截断处理
-			// 使用配置的MaxContextLength控制单个知识片段长度
-			// 避免单个片段过长导致整体上下文超出API限制
-			truncatedContent := utils.TruncateText(k.Content, l.svcCtx.Config.VectorDB.Knowledge.MaxContextLength)
-
-			// 步骤3.2: 格式化知识片段注入
-			// 使用编号和标题让AI更好地理解和引用知识来源
-			systemMessage += fmt.Sprintf("\n[知识片段%d] %s: %s", i+1, k.Title, truncatedContent)
-		}
-	}
-	systemMessage += "\n\n" + config.RoleLockPrompt
+	prompt := interviewer.BuildPrompt(interviewer.BuildInput{
+		ChatID:            chatId,
+		State:             types2.StateQuestion,
+		Knowledge:         buildInterviewerKnowledge(knowledge),
+		MaxKnowledgeRunes: l.svcCtx.Config.VectorDB.Knowledge.MaxContextLength,
+	})
 
 	// 步骤4: 构造OpenAI API所需的消息格式
 	// 系统消息必须放在最前面，定义AI的角色和可用知识
 	messages := []openai.ChatCompletionMessage{
 		{
 			Role:    openai.ChatMessageRoleSystem, // 系统角色，包含AI的行为指令和知识库
-			Content: systemMessage,                // 完整的系统提示词，包含角色定义和动态知识
+			Content: prompt.SystemMessage,         // 完整的系统提示词，包含角色定义和动态知识
 		},
 	}
 
@@ -506,149 +475,20 @@ func (l *ChatLogic) getSessionHistory(chatId string, knowledge []types2.Knowledg
 //
 //	[]openai.ChatCompletionMessage: 包含状态感知系统消息和历史对话的完整上下文
 //	error: 历史消息检索失败或上下文构建异常
-//
-//	func (l *ChatLogic) buildMessagesWithState(chatId, currentState string, knowledge []types.KnowledgeChunk) ([]openai.ChatCompletionMessage, error) {
-//		// 步骤1: 构建状态特定的系统消息基础
-//		// 定义AI的基础角色，为专业面试场景做定制
-//		systemMessage := "你是一个专业的Go语言面试官，负责评估候选人的Go语言能力。"
-//		systemMessage += "\n\n当前状态: " + currentState
-//
-//		// 步骤2: 根据当前状态设定AI的具体目标和行为策略
-//		// 每个状态都有明确的目标导向，确保AI行为的一致性和专业性
-//		switch currentState {
-//		case types.StateStart:
-//			// 开始状态: 营造轻松氛围，建立良好的第一印象
-//			systemMessage += "\n目标: 欢迎候选人并开始面试流程"
-//		case types.StateQuestion:
-//			// 提问状态: 重点考察技术基础，提出有深度的专业问题
-//			systemMessage += "\n目标: 提出有深度的问题考察Go语言核心概念"
-//		case types.StateFollowUp:
-//			// 追问状态: 深入挖掘，考察理解深度和实际应用能力
-//			systemMessage += "\n目标: 基于候选人的回答进行追问，深入考察理解深度"
-//		case types.StateEvaluate:
-//			// 评估状态: 综合分析，给出客观公正的技术评价
-//			systemMessage += "\n目标: 全面评估候选人的技术能力"
-//		case types.StateEnd:
-//			// 结束状态: 提供建设性反馈，为候选人指明改进方向
-//			systemMessage += "\n目标: 结束面试并提供反馈"
-//		}
-//
-//		// 步骤3: 动态注入RAG检索到的相关知识(状态感知版本)
-//		// 将知识片段整合到状态特定的系统提示词中，增强AI的专业性
-//		if len(knowledge) > 0 {
-//			systemMessage += "\n\n相关背景知识："
-//			// 遍历知识片段，按相似度优先级进行状态感知的注入
-//			for i, k := range knowledge {
-//				// 智能内容截断，控制单个知识片段的长度
-//				truncatedContent := utils.TruncateText(k.Content, l.svcCtx.Config.VectorDB.Knowledge.MaxContextLength)
-//				// 格式化知识片段，便于AI理解和引用
-//				systemMessage += fmt.Sprintf("\n[知识片段%d] %s: %s", i+1, k.Title, truncatedContent)
-//			}
-//		}
-//
-//		// 步骤4: 构造OpenAI API所需的消息格式
-//		// 系统消息包含状态感知的角色定义和动态知识
-//		messages := []openai.ChatCompletionMessage{
-//			{
-//				Role:    openai.ChatMessageRoleSystem, // 系统角色，包含状态感知的AI行为指令
-//				Content: systemMessage,                // 完整的状态特定系统提示词
-//			},
-//		}
-//
-//		// 步骤5: 获取并整合历史对话消息
-//		// 保持状态转换过程中的上下文连贯性
-//		history, err := l.svcCtx.VectorStore.GetMessage(chatId, 10)
-//		if err != nil {
-//			// 历史消息检索失败，返回详细错误信息
-//			return nil, err
-//		}
-//
-//		// 步骤6: 将历史消息转换为OpenAI API格式并添加到上下文
-//		// 保持原有的角色信息和时间顺序，确保状态转换的逻辑性
-//		for _, msg := range history {
-//			messages = append(messages, openai.ChatCompletionMessage{
-//				Role:    msg.Role,    // 保持原始角色(user用户/assistant助手)
-//				Content: msg.Content, // 保持原始消息内容
-//			})
-//		}
-//
-//		// 返回包含状态感知系统消息和历史对话的完整上下文
-//		return messages, nil
-//	}
 func (l *ChatLogic) buildMessagesWithState(chatId, currentState string, knowledge []types2.KnowledgeChunk, userID *int64, sessionConfig *svc.SessionInterviewConfig) ([]openai.ChatCompletionMessage, error) {
-	var sb strings.Builder
-	style := selectInterviewStyle(chatId)
-	if sessionConfig != nil {
-		style = selectInterviewStyleByKey(sessionConfig.InterviewerStyle, chatId)
-	}
-
-	// --- 阶段一：构建 AI 的核心身份与行为准则 ---
-
-	// 1. 注入核心角色
-	sb.WriteString(config.CoreRolePrompt)
-	sb.WriteString("\n\n")
-
-	// 2. (新增) 注入沟通风格与人格
-	sb.WriteString(config.CommunicationStylePrompt)
-	sb.WriteString("\n\n")
-
-	// 3. 注入本轮稳定面试官风格。风格由 chatId 决定，确保同一会话前后一致。
-	sb.WriteString(buildInterviewStylePrompt(style))
-	sb.WriteString("\n\n")
-
-	if sessionConfig != nil {
-		sb.WriteString(buildSessionConfigPrompt(*sessionConfig))
-		sb.WriteString("\n\n")
-	}
-
-	// 4. 注入面试规则
-	sb.WriteString(config.InterviewRulesPrompt)
-	sb.WriteString("\n\n")
-
-	// 5. (新增) 注入提问与评估的策略
-	sb.WriteString(config.KnowledgeStrategyPrompt)
-
-	// --- 阶段二：注入当前任务的动态上下文 ---
-
-	sb.WriteString("\n\n## 当前任务")
-	sb.WriteString("\n**当前面试阶段**: " + currentState)
-	sb.WriteString("\n**本轮面试风格**: " + style.Label)
-
-	switch currentState {
-	case types2.StateStart:
-		sb.WriteString("\n**本阶段目标**: 欢迎候选人并开始面试流程。")
-	case types2.StateQuestion:
-		sb.WriteString("\n**本阶段目标**: 提出一个核心的**技术深挖**问题，考察候选人的基础知识。")
-	case types2.StateFollowUp:
-		sb.WriteString("\n**本阶段目标**: 对候选人的回答进行**技术追问**，或者提出一个相关的**情景模拟**问题，考察其实践能力。")
-	case types2.StateEvaluate:
-		sb.WriteString("\n**本阶段目标**: 提出一个**行为面试**问题，考察候选人的思维特质或职业素养。")
-	// case types.StateEvaluate:
-	// 	sb.WriteString("\n**本阶段目标**: 对候选人到目前为止的表现进行一次阶段性的总结和评估。")
-	case types2.StateEnd:
-		sb.WriteString("\n**本阶段目标**: 礼貌地结束面试，并询问候选人是否需要生成本次面试的总结报告。")
-	}
-
-	// 3. 注入 RAG 检索到的知识
-	if len(knowledge) > 0 {
-		sb.WriteString("\n\n## 参考背景知识 (请优先使用)")
-		for i, k := range knowledge {
-			truncatedContent := utils.TruncateText(k.Content, l.svcCtx.Config.VectorDB.Knowledge.MaxContextLength)
-			sb.WriteString(fmt.Sprintf("\n- **知识 %d (%s)**: %s", i+1, k.Title, truncatedContent))
-		}
-	}
-
-	sb.WriteString("\n\n")
-	sb.WriteString(config.RoleLockPrompt)
-
-	// 获取最终的 systemMessage 字符串
-	systemMessage := sb.String()
+	prompt := interviewer.BuildPrompt(interviewer.BuildInput{
+		ChatID:            chatId,
+		State:             currentState,
+		Session:           buildInterviewerSessionConfig(sessionConfig),
+		Knowledge:         buildInterviewerKnowledge(knowledge),
+		MaxKnowledgeRunes: l.svcCtx.Config.VectorDB.Knowledge.MaxContextLength,
+	})
 
 	// --- 阶段三：组合最终消息列表 ---
 	messages := []openai.ChatCompletionMessage{
 		{
 			Role:    openai.ChatMessageRoleSystem,
-			Content: systemMessage,
+			Content: prompt.SystemMessage,
 		},
 	}
 	// 将历史消息转换为OpenAI API格式并添加到上下文
@@ -667,41 +507,34 @@ func (l *ChatLogic) buildMessagesWithState(chatId, currentState string, knowledg
 	return messages, nil
 }
 
-func buildSessionConfigPrompt(config svc.SessionInterviewConfig) string {
-	var focusAreas []struct {
-		Key   string `json:"key"`
-		Label string `json:"label"`
+func buildInterviewerSessionConfig(config *svc.SessionInterviewConfig) *interviewer.SessionConfig {
+	if config == nil {
+		return nil
 	}
-	if len(config.FocusAreas) > 0 {
-		_ = json.Unmarshal(config.FocusAreas, &focusAreas)
+	return &interviewer.SessionConfig{
+		DirectionKey:          config.DirectionKey,
+		DirectionLabel:        config.DirectionLabel,
+		DifficultyLevel:       config.DifficultyLevel,
+		DifficultyLabel:       config.DifficultyLabel,
+		InterviewerStyle:      config.InterviewerStyle,
+		InterviewerStyleLabel: config.InterviewerStyleLabel,
+		FocusAreas:            interviewer.ParseFocusAreas(config.FocusAreas),
+		FollowUpDepth:         config.FollowUpDepth,
+		EstimatedMinutes:      config.EstimatedMinutes,
+		ProgressPercent:       config.ProgressPercent,
 	}
-	focusLabels := make([]string, 0, len(focusAreas))
-	for _, area := range focusAreas {
-		label := strings.TrimSpace(area.Label)
-		if label == "" {
-			label = strings.TrimSpace(area.Key)
-		}
-		if label != "" {
-			focusLabels = append(focusLabels, label)
-		}
-	}
-	if len(focusLabels) == 0 {
-		focusLabels = append(focusLabels, "并发与调度", "数据库", "系统设计")
-	}
-
-	return "# 本轮面试配置\n" +
-		"- **方向**: " + defaultPromptValue(config.DirectionLabel, "Go 后端") + "\n" +
-		"- **难度**: " + defaultPromptValue(config.DifficultyLabel, "中级") + fmt.Sprintf(" (%d/5)\n", config.DifficultyLevel) +
-		"- **追问深度**: " + defaultPromptValue(config.FollowUpDepth, "N+3") + "\n" +
-		"- **侧重点**: " + strings.Join(focusLabels, "、") + "\n" +
-		"- **预计时长**: " + fmt.Sprintf("%d 分钟\n", config.EstimatedMinutes) +
-		"- **执行要求**: 每轮只提出一个主问题；追问必须优先围绕方向、难度和侧重点展开；如果候选人回答空泛，要求补充具体机制、边界条件或项目证据。"
 }
 
-func defaultPromptValue(value, fallback string) string {
-	trimmed := strings.TrimSpace(value)
-	if trimmed == "" {
-		return fallback
+func buildInterviewerKnowledge(chunks []types2.KnowledgeChunk) []interviewer.KnowledgeChunk {
+	if len(chunks) == 0 {
+		return nil
 	}
-	return trimmed
+	knowledge := make([]interviewer.KnowledgeChunk, 0, len(chunks))
+	for _, chunk := range chunks {
+		knowledge = append(knowledge, interviewer.KnowledgeChunk{
+			Title:   chunk.Title,
+			Content: chunk.Content,
+		})
+	}
+	return knowledge
 }
