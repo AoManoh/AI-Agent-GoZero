@@ -379,6 +379,78 @@ COMMENT ON COLUMN "public"."chat_sessions"."message_count" IS '会话消息条�
 COMMENT ON COLUMN "public"."chat_sessions"."is_active" IS '会话是否仍处于活跃状态';
 
 -- ----------------------------
+-- 步骤 4.5: 新增 `resume_documents` 表
+-- ----------------------------
+CREATE TABLE IF NOT EXISTS "public"."resume_documents" (
+                                                          "id" BIGSERIAL PRIMARY KEY,
+                                                          "user_id" BIGINT NOT NULL,
+                                                          "session_id" VARCHAR(64) NOT NULL,
+                                                          "version" BIGINT NOT NULL DEFAULT 1,
+                                                          "title" VARCHAR(200) NOT NULL,
+                                                          "filename" VARCHAR(255) NOT NULL,
+                                                          "status" VARCHAR(32) NOT NULL DEFAULT 'ready',
+                                                          "chunk_count" INTEGER NOT NULL DEFAULT 0,
+                                                          "is_current" BOOLEAN NOT NULL DEFAULT true,
+                                                          "uploaded_at" TIMESTAMPTZ NOT NULL DEFAULT now(),
+                                                          "updated_at" TIMESTAMPTZ NOT NULL DEFAULT now(),
+                                                          UNIQUE ("user_id", "session_id", "version")
+);
+
+DO $$
+    BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_resume_documents_user_id') THEN
+            ALTER TABLE "public"."resume_documents"
+                ADD CONSTRAINT fk_resume_documents_user_id
+                    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
+        END IF;
+    END $$;
+
+DO $$
+    BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_resume_documents_session_id') THEN
+            ALTER TABLE "public"."resume_documents"
+                ADD CONSTRAINT fk_resume_documents_session_id
+                    FOREIGN KEY (session_id) REFERENCES "public"."chat_sessions"(session_id) ON DELETE CASCADE NOT VALID;
+        END IF;
+    END $$;
+
+DO $$
+    BEGIN
+        IF EXISTS (
+            SELECT 1
+            FROM pg_constraint
+            WHERE conname = 'fk_resume_documents_session_id'
+              AND NOT convalidated
+        ) THEN
+            BEGIN
+                ALTER TABLE "public"."resume_documents"
+                    VALIDATE CONSTRAINT fk_resume_documents_session_id;
+            EXCEPTION
+                WHEN OTHERS THEN
+                    RAISE NOTICE 'skip validating fk_resume_documents_session_id: %', SQLERRM;
+            END;
+        END IF;
+    END $$;
+
+DROP INDEX IF EXISTS idx_resume_documents_user_current;
+CREATE INDEX idx_resume_documents_user_current ON "public"."resume_documents" (user_id, is_current, updated_at DESC);
+DROP INDEX IF EXISTS idx_resume_documents_session_current;
+CREATE INDEX idx_resume_documents_session_current ON "public"."resume_documents" (session_id, user_id, is_current);
+
+COMMENT ON TABLE "public"."resume_documents" IS '存储用户简历资料的版本化元数据，向量分块仍保存在 vector_store 中';
+COMMENT ON COLUMN "public"."resume_documents"."id" IS '简历资料版本主键';
+COMMENT ON COLUMN "public"."resume_documents"."user_id" IS '简历所属用户ID';
+COMMENT ON COLUMN "public"."resume_documents"."session_id" IS '该简历当前绑定的会话ID';
+COMMENT ON COLUMN "public"."resume_documents"."version" IS '同一用户同一会话下的简历版本号';
+COMMENT ON COLUMN "public"."resume_documents"."title" IS '简历资料展示标题';
+COMMENT ON COLUMN "public"."resume_documents"."filename" IS '上传的原始文件名';
+COMMENT ON COLUMN "public"."resume_documents"."status" IS '解析状态，例如 ready/failed';
+COMMENT ON COLUMN "public"."resume_documents"."chunk_count" IS '本版本写入 vector_store 的简历分块数量';
+COMMENT ON COLUMN "public"."resume_documents"."is_current" IS '是否为当前会话正在使用的简历版本';
+COMMENT ON COLUMN "public"."resume_documents"."uploaded_at" IS '本版本上传时间';
+COMMENT ON COLUMN "public"."resume_documents"."updated_at" IS '本版本最近更新时间';
+
+-- ----------------------------
 -- 步骤 5: 新增 `session_evaluations` 表
 -- ----------------------------
 CREATE TABLE IF NOT EXISTS "public"."session_evaluations" (

@@ -369,9 +369,13 @@ type ResumeArtifactDetailResp struct {
 type ResumeArtifactItem struct {
 	ArtifactId       string `json:"artifactId"`
 	Title            string `json:"title"`
+	Version          int64  `json:"version"`
+	Filename         string `json:"filename,optional"`
+	Status           string `json:"status"`
 	ChunkCount       int64  `json:"chunkCount"`
 	BoundSessionId   string `json:"boundSessionId"`
 	BoundSessionName string `json:"boundSessionName"`
+	UploadedAt       string `json:"uploadedAt,optional"`
 	UpdatedAt        string `json:"updatedAt"`
 }
 
@@ -390,11 +394,13 @@ type ResumeUploadReq struct {
 }
 
 type ResumeUploadResp struct {
-	Msg      string `json:"msg"`
-	ChatId   string `json:"chatId"`
-	Title    string `json:"title"`
-	Filename string `json:"filename"`
-	Chunks   int    `json:"chunks"`
+	Msg        string `json:"msg"`
+	ChatId     string `json:"chatId"`
+	ArtifactId string `json:"artifactId"`
+	Title      string `json:"title"`
+	Filename   string `json:"filename"`
+	Version    int64  `json:"version"`
+	Chunks     int    `json:"chunks"`
 }
 
 type SessionBootstrapReq struct {

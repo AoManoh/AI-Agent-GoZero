@@ -50,16 +50,19 @@ func (l *ResumeUploadLogic) ResumeUpload(req *types.ResumeUploadReq, filename, c
 	modeKey := sessionmode.NormalizeKey(req.Mode)
 
 	chunks := splitText(trimmedContent, l.svcCtx.Config.ResumeChunkSize())
-	if err := l.svcCtx.ResumeStore.SaveResume(l.ctx, userID, chatID, title, modeKey, chunks); err != nil {
+	version, err := l.svcCtx.ResumeStore.SaveResume(l.ctx, userID, chatID, title, filename, modeKey, chunks)
+	if err != nil {
 		return nil, err
 	}
 
 	return &types.ResumeUploadResp{
-		Msg:      "私有简历上传成功",
-		ChatId:   chatID,
-		Title:    title,
-		Filename: filename,
-		Chunks:   len(chunks),
+		Msg:        "私有简历上传成功",
+		ChatId:     chatID,
+		ArtifactId: chatID,
+		Title:      title,
+		Filename:   filename,
+		Version:    version,
+		Chunks:     len(chunks),
 	}, nil
 }
 

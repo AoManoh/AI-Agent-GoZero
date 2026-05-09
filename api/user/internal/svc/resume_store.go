@@ -37,23 +37,25 @@ func NewResumeStore(db sqlx.SqlConn, openAIClient *openai.Client, embeddingModel
 	}
 }
 
-func (s *ResumeStore) SaveResume(ctx context.Context, userID int64, chatID, title, mode string, chunks []string) error {
+func (s *ResumeStore) SaveResume(ctx context.Context, userID int64, chatID, title, filename, mode string, chunks []string) (int64, error) {
 	if len(chunks) == 0 {
-		return fmt.Errorf("简历内容为空")
+		return 0, fmt.Errorf("简历内容为空")
 	}
 	if _, _, err := ensureResumeSessionWritable(ctx, s.db, userID, chatID); err != nil {
-		return err
+		return 0, err
 	}
 
 	embeddings := make([]pgvector.Vector, 0, len(chunks))
 	for _, chunk := range chunks {
 		embedding, err := s.generateEmbedding(ctx, chunk)
 		if err != nil {
-			return err
+			return 0, err
 		}
 		embeddings = append(embeddings, embedding)
 	}
-	return s.db.TransactCtx(ctx, func(ctx context.Context, session sqlx.Session) error {
+
+	var version int64
+	err := s.db.TransactCtx(ctx, func(ctx context.Context, session sqlx.Session) error {
 		existing, found, err := ensureResumeSessionWritable(ctx, session, userID, chatID)
 		if err != nil {
 			return err
@@ -64,6 +66,23 @@ func (s *ResumeStore) SaveResume(ctx context.Context, userID int64, chatID, titl
 		}
 
 		if _, err := session.ExecCtx(ctx, `DELETE FROM "public"."vector_store" WHERE user_id = $1 AND chat_id = $2 AND doc_type = 'resume'`, userID, chatID); err != nil {
+			return err
+		}
+
+		if err := session.QueryRowCtx(ctx, &version, `select coalesce(max(version), 0) + 1
+from "public"."resume_documents"
+where user_id = $1 and session_id = $2`, userID, chatID); err != nil {
+			return err
+		}
+		if _, err := session.ExecCtx(ctx, `update "public"."resume_documents"
+set is_current = false, updated_at = now()
+where user_id = $1 and session_id = $2 and is_current = true`, userID, chatID); err != nil {
+			return err
+		}
+		if _, err := session.ExecCtx(ctx, `insert into "public"."resume_documents"
+(user_id, session_id, version, title, filename, status, chunk_count, is_current, uploaded_at, updated_at)
+values ($1, $2, $3, $4, $5, 'ready', $6, true, now(), now())`,
+			userID, chatID, version, title, filename, len(chunks)); err != nil {
 			return err
 		}
 
@@ -93,6 +112,10 @@ SET user_id = COALESCE("public"."chat_sessions".user_id, EXCLUDED.user_id),
 
 		return nil
 	})
+	if err != nil {
+		return 0, err
+	}
+	return version, nil
 }
 
 func (s *ResumeStore) generateEmbedding(ctx context.Context, content string) (pgvector.Vector, error) {

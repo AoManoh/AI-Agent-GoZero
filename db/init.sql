@@ -93,6 +93,24 @@ CREATE INDEX idx_chat_sessions_user_id_last_message_at ON chat_sessions (user_id
 CREATE INDEX idx_chat_sessions_user_id_is_active ON chat_sessions (user_id, is_active);
 CREATE INDEX idx_chat_sessions_user_completed_at ON chat_sessions (user_id, completed_at DESC);
 
+CREATE TABLE "public"."resume_documents" (
+                                             "id" BIGSERIAL PRIMARY KEY,
+                                             "user_id" BIGINT NOT NULL REFERENCES "public"."users"("id") ON DELETE CASCADE,
+                                             "session_id" VARCHAR(64) NOT NULL REFERENCES "public"."chat_sessions"("session_id") ON DELETE CASCADE,
+                                             "version" BIGINT NOT NULL DEFAULT 1,
+                                             "title" VARCHAR(200) NOT NULL,
+                                             "filename" VARCHAR(255) NOT NULL,
+                                             "status" VARCHAR(32) NOT NULL DEFAULT 'ready',
+                                             "chunk_count" INTEGER NOT NULL DEFAULT 0,
+                                             "is_current" BOOLEAN NOT NULL DEFAULT true,
+                                             "uploaded_at" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                                             "updated_at" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                                             UNIQUE ("user_id", "session_id", "version")
+);
+
+CREATE INDEX idx_resume_documents_user_current ON resume_documents (user_id, is_current, updated_at DESC);
+CREATE INDEX idx_resume_documents_session_current ON resume_documents (session_id, user_id, is_current);
+
 CREATE TABLE "public"."session_evaluations" (
                                                 "id" BIGSERIAL PRIMARY KEY,
                                                 "session_id" VARCHAR(64) NOT NULL REFERENCES "public"."chat_sessions"("session_id") ON DELETE CASCADE,

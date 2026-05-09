@@ -27,10 +27,15 @@ type ResumeArtifactDetailLogic struct {
 }
 
 type resumeArtifactRow struct {
-	ArtifactId string    `db:"artifact_id"`
-	Title      string    `db:"title"`
-	ChunkCount int64     `db:"chunk_count"`
-	UpdatedAt  time.Time `db:"updated_at"`
+	ArtifactId       string    `db:"artifact_id"`
+	Title            string    `db:"title"`
+	Version          int64     `db:"version"`
+	Filename         string    `db:"filename"`
+	Status           string    `db:"status"`
+	ChunkCount       int64     `db:"chunk_count"`
+	BoundSessionName string    `db:"bound_session_name"`
+	UploadedAt       time.Time `db:"uploaded_at"`
+	UpdatedAt        time.Time `db:"updated_at"`
 }
 
 type resumeArtifactChunkRow struct {
@@ -112,11 +117,73 @@ order by created_at asc, id asc`, userID, req.Id)
 }
 
 func loadResumeArtifactItems(ctx context.Context, db sqlx.SqlConn, userID int64) ([]types.ResumeArtifactItem, error) {
+	documentItems, err := loadResumeDocumentItems(ctx, db, userID)
+	if err != nil {
+		return nil, err
+	}
+
+	legacyItems, err := loadLegacyResumeArtifactItems(ctx, db, userID)
+	if err != nil {
+		return nil, err
+	}
+
+	seen := make(map[string]struct{}, len(documentItems))
+	items := make([]types.ResumeArtifactItem, 0, len(documentItems)+len(legacyItems))
+	for _, item := range documentItems {
+		seen[item.ArtifactId] = struct{}{}
+		items = append(items, item)
+	}
+	for _, item := range legacyItems {
+		if _, ok := seen[item.ArtifactId]; ok {
+			continue
+		}
+		items = append(items, item)
+	}
+	return items, nil
+}
+
+func loadResumeDocumentItems(ctx context.Context, db sqlx.SqlConn, userID int64) ([]types.ResumeArtifactItem, error) {
+	var rows []resumeArtifactRow
+	err := db.QueryRowsCtx(ctx, &rows, `select
+d.session_id as artifact_id,
+d.title,
+d.version,
+d.filename,
+d.status,
+d.chunk_count,
+coalesce(s.title, d.title) as bound_session_name,
+d.uploaded_at,
+d.updated_at
+from "public"."resume_documents" d
+left join "public"."chat_sessions" s
+  on s.session_id = d.session_id and s.user_id = d.user_id
+where d.user_id = $1 and d.is_current = true
+order by d.updated_at desc, d.id desc`, userID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) || errors.Is(err, sqlx.ErrNotFound) {
+			return []types.ResumeArtifactItem{}, nil
+		}
+		return nil, err
+	}
+
+	items := make([]types.ResumeArtifactItem, 0, len(rows))
+	for _, row := range rows {
+		items = append(items, buildResumeArtifactItem(row))
+	}
+	return items, nil
+}
+
+func loadLegacyResumeArtifactItems(ctx context.Context, db sqlx.SqlConn, userID int64) ([]types.ResumeArtifactItem, error) {
 	var rows []resumeArtifactRow
 	err := db.QueryRowsCtx(ctx, &rows, `select
 v.chat_id as artifact_id,
 coalesce(s.title, v.chat_id) as title,
+1::bigint as version,
+''::text as filename,
+'ready'::text as status,
 count(*) as chunk_count,
+coalesce(s.title, v.chat_id) as bound_session_name,
+max(v.created_at) as uploaded_at,
 max(v.created_at) as updated_at
 from "public"."vector_store" v
 left join "public"."chat_sessions" s
@@ -139,11 +206,51 @@ order by max(v.created_at) desc`, userID)
 }
 
 func loadResumeArtifactItem(ctx context.Context, db sqlx.SqlConn, userID int64, artifactID string) (types.ResumeArtifactItem, error) {
+	item, err := loadResumeDocumentItem(ctx, db, userID, artifactID)
+	if err == nil {
+		return item, nil
+	}
+	if !errors.Is(err, sql.ErrNoRows) && !errors.Is(err, sqlx.ErrNotFound) {
+		return types.ResumeArtifactItem{}, err
+	}
+
+	return loadLegacyResumeArtifactItem(ctx, db, userID, artifactID)
+}
+
+func loadResumeDocumentItem(ctx context.Context, db sqlx.SqlConn, userID int64, artifactID string) (types.ResumeArtifactItem, error) {
+	var row resumeArtifactRow
+	err := db.QueryRowCtx(ctx, &row, `select
+d.session_id as artifact_id,
+d.title,
+d.version,
+d.filename,
+d.status,
+d.chunk_count,
+coalesce(s.title, d.title) as bound_session_name,
+d.uploaded_at,
+d.updated_at
+from "public"."resume_documents" d
+left join "public"."chat_sessions" s
+  on s.session_id = d.session_id and s.user_id = d.user_id
+where d.user_id = $1 and d.session_id = $2 and d.is_current = true
+limit 1`, userID, artifactID)
+	if err != nil {
+		return types.ResumeArtifactItem{}, err
+	}
+	return buildResumeArtifactItem(row), nil
+}
+
+func loadLegacyResumeArtifactItem(ctx context.Context, db sqlx.SqlConn, userID int64, artifactID string) (types.ResumeArtifactItem, error) {
 	var row resumeArtifactRow
 	err := db.QueryRowCtx(ctx, &row, `select
 v.chat_id as artifact_id,
 coalesce(s.title, v.chat_id) as title,
+1::bigint as version,
+''::text as filename,
+'ready'::text as status,
 count(*) as chunk_count,
+coalesce(s.title, v.chat_id) as bound_session_name,
+max(v.created_at) as uploaded_at,
 max(v.created_at) as updated_at
 from "public"."vector_store" v
 left join "public"."chat_sessions" s
@@ -160,9 +267,13 @@ func buildResumeArtifactItem(row resumeArtifactRow) types.ResumeArtifactItem {
 	return types.ResumeArtifactItem{
 		ArtifactId:       row.ArtifactId,
 		Title:            row.Title,
+		Version:          row.Version,
+		Filename:         row.Filename,
+		Status:           row.Status,
 		ChunkCount:       row.ChunkCount,
 		BoundSessionId:   row.ArtifactId,
-		BoundSessionName: row.Title,
+		BoundSessionName: row.BoundSessionName,
+		UploadedAt:       row.UploadedAt.Format(timeLayout),
 		UpdatedAt:        row.UpdatedAt.Format(timeLayout),
 	}
 }
