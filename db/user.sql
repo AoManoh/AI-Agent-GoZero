@@ -142,6 +142,8 @@ UPDATE "public"."knowledge_base"
 SET "updated_at" = COALESCE("updated_at", "created_at", now())
 WHERE "updated_at" IS NULL;
 CREATE INDEX idx_kb_user_id ON "public"."knowledge_base" (user_id);
+DROP INDEX IF EXISTS idx_kb_document_identity;
+CREATE INDEX idx_kb_document_identity ON "public"."knowledge_base" (user_id, title, source, version);
 DROP INDEX IF EXISTS idx_kb_visibility_status;
 CREATE INDEX idx_kb_visibility_status ON "public"."knowledge_base" (visibility, status, updated_at DESC);
 DROP INDEX IF EXISTS idx_kb_embedding;
@@ -173,7 +175,7 @@ COMMENT ON COLUMN "public"."knowledge_base"."embedding" IS '由文本内容生�
 COMMENT ON COLUMN "public"."knowledge_base"."source" IS '知识来源，例如 PDF 文件名、Grok Search MCP 或手工资料包';
 COMMENT ON COLUMN "public"."knowledge_base"."visibility" IS '知识可见性，当前支持 public/private';
 COMMENT ON COLUMN "public"."knowledge_base"."status" IS '知识条目状态，例如 ready/failed/archived';
-COMMENT ON COLUMN "public"."knowledge_base"."version" IS '同一知识来源的版本号';
+COMMENT ON COLUMN "public"."knowledge_base"."version" IS '同一 user_id + title + source 知识来源的上传批次版本号';
 COMMENT ON COLUMN "public"."knowledge_base"."content_hash" IS '知识内容哈希，用于后续去重和重建索引';
 COMMENT ON COLUMN "public"."knowledge_base"."created_at" IS '知识条目的创建时间戳';
 COMMENT ON COLUMN "public"."knowledge_base"."updated_at" IS '知识条目的最近更新时间';

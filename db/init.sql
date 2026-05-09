@@ -69,6 +69,7 @@ CREATE TABLE "public"."knowledge_base" (
 CREATE INDEX idx_knowledge_base_title ON knowledge_base (title);
 CREATE INDEX idx_knowledge_base_user_id ON knowledge_base (user_id);
 CREATE INDEX idx_knowledge_base_visibility_status ON knowledge_base (visibility, status, updated_at DESC);
+CREATE INDEX idx_kb_document_identity ON knowledge_base (user_id, title, source, version);
 
 CREATE TABLE "public"."chat_sessions" (
                                           "id" BIGSERIAL PRIMARY KEY,

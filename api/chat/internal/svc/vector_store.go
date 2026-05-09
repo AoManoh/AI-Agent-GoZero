@@ -49,9 +49,18 @@ import (
 
 // VectorStore 向量存储结构
 type VectorStore struct {
-	Pool           *pgxpool.Pool  // 数据库连接池
+	Pool           postgresPool   // 数据库连接池
 	OpenAIClient   *openai.Client // OpenAI客户端
 	EmbeddingModel string         // 向量模型名称
+}
+
+type postgresPool interface {
+	BeginTx(ctx context.Context, txOptions pgx.TxOptions) (pgx.Tx, error)
+	Close()
+	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
+	Ping(ctx context.Context) error
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
 }
 
 type SessionInterviewConfig struct {
@@ -333,28 +342,8 @@ func (vs *VectorStore) SaveKnowledgeForUser(ctx context.Context, title, chunk st
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	if userID <= 0 {
-		return fmt.Errorf("知识所有者不能为空")
-	}
 
-	// 1. 将知识块内容转换为向量表示
-	// generateEmbedding()返回已序列化的向量数据
-	embeddingVector, err := vs.generateEmbedding(ctx, chunk)
-	if err != nil {
-		return fmt.Errorf("知识块向量化失败: %w", err)
-	}
-
-	// 2. 将知识块和向量数据存储到knowledge_base表
-	// 与vector_store表分离，专门存储知识库数据
-	source := defaultKnowledgeSource("", title)
-	visibility := knowledgeVisibilityForUser(userID)
-	sql := `INSERT INTO knowledge_base (title, content, embedding, user_id, source, visibility, status, version, content_hash, updated_at)
-VALUES ($1, $2, $3, $4, $5, $6, 'ready', 1, $7, now())`
-	_, err = vs.Pool.Exec(ctx, sql, title, chunk, embeddingVector, userID, source, visibility, knowledgeContentHash(chunk))
-	if err != nil {
-		return fmt.Errorf("保存知识块到数据库失败: %w", err)
-	}
-	return nil
+	return vs.SaveKnowledgeBatchForUserContextWithMeta(ctx, title, []string{chunk}, userID, "")
 }
 
 // RetrieveKnowledge 基于语义相似度检索知识库
@@ -443,23 +432,23 @@ func (vs *VectorStore) ListKnowledgeDocuments(ctx context.Context, userID *int64
 		limit = 20
 	}
 
-	whereSQL, args := knowledgeAccessWhere(userID, 1)
+	whereSQL, args := knowledgeDocumentAccessWhere(userID, 1)
 	query := fmt.Sprintf(`SELECT
 min(id) AS document_id,
 user_id,
 title,
-coalesce(max(source), '') AS source,
+coalesce(source, '') AS source,
 coalesce(max(visibility), case when user_id = %d then 'public' else 'private' end) AS visibility,
 coalesce(max(status), 'ready') AS status,
 coalesce(max(version), 1) AS version,
 count(*) AS chunk_count,
 min(created_at) AS created_at,
 coalesce(max(updated_at), max(created_at)) AS updated_at,
-left(coalesce(min(content), ''), 240) AS preview
+left(coalesce((array_agg(content ORDER BY created_at ASC, id ASC))[1], ''), 240) AS preview
 FROM knowledge_base
 WHERE %s
-GROUP BY user_id, title
-ORDER BY max(created_at) DESC, min(id) DESC
+GROUP BY user_id, title, source, version
+ORDER BY coalesce(max(updated_at), max(created_at)) DESC, min(id) DESC
 LIMIT $%d`, publicKnowledgeOwnerID, whereSQL, len(args)+1)
 	args = append(args, limit)
 
@@ -492,9 +481,9 @@ func (vs *VectorStore) LoadKnowledgeDocumentChunks(ctx context.Context, document
 		limit = 50
 	}
 
-	whereSQL, args := knowledgeAccessWhere(userID, 2)
+	whereSQL, args := knowledgeDocumentAccessWhere(userID, 2)
 	args = append([]any{documentID}, args...)
-	row := vs.Pool.QueryRow(ctx, fmt.Sprintf(`SELECT user_id, title
+	row := vs.Pool.QueryRow(ctx, fmt.Sprintf(`SELECT user_id, title, coalesce(source, ''), coalesce(version, 1)
 FROM knowledge_base
 WHERE id = $1 AND %s
 LIMIT 1`, whereSQL), args...)
@@ -502,8 +491,10 @@ LIMIT 1`, whereSQL), args...)
 	var (
 		ownerID int64
 		title   string
+		source  string
+		version int64
 	)
-	if err := row.Scan(&ownerID, &title); err != nil {
+	if err := row.Scan(&ownerID, &title, &source, &version); err != nil {
 		return KnowledgeDocument{}, nil, err
 	}
 
@@ -512,17 +503,17 @@ LIMIT 1`, whereSQL), args...)
 min(id) AS document_id,
 user_id,
 title,
-coalesce(max(source), '') AS source,
+coalesce(source, '') AS source,
 coalesce(max(visibility), case when user_id = $1 then 'public' else 'private' end) AS visibility,
 coalesce(max(status), 'ready') AS status,
 coalesce(max(version), 1) AS version,
 count(*) AS chunk_count,
 min(created_at) AS created_at,
 coalesce(max(updated_at), max(created_at)) AS updated_at,
-left(coalesce(min(content), ''), 240) AS preview
+left(coalesce((array_agg(content ORDER BY created_at ASC, id ASC))[1], ''), 240) AS preview
 FROM knowledge_base
-WHERE user_id = $1 AND title = $2
-GROUP BY user_id, title`, ownerID, title).Scan(
+WHERE user_id = $1 AND title = $2 AND source = $3 AND version = $4
+GROUP BY user_id, title, source, version`, ownerID, title, source, version).Scan(
 		&document.DocumentID,
 		&document.OwnerID,
 		&document.Title,
@@ -540,9 +531,9 @@ GROUP BY user_id, title`, ownerID, title).Scan(
 
 	rows, err := vs.Pool.Query(ctx, `SELECT id, title, content, created_at
 FROM knowledge_base
-WHERE user_id = $1 AND title = $2
+WHERE user_id = $1 AND title = $2 AND source = $3 AND version = $4
 ORDER BY created_at ASC, id ASC
-LIMIT $3`, ownerID, title, limit)
+LIMIT $5`, ownerID, title, source, version, limit)
 	if err != nil {
 		return KnowledgeDocument{}, nil, err
 	}
@@ -747,11 +738,24 @@ func effectiveSessionMode(storedMode, requestedMode string) string {
 }
 
 func knowledgeAccessWhere(userID *int64, startIndex int) (string, []any) {
-	if userID == nil || *userID == publicKnowledgeOwnerID {
-		return fmt.Sprintf("(visibility = 'public' OR user_id = %d) AND status = 'ready'", publicKnowledgeOwnerID), nil
+	return knowledgeAccessWhereWithStatus(userID, startIndex, true)
+}
+
+func knowledgeDocumentAccessWhere(userID *int64, startIndex int) (string, []any) {
+	return knowledgeAccessWhereWithStatus(userID, startIndex, false)
+}
+
+func knowledgeAccessWhereWithStatus(userID *int64, startIndex int, requireReady bool) (string, []any) {
+	statusSQL := ""
+	if requireReady {
+		statusSQL = " AND status = 'ready'"
 	}
 
-	return fmt.Sprintf("((visibility = 'public' OR user_id = %d) OR user_id = $%d) AND status = 'ready'", publicKnowledgeOwnerID, startIndex), []any{*userID}
+	if userID == nil || *userID == publicKnowledgeOwnerID {
+		return fmt.Sprintf("(visibility = 'public' OR user_id = %d)%s", publicKnowledgeOwnerID, statusSQL), nil
+	}
+
+	return fmt.Sprintf("((visibility = 'public' OR user_id = %d) OR user_id = $%d)%s", publicKnowledgeOwnerID, startIndex, statusSQL), []any{*userID}
 }
 
 const (
@@ -929,15 +933,32 @@ func (vs *VectorStore) SaveKnowledgeBatchForUserContextWithMeta(ctx context.Cont
 	// 使用独立短超时上下文回滚，避免请求取消后事务清理被同一个 ctx 跳过。
 	defer rollbackTx(tx)
 
-	// 定义插入 SQL 语句
 	knowledgeSource := defaultKnowledgeSource(source, title)
 	visibility := knowledgeVisibilityForUser(userID)
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, knowledgeDocumentLockKey(userID, title, knowledgeSource)); err != nil {
+		return fmt.Errorf("锁定知识文档身份失败: %w", err)
+	}
+
+	var version int64
+	if err := tx.QueryRow(ctx, `SELECT coalesce(max(version), 0) + 1
+FROM knowledge_base
+WHERE user_id = $1 AND title = $2 AND source = $3`, userID, title, knowledgeSource).Scan(&version); err != nil {
+		return fmt.Errorf("计算知识文档版本失败: %w", err)
+	}
+
+	if _, err := tx.Exec(ctx, `UPDATE knowledge_base
+SET status = 'archived', updated_at = now()
+WHERE user_id = $1 AND title = $2 AND source = $3 AND status = 'ready'`, userID, title, knowledgeSource); err != nil {
+		return fmt.Errorf("归档旧知识文档版本失败: %w", err)
+	}
+
+	// 定义插入 SQL 语句
 	insertSQL := `INSERT INTO knowledge_base (title, content, embedding, user_id, source, visibility, status, version, content_hash, updated_at)
-VALUES ($1, $2, $3, $4, $5, $6, 'ready', 1, $7, now())`
+VALUES ($1, $2, $3, $4, $5, $6, 'ready', $7, $8, now())`
 	// 遍历所有知识块
 	for _, item := range embeddings {
 		// 执行 SQL 插入语句
-		if _, err := tx.Exec(ctx, insertSQL, title, item.chunk, item.embedding, userID, knowledgeSource, visibility, knowledgeContentHash(item.chunk)); err != nil {
+		if _, err := tx.Exec(ctx, insertSQL, title, item.chunk, item.embedding, userID, knowledgeSource, visibility, version, knowledgeContentHash(item.chunk)); err != nil {
 			return fmt.Errorf("保存知识块到数据库失败: %w", err)
 		}
 	}
@@ -968,6 +989,10 @@ func knowledgeVisibilityForUser(userID int64) string {
 func knowledgeContentHash(content string) string {
 	sum := sha256.Sum256([]byte(strings.TrimSpace(content)))
 	return hex.EncodeToString(sum[:])
+}
+
+func knowledgeDocumentLockKey(userID int64, title, source string) string {
+	return fmt.Sprintf("%d:%s:%s", userID, strings.TrimSpace(title), strings.TrimSpace(source))
 }
 
 func rollbackTx(tx pgx.Tx) {
