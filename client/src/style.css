@@ -64,6 +64,15 @@ body.light-mode {
   --color-text-secondary: var(--t2);
 }
 
+/* 全局 scrollbar gutter 预留：让 fixed 元素 (left:0;right:0) 与文档流元素
+   (max-width + margin auto) 共享同一可用宽度基准。
+   不加此规则时大屏下 fixed nav 的可用宽度比 body 少 ~15px (Windows 滚动条)，
+   两层 max-width:1320 居中后 logo 与 hero-title 错开 ~7px；
+   加上后整页所有居中盒子像素级对齐。 */
+html {
+  scrollbar-gutter: stable;
+}
+
 * {
   margin: 0;
   padding: 0;

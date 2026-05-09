@@ -5,18 +5,12 @@
       <div class="aurora-blob aurora-a"></div>
       <div class="aurora-blob aurora-b"></div>
     </div>
-    <nav class="nav">
-      <a class="nav-brand" href="#">
-        <svg width="22" height="22" viewBox="0 0 24 24" fill="none"><rect width="24" height="24" rx="5" fill="rgba(255,255,255,.08)" stroke="rgba(255,255,255,.12)" stroke-width="1"/><circle cx="12" cy="12" r="7" stroke="rgba(255,255,255,.45)" stroke-width="1"/><line x1="7" y1="10" x2="13" y2="10" stroke="rgba(255,255,255,.9)" stroke-width="1.5" stroke-linecap="round"/><line x1="11" y1="14" x2="17" y2="14" stroke="rgba(255,255,255,.9)" stroke-width="1.5" stroke-linecap="round"/></svg>
-        AI 面试官
-      </a>
-      <div class="nav-r">
-        <!-- 保留原有ThemeToggle逻辑，这里暂时写死为文字或者用组件 -->
-        <!-- 如果后续还需要浅色模式，可以将 ThemeToggle 放回来 -->
+    <SiteHeader :fixed="true">
+      <template #actions>
         <button class="btn-ng" @click="goToLogin">登录</button>
         <button class="btn-ns" @click="goToChat">开始体验</button>
-      </div>
-    </nav>
+      </template>
+    </SiteHeader>
 
     <div class="hero-outer">
       <section class="hero">
@@ -158,6 +152,8 @@
         </div>
       </div>
     </div>
+
+    <AppFooter />
   </div>
 </template>
 
@@ -166,6 +162,8 @@ import { ref, onMounted, onBeforeUnmount } from "vue";
 import { useRouter } from "vue-router";
 import { useApi } from "../composables/useApi";
 import { useTheme } from "../composables/useTheme";
+import SiteHeader from "../components/SiteHeader.vue";
+import AppFooter from "../components/AppFooter.vue";
 
 const router = useRouter();
 const api = useApi();
@@ -385,33 +383,9 @@ const startChat = () => {
   50% { transform: translate(-4vw, -5vh); }
 }
 
-/* Nav */
-.nav {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  z-index: 100;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 48px;
-  height: 64px;
-  border-bottom: 1px solid transparent;
-  transition: all .3s;
-}
-.nav-brand {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  font: 600 15px var(--sans);
-  color: var(--t);
-  text-decoration: none;
-}
-.nav-r {
-  display: flex;
-  gap: 12px;
-}
+/* Nav 按钮样式（内嵌 .nav / .nav-brand / .nav-r 已提到 SiteHeader 组件；
+   .btn-ng / .btn-ns 保留为 Home 私有，通过 SiteHeader actions slot 传入，
+   Vue scoped CSS 下 slot 内容仍属父组件作用域，样式仍能作用于当前 button。 */
 .btn-ng {
   font: 14px var(--sans);
   color: var(--t);
@@ -443,7 +417,8 @@ const startChat = () => {
 /* Hero Section */
 .hero-outer {
   padding: 0 44px;
-  margin-top: 64px;
+  /* 与 SiteHeader fixed 80px 高度配合，避免 hero 内容被覆盖 */
+  margin-top: 80px;
 }
 .hero {
   position: relative;
