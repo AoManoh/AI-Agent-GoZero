@@ -148,6 +148,20 @@ func looksLikeFollowUpSignal(s string) bool {
 	})
 }
 
+func looksLikeEvaluationSignal(s string) bool {
+	if containsAny(s, []string{"总结", "评估", "表现", "优缺点"}) {
+		return !looksLikeFollowUpSignal(s) && !containsAny(s, []string{"继续说", "继续讲", "接着说", "接着讲"})
+	}
+	return false
+}
+
+func looksLikeCompletionSignal(s string) bool {
+	if !containsAny(s, []string{"结束", "再见", "感谢参加"}) {
+		return false
+	}
+	return !containsAny(s, []string{"不结束", "不算结束", "没有结束", "不是结束", "还不结束", "先不结束"})
+}
+
 func (sm *StateManager) TransitionState(currentState, aiRes string) string {
 	nextState, _ := sm.TransitionStateDetailed(currentState, aiRes)
 	return nextState
@@ -168,18 +182,18 @@ func (sm *StateManager) TransitionStateDetailed(currentState, aiRes string) (str
 		if looksLikeFollowUpSignal(lowerRes) {
 			return types.StateFollowUp, "follow_up_signal"
 		}
-		if containsAny(lowerRes, []string{"评估", "总结", "表现", "优缺点"}) {
+		if looksLikeEvaluationSignal(lowerRes) {
 			return types.StateEvaluate, "evaluation_signal"
 		}
 	case types.StateFollowUp:
-		if containsAny(lowerRes, []string{"评估", "总结", "表现", "优缺点"}) {
+		if looksLikeEvaluationSignal(lowerRes) {
 			return types.StateEvaluate, "evaluation_signal"
 		}
 		if containsAny(lowerRes, []string{"下一个问题", "新问题", "换个主题", "另一个问题"}) {
 			return types.StateQuestion, "next_question_signal"
 		}
 	case types.StateEvaluate:
-		if containsAny(lowerRes, []string{"结束", "再见", "感谢参加"}) {
+		if looksLikeCompletionSignal(lowerRes) {
 			return types.StateEnd, "completion_signal"
 		}
 		if containsAny(lowerRes, []string{"继续", "下一个问题"}) {
