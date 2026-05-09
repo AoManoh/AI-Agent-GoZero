@@ -555,5 +555,81 @@ COMMENT ON COLUMN "public"."session_evaluations"."first_generated_at" IS '当前
 COMMENT ON COLUMN "public"."session_evaluations"."generated_at" IS '最近一次生成当前评估结果的时间（接口兼容字段来源）';
 COMMENT ON COLUMN "public"."session_evaluations"."updated_at" IS '当前会话评估结果最近一次刷新时间';
 
+-- ----------------------------
+-- 步骤 5.5: 新增 `session_evaluation_items` 表
+-- ----------------------------
+CREATE TABLE IF NOT EXISTS "public"."session_evaluation_items" (
+                                                                  "id" BIGSERIAL PRIMARY KEY,
+                                                                  "session_id" VARCHAR(64) NOT NULL,
+                                                                  "user_id" BIGINT NOT NULL,
+                                                                  "turn_index" INTEGER NOT NULL,
+                                                                  "question" TEXT NOT NULL DEFAULT '',
+                                                                  "answer" TEXT NOT NULL DEFAULT '',
+                                                                  "ai_comment" TEXT NOT NULL DEFAULT '',
+                                                                  "score" DOUBLE PRECISION NOT NULL DEFAULT 0,
+                                                                  "max_score" DOUBLE PRECISION NOT NULL DEFAULT 5,
+                                                                  "tags" JSONB NOT NULL DEFAULT '[]'::jsonb,
+                                                                  "source_message_id" BIGINT,
+                                                                  "source_message_at" TIMESTAMPTZ,
+                                                                  "generated_at" TIMESTAMPTZ NOT NULL DEFAULT now(),
+                                                                  "updated_at" TIMESTAMPTZ NOT NULL DEFAULT now(),
+                                                                  UNIQUE ("session_id", "user_id", "turn_index")
+);
+
+DO $$
+    BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_session_evaluation_items_user_id') THEN
+            ALTER TABLE "public"."session_evaluation_items"
+                ADD CONSTRAINT fk_session_evaluation_items_user_id
+                    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
+        END IF;
+    END $$;
+
+DO $$
+    BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_session_evaluation_items_session_id') THEN
+            ALTER TABLE "public"."session_evaluation_items"
+                ADD CONSTRAINT fk_session_evaluation_items_session_id
+                    FOREIGN KEY (session_id) REFERENCES "public"."chat_sessions"(session_id) ON DELETE CASCADE NOT VALID;
+        END IF;
+    END $$;
+
+DO $$
+    BEGIN
+        IF EXISTS (
+            SELECT 1
+            FROM pg_constraint
+            WHERE conname = 'fk_session_evaluation_items_session_id'
+              AND NOT convalidated
+        ) THEN
+            BEGIN
+                ALTER TABLE "public"."session_evaluation_items"
+                    VALIDATE CONSTRAINT fk_session_evaluation_items_session_id;
+            EXCEPTION
+                WHEN OTHERS THEN
+                    RAISE NOTICE 'skip validating fk_session_evaluation_items_session_id: %', SQLERRM;
+            END;
+        END IF;
+    END $$;
+
+DROP INDEX IF EXISTS idx_session_evaluation_items_user_session;
+CREATE INDEX idx_session_evaluation_items_user_session ON "public"."session_evaluation_items" (user_id, session_id, turn_index);
+
+COMMENT ON TABLE "public"."session_evaluation_items" IS '存储会话评估的逐题卡片快照，用于报告详情复盘';
+COMMENT ON COLUMN "public"."session_evaluation_items"."id" IS '逐题评估明细主键';
+COMMENT ON COLUMN "public"."session_evaluation_items"."session_id" IS '关联的会话ID';
+COMMENT ON COLUMN "public"."session_evaluation_items"."user_id" IS '评估明细所属用户ID';
+COMMENT ON COLUMN "public"."session_evaluation_items"."turn_index" IS '用户回答轮次，从 1 开始';
+COMMENT ON COLUMN "public"."session_evaluation_items"."question" IS '该轮回答对应的面试官问题';
+COMMENT ON COLUMN "public"."session_evaluation_items"."answer" IS '用户回答摘要';
+COMMENT ON COLUMN "public"."session_evaluation_items"."ai_comment" IS 'AI 对该轮回答的点评';
+COMMENT ON COLUMN "public"."session_evaluation_items"."score" IS '该轮回答评分';
+COMMENT ON COLUMN "public"."session_evaluation_items"."max_score" IS '该轮回答满分';
+COMMENT ON COLUMN "public"."session_evaluation_items"."tags" IS '该轮回答标签 JSON 数组';
+COMMENT ON COLUMN "public"."session_evaluation_items"."source_message_id" IS '对应的用户消息ID';
+COMMENT ON COLUMN "public"."session_evaluation_items"."source_message_at" IS '对应的用户消息时间';
+COMMENT ON COLUMN "public"."session_evaluation_items"."generated_at" IS '该明细生成时间';
+COMMENT ON COLUMN "public"."session_evaluation_items"."updated_at" IS '该明细最近更新时间';
+
 COMMIT; -- 提交事务，所有更改生效
 

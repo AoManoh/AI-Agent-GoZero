@@ -51,12 +51,17 @@ func (l *SessionReportLogic) SessionReport(req *types.SessionReportReq) (*types.
 		return nil, statuserr.Internal("报告详情暂不可用，请稍后重试")
 	}
 
+	questionCards, err := loadPersistedSessionEvaluationItems(l.ctx, l.svcCtx.DB, session.SessionId, userID)
+	if err != nil {
+		return nil, statuserr.ServiceUnavailable("报告逐题明细暂不可用，请稍后重试")
+	}
 	rows, err := loadSessionMessageRows(l.ctx, l.svcCtx.DB, session.SessionId, userID, 0)
 	if err != nil {
 		return nil, statuserr.ServiceUnavailable("报告消息暂不可用，请稍后重试")
 	}
-
-	questionCards := buildSessionReportQuestionCards(rows, evaluationResp)
+	if len(questionCards) == 0 {
+		questionCards = buildSessionReportQuestionCards(rows, evaluationResp)
+	}
 
 	return &types.SessionReportResp{
 		Session: buildSessionItem(*session),

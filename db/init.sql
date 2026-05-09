@@ -137,3 +137,23 @@ CREATE TABLE "public"."session_evaluations" (
 
 CREATE INDEX idx_session_evaluations_user_id ON session_evaluations (user_id);
 CREATE INDEX idx_session_evaluations_session_id ON session_evaluations (session_id);
+
+CREATE TABLE "public"."session_evaluation_items" (
+                                                     "id" BIGSERIAL PRIMARY KEY,
+                                                     "session_id" VARCHAR(64) NOT NULL REFERENCES "public"."chat_sessions"("session_id") ON DELETE CASCADE,
+                                                     "user_id" BIGINT NOT NULL REFERENCES "public"."users"("id") ON DELETE CASCADE,
+                                                     "turn_index" INTEGER NOT NULL,
+                                                     "question" TEXT NOT NULL DEFAULT '',
+                                                     "answer" TEXT NOT NULL DEFAULT '',
+                                                     "ai_comment" TEXT NOT NULL DEFAULT '',
+                                                     "score" DOUBLE PRECISION NOT NULL DEFAULT 0,
+                                                     "max_score" DOUBLE PRECISION NOT NULL DEFAULT 5,
+                                                     "tags" JSONB NOT NULL DEFAULT '[]'::jsonb,
+                                                     "source_message_id" BIGINT,
+                                                     "source_message_at" TIMESTAMPTZ,
+                                                     "generated_at" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                                                     "updated_at" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                                                     UNIQUE ("session_id", "user_id", "turn_index")
+);
+
+CREATE INDEX idx_session_evaluation_items_user_session ON session_evaluation_items (user_id, session_id, turn_index);

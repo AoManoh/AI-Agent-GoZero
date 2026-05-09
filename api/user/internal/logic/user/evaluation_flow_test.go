@@ -383,12 +383,23 @@ func TestSessionEvaluationRefreshStaleCacheRefreshesAndPersists(t *testing.T) {
 	mock.ExpectQuery(`select id as last_message_id, created_at as last_message_at`).
 		WithArgs(session.SessionId, session.UserId).
 		WillReturnRows(sqlmock.NewRows([]string{"last_message_id", "last_message_at"}).AddRow(int64(43), now.Add(-5*time.Minute)))
-	mock.ExpectQuery(`select role, content, created_at`).
+	mock.ExpectQuery(`select id, role, content, created_at`).
 		WithArgs(session.SessionId, session.UserId, int64(43)).
-		WillReturnRows(sqlmock.NewRows([]string{"role", "content", "created_at"}).
-			AddRow("user", "我负责 GoZero 项目后端开发和 PostgreSQL 设计", now.Add(-20*time.Minute)).
-			AddRow("assistant", "请继续说说你做过的并发优化", now.Add(-19*time.Minute)).
-			AddRow("user", "我做过索引优化和服务拆分", now.Add(-18*time.Minute)))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "role", "content", "created_at"}).
+			AddRow(int64(41), "user", "我负责 GoZero 项目后端开发和 PostgreSQL 设计", now.Add(-20*time.Minute)).
+			AddRow(int64(42), "assistant", "请继续说说你做过的并发优化", now.Add(-19*time.Minute)).
+			AddRow(int64(43), "user", "我做过索引优化和服务拆分", now.Add(-18*time.Minute)))
+	mock.ExpectBegin()
+	mock.ExpectExec(`delete from "public"."session_evaluation_items"`).
+		WithArgs(session.UserId, session.SessionId).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectExec(`insert into "public"."session_evaluation_items"`).
+		WithArgs(session.SessionId, session.UserId, int64(1), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), int64(41), sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectExec(`insert into "public"."session_evaluation_items"`).
+		WithArgs(session.SessionId, session.UserId, int64(2), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), int64(43), sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(2, 1))
+	mock.ExpectCommit()
 	mock.ExpectQuery(`select pg_advisory_unlock`).
 		WithArgs(sqlmock.AnyArg()).
 		WillReturnRows(sqlmock.NewRows([]string{"pg_advisory_unlock"}).AddRow(true))

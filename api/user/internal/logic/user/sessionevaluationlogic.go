@@ -28,6 +28,7 @@ type SessionEvaluationLogic struct {
 }
 
 type evaluationMessageRow struct {
+	Id        int64     `db:"id"`
 	Role      string    `db:"role"`
 	Content   string    `db:"content"`
 	CreatedAt time.Time `db:"created_at"`
@@ -203,6 +204,9 @@ func (l *SessionEvaluationLogic) refreshEvaluationIfNeeded(session *model.ChatSe
 			return err
 		}
 		if err := l.svcCtx.SessionEvaluationsModel.Upsert(l.ctx, record); err != nil {
+			return err
+		}
+		if err := replaceSessionEvaluationItems(l.ctx, l.svcCtx.DB, *session, record, rows); err != nil {
 			return err
 		}
 
@@ -740,7 +744,7 @@ limit 1`, sessionID, userID)
 
 func loadEvaluationRowsWithReader(ctx context.Context, reader queryRowsReader, sessionID string, userID int64, watermark evaluationMessageWatermarkRow) ([]evaluationMessageRow, error) {
 	var rows []evaluationMessageRow
-	query := `select role, content, created_at
+	query := `select id, role, content, created_at
 from "public"."vector_store"
 where chat_id = $1 and user_id = $2 and doc_type = 'message'
   and ($3::bigint is null or id <= $3)
