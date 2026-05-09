@@ -270,6 +270,15 @@ type (
 		LastRefreshedAt  string      `json:"lastRefreshedAt,optional"`
 		ReadinessMeta    ReportMeta  `json:"readinessMeta"`
 	}
+	SessionReportPrepareReq {
+		Id    string `path:"id"`
+		Force bool   `json:"force,optional"`
+	}
+	SessionReportPrepareResp {
+		Readiness     SessionReportReadinessResp `json:"readiness"`
+		ReportSummary *SessionReportSummaryResp  `json:"reportSummary,optional"`
+		PrepareMeta   ReportMeta                 `json:"prepareMeta"`
+	}
 	SessionFlowStateReq {
 		Id string `path:"id"`
 	}
@@ -752,6 +761,10 @@ service user-api {
 	@doc "获取指定会话的报告准备状态，提示前端是否需要刷新评估"
 	@handler SessionReportReadinessHandler
 	get /sessions/:id/report-readiness (SessionReportReadinessReq) returns (SessionReportReadinessResp)
+
+	@doc "准备指定会话报告，必要时刷新评估并返回报告摘要"
+	@handler SessionReportPrepareHandler
+	post /sessions/:id/report/prepare (SessionReportPrepareReq) returns (SessionReportPrepareResp)
 
 	@doc "获取指定会话的流程状态"
 	@handler SessionFlowStateHandler

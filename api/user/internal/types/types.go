@@ -560,6 +560,17 @@ type SessionReportOverview struct {
 	AssistantTurns  int64   `json:"assistantTurns"`
 }
 
+type SessionReportPrepareReq struct {
+	Id    string `path:"id"`
+	Force bool   `json:"force,optional"`
+}
+
+type SessionReportPrepareResp struct {
+	Readiness     SessionReportReadinessResp `json:"readiness"`
+	ReportSummary *SessionReportSummaryResp  `json:"reportSummary,optional"`
+	PrepareMeta   ReportMeta                 `json:"prepareMeta"`
+}
+
 type SessionReportQuestionCard struct {
 	TurnIndex int64              `json:"turnIndex"`
 	Depth     string             `json:"depth"`

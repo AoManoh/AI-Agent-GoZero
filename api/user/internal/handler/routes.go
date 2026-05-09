@@ -196,6 +196,12 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 				Handler: user.SessionReportSummaryHandler(serverCtx),
 			},
 			{
+				// 准备指定会话报告，必要时刷新评估并返回报告摘要
+				Method:  http.MethodPost,
+				Path:    "/sessions/:id/report/prepare",
+				Handler: user.SessionReportPrepareHandler(serverCtx),
+			},
+			{
 				// 获取当前用户工作台首屏聚合数据
 				Method:  http.MethodGet,
 				Path:    "/workbench/bootstrap",
