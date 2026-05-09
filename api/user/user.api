@@ -146,6 +146,42 @@ type (
 		InterviewerStyles []InterviewStyleOption      `json:"interviewerStyles"`
 		DefaultConfig     SessionConfigSnapshot       `json:"defaultConfig"`
 	}
+	InterviewPlanPreviewReq {
+		DirectionKey     string `form:"directionKey,optional"`
+		Difficulty       int64  `form:"difficulty,optional"`
+		FocusKeys        string `form:"focusKeys,optional"`
+		InterviewerStyle string `form:"interviewerStyle,optional"`
+		Limit            int64  `form:"limit,optional"`
+	}
+	SessionInterviewPlanReq {
+		Id    string `path:"id"`
+		Limit int64  `form:"limit,optional"`
+	}
+	InterviewPlanQuestion {
+		Key                  string   `json:"key"`
+		DirectionKey         string   `json:"directionKey"`
+		FocusKey             string   `json:"focusKey"`
+		FocusLabel           string   `json:"focusLabel"`
+		DifficultyLevel      int64    `json:"difficultyLevel"`
+		DifficultyLabel      string   `json:"difficultyLabel"`
+		Title                string   `json:"title"`
+		Prompt               string   `json:"prompt"`
+		ExpectedSignals      []string `json:"expectedSignals"`
+		FollowUps            []string `json:"followUps"`
+		EvaluationDimensions []string `json:"evaluationDimensions"`
+	}
+	InterviewPlanMilestone {
+		Key             string  `json:"key"`
+		Label           string  `json:"label"`
+		Description     string  `json:"description"`
+		QuestionIndexes []int64 `json:"questionIndexes"`
+	}
+	InterviewPlanResp {
+		Config     SessionConfigSnapshot    `json:"config"`
+		Questions  []InterviewPlanQuestion  `json:"questions"`
+		Milestones []InterviewPlanMilestone `json:"milestones"`
+		PlanMeta   ReportMeta               `json:"planMeta"`
+	}
 	// 会话列表响应体
 	SessionsResp {
 		Sessions []SessionItem `json:"sessions"`
@@ -218,6 +254,21 @@ type (
 	}
 	SessionReportSummaryReq {
 		Id string `path:"id"`
+	}
+	SessionReportReadinessReq {
+		Id string `path:"id"`
+	}
+	SessionReportReadinessResp {
+		Session          SessionItem `json:"session"`
+		EvaluationStatus string      `json:"evaluationStatus"`
+		ReportStatus     string      `json:"reportStatus"`
+		CanReadReport    bool        `json:"canReadReport"`
+		NeedsRefresh     bool        `json:"needsRefresh"`
+		Reason           string      `json:"reason"`
+		NextAction       string      `json:"nextAction"`
+		LastMessageAt    string      `json:"lastMessageAt,optional"`
+		LastRefreshedAt  string      `json:"lastRefreshedAt,optional"`
+		ReadinessMeta    ReportMeta  `json:"readinessMeta"`
 	}
 	SessionFlowStateReq {
 		Id string `path:"id"`
@@ -630,6 +681,10 @@ service user-api {
 	@handler InterviewPresetsHandler
 	get /interview/presets (InterviewPresetsReq) returns (InterviewPresetsResp)
 
+	@doc "预览新建面试的计划题目"
+	@handler InterviewPlanPreviewHandler
+	get /interview/plan/preview (InterviewPlanPreviewReq) returns (InterviewPlanResp)
+
 	@doc "获取当前用户会话列表"
 	@handler SessionsHandler
 	get /sessions (SessionsReq) returns (SessionsResp)
@@ -662,6 +717,10 @@ service user-api {
 	@handler SessionBootstrapHandler
 	get /sessions/:id/bootstrap (SessionBootstrapReq) returns (SessionBootstrapResp)
 
+	@doc "获取指定会话的面试计划题目"
+	@handler SessionInterviewPlanHandler
+	get /sessions/:id/interview-plan (SessionInterviewPlanReq) returns (InterviewPlanResp)
+
 	@doc "结束指定会话并标记面试完成"
 	@handler FinishSessionHandler
 	post /sessions/:id/finish (FinishSessionReq) returns (FinishSessionResp)
@@ -689,6 +748,10 @@ service user-api {
 	@doc "获取指定会话的报告摘要"
 	@handler SessionReportSummaryHandler
 	get /sessions/:id/report-summary (SessionReportSummaryReq) returns (SessionReportSummaryResp)
+
+	@doc "获取指定会话的报告准备状态，提示前端是否需要刷新评估"
+	@handler SessionReportReadinessHandler
+	get /sessions/:id/report-readiness (SessionReportReadinessReq) returns (SessionReportReadinessResp)
 
 	@doc "获取指定会话的流程状态"
 	@handler SessionFlowStateHandler

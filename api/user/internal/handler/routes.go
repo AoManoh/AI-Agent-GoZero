@@ -46,6 +46,12 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 	server.AddRoutes(
 		[]rest.Route{
 			{
+				// 预览新建面试的计划题目
+				Method:  http.MethodGet,
+				Path:    "/interview/plan/preview",
+				Handler: user.InterviewPlanPreviewHandler(serverCtx),
+			},
+			{
 				// 获取新建面试配置页预设选项
 				Method:  http.MethodGet,
 				Path:    "/interview/presets",
@@ -166,10 +172,22 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 				Handler: user.SessionFlowStateHandler(serverCtx),
 			},
 			{
+				// 获取指定会话的面试计划题目
+				Method:  http.MethodGet,
+				Path:    "/sessions/:id/interview-plan",
+				Handler: user.SessionInterviewPlanHandler(serverCtx),
+			},
+			{
 				// 获取指定会话的报告详情
 				Method:  http.MethodGet,
 				Path:    "/sessions/:id/report",
 				Handler: user.SessionReportHandler(serverCtx),
+			},
+			{
+				// 获取指定会话的报告准备状态，提示前端是否需要刷新评估
+				Method:  http.MethodGet,
+				Path:    "/sessions/:id/report-readiness",
+				Handler: user.SessionReportReadinessHandler(serverCtx),
 			},
 			{
 				// 获取指定会话的报告摘要

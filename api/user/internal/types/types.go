@@ -111,6 +111,42 @@ type InterviewFocusOption struct {
 	Description string `json:"description"`
 }
 
+type InterviewPlanMilestone struct {
+	Key             string  `json:"key"`
+	Label           string  `json:"label"`
+	Description     string  `json:"description"`
+	QuestionIndexes []int64 `json:"questionIndexes"`
+}
+
+type InterviewPlanPreviewReq struct {
+	DirectionKey     string `form:"directionKey,optional"`
+	Difficulty       int64  `form:"difficulty,optional"`
+	FocusKeys        string `form:"focusKeys,optional"`
+	InterviewerStyle string `form:"interviewerStyle,optional"`
+	Limit            int64  `form:"limit,optional"`
+}
+
+type InterviewPlanQuestion struct {
+	Key                  string   `json:"key"`
+	DirectionKey         string   `json:"directionKey"`
+	FocusKey             string   `json:"focusKey"`
+	FocusLabel           string   `json:"focusLabel"`
+	DifficultyLevel      int64    `json:"difficultyLevel"`
+	DifficultyLabel      string   `json:"difficultyLabel"`
+	Title                string   `json:"title"`
+	Prompt               string   `json:"prompt"`
+	ExpectedSignals      []string `json:"expectedSignals"`
+	FollowUps            []string `json:"followUps"`
+	EvaluationDimensions []string `json:"evaluationDimensions"`
+}
+
+type InterviewPlanResp struct {
+	Config     SessionConfigSnapshot    `json:"config"`
+	Questions  []InterviewPlanQuestion  `json:"questions"`
+	Milestones []InterviewPlanMilestone `json:"milestones"`
+	PlanMeta   ReportMeta               `json:"planMeta"`
+}
+
 type InterviewPresetsReq struct {
 }
 
@@ -489,6 +525,11 @@ type SessionFlowStateResp struct {
 	StateMeta      ReportMeta       `json:"stateMeta"`
 }
 
+type SessionInterviewPlanReq struct {
+	Id    string `path:"id"`
+	Limit int64  `form:"limit,optional"`
+}
+
 type SessionItem struct {
 	SessionId     string `json:"sessionId"`
 	Title         string `json:"title"`
@@ -528,6 +569,23 @@ type SessionReportQuestionCard struct {
 	Score     int64              `json:"score"`
 	MaxScore  int64              `json:"maxScore"`
 	Tags      []SessionReportTag `json:"tags"`
+}
+
+type SessionReportReadinessReq struct {
+	Id string `path:"id"`
+}
+
+type SessionReportReadinessResp struct {
+	Session          SessionItem `json:"session"`
+	EvaluationStatus string      `json:"evaluationStatus"`
+	ReportStatus     string      `json:"reportStatus"`
+	CanReadReport    bool        `json:"canReadReport"`
+	NeedsRefresh     bool        `json:"needsRefresh"`
+	Reason           string      `json:"reason"`
+	NextAction       string      `json:"nextAction"`
+	LastMessageAt    string      `json:"lastMessageAt,optional"`
+	LastRefreshedAt  string      `json:"lastRefreshedAt,optional"`
+	ReadinessMeta    ReportMeta  `json:"readinessMeta"`
 }
 
 type SessionReportReq struct {
