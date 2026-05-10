@@ -191,6 +191,37 @@ func (l *ChatLogic) Chat(req *types2.InterviewAppChatReq) (<-chan *types2.ChatRe
 			l.Logger.Errorf("记录用户 turn 失败: %v", err)
 		}
 
+		if intent := detectCandidateIntent(req.Message); intent.End {
+			finalRes := candidateEndReply()
+			if _, err := stateManager.UpdateExecutionState(scope, chatflow.ExecutionPersisting, intent.Reason); err != nil {
+				l.Logger.Errorf("更新 flow 执行状态失败: %v", err)
+			}
+			if saveErr := l.svcCtx.VectorStore.SaveMessageWithUser(
+				l.ctx,
+				req.ChatId,
+				openai.ChatMessageRoleAssistant,
+				finalRes,
+				scopedUserID,
+				effectiveMode,
+			); saveErr != nil {
+				l.Errorf("保存结束回复失败: %v", saveErr)
+				_, _ = stateManager.UpdateExecutionState(scope, chatflow.ExecutionFailed, "candidate_end_reply_persist_failed")
+				ch <- &types2.ChatRes{
+					Content:  "系统错误：无法保存结束回复",
+					IsLatest: true,
+				}
+				return
+			} else if err := stateManager.RecordTurn(scope, openai.ChatMessageRoleAssistant, "assistant_end_reply_persisted"); err != nil {
+				l.Logger.Errorf("记录助手 turn 失败: %v", err)
+			}
+			if _, err := stateManager.ApplyCandidateEndIntent(scope); err != nil {
+				l.Logger.Errorf("更新结束状态失败: %v", err)
+			}
+			ch <- &types2.ChatRes{Content: finalRes, IsLatest: false}
+			ch <- &types2.ChatRes{IsLatest: true}
+			return
+		}
+
 		// 2.2 获取当前状态
 		currentState, err := stateManager.GetCurrentState(scope)
 		if err != nil {
@@ -537,4 +568,8 @@ func buildInterviewerKnowledge(chunks []types2.KnowledgeChunk) []interviewer.Kno
 		})
 	}
 	return knowledge
+}
+
+func candidateEndReply() string {
+	return "好的，本次面试先到这里。感谢参与，后续你可以回看本次记录并按需要生成总结。"
 }

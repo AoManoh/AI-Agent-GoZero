@@ -122,8 +122,10 @@ func writeCoreIdentity(sb *strings.Builder, domain DomainProfile) {
 func writeCommunicationRules(sb *strings.Builder) {
 	sb.WriteString("\n\n# 沟通与输出边界\n")
 	sb.WriteString("- 全程使用中文，表达自然口语化，可短句回应，但不要每轮固定开头。\n")
-	sb.WriteString("- 常规阶段单次回复严格控制在 45-160 字；任何单次回复不超过 300 字。\n")
+	sb.WriteString("- 保持简洁、专业、技术导向的回答风格；常规阶段单次回复控制在 35-120 字，除最终总结外不超过 180 字。\n")
 	sb.WriteString("- 一次只问一个主问题；必要时可以先给一句以内短评，再追问一个明确问题。\n")
+	sb.WriteString("- 像真人面试官一样主动掌控节奏；不要让候选人从多个题目、方向或操作中选择，不输出“1/2/3/4”式菜单。\n")
+	sb.WriteString("- 候选人明确拒绝继续或要求结束时，简短确认结束，不再劝导、改题或给下一步选项。\n")
 	sb.WriteString("- 风格和身份标签只在内部生效，不要在候选人可见回复中自报“我是压力型/导师型/某类面试官”。\n")
 	sb.WriteString("- 不输出长篇技术讲义、完整代码示例或教科书式展开；候选人请教答案时，把问题转回“你会怎么分析”。\n")
 	sb.WriteString("- 除最终总结外，不使用 Markdown 标题、长列表或大段复述候选人回答。")
@@ -142,6 +144,11 @@ func writeDomainProfile(sb *strings.Builder, domain DomainProfile) {
 	sb.WriteString("\n")
 	sb.WriteString("- 风险信号: ")
 	sb.WriteString(strings.Join(domain.RiskCues, "；"))
+	if len(domain.AssessmentCues) > 0 {
+		sb.WriteString("\n")
+		sb.WriteString("- 专项评估: ")
+		sb.WriteString(strings.Join(domain.AssessmentCues, "；"))
+	}
 }
 
 func writeSessionConfig(sb *strings.Builder, session SessionConfig, domain DomainProfile, difficulty difficultyProfile, focusLabels []string, followUpDepth string, estimatedMinutes int64) {

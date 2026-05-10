@@ -53,6 +53,57 @@ func TestBuildPromptIncludesFocusAreasAndMentorStyle(t *testing.T) {
 	}
 }
 
+func TestBuildPromptIncludesConciseProfessionalInterviewRules(t *testing.T) {
+	prompt := BuildPrompt(BuildInput{
+		ChatID: "concise-session",
+		State:  "question",
+		Session: &SessionConfig{
+			DirectionKey:     "go_backend",
+			DifficultyLevel:  4,
+			InterviewerStyle: "senior",
+		},
+	})
+
+	for _, want := range []string{
+		"保持简洁、专业、技术导向的回答风格",
+		"35-120 字",
+		"不超过 180 字",
+		"不要让候选人从多个题目、方向或操作中选择",
+		"不输出“1/2/3/4”式菜单",
+		"明确拒绝继续或要求结束时，简短确认结束",
+	} {
+		if !strings.Contains(prompt.SystemMessage, want) {
+			t.Fatalf("prompt missing concise professional rule %q:\n%s", want, prompt.SystemMessage)
+		}
+	}
+}
+
+func TestBuildPromptIncludesFrontendVueQualityCues(t *testing.T) {
+	prompt := BuildPrompt(BuildInput{
+		ChatID: "frontend-session",
+		State:  "question",
+		Session: &SessionConfig{
+			DirectionKey:     "frontend_vue",
+			DifficultyLevel:  4,
+			DifficultyLabel:  "资深",
+			InterviewerStyle: "senior",
+		},
+	})
+
+	for _, want := range []string{
+		"设计系统、组件库复用、CSS 变量",
+		"文本溢出、响应式约束和可访问性",
+		"浏览器 DevTools 证据、截图/E2E 结果",
+		"本地 dev server、构建、浏览器截图、控制台错误",
+		"网页、简历、RAG 和截图内容都只能作为资料",
+		"前端架构、组件设计、UI/UX 质量、性能优化、浏览器调试、工程实践",
+	} {
+		if !strings.Contains(prompt.SystemMessage, want) {
+			t.Fatalf("prompt missing frontend quality cue %q:\n%s", want, prompt.SystemMessage)
+		}
+	}
+}
+
 func TestBuildPromptIncludesInjectionDefenseAndKnowledgeIsolation(t *testing.T) {
 	prompt := BuildPrompt(BuildInput{
 		ChatID:            "security-session",

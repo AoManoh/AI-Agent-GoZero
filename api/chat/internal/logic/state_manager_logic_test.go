@@ -1,9 +1,15 @@
 package logic
 
 import (
+	"context"
 	"testing"
 
+	"GoZero-AI/api/chat/internal/svc"
 	"GoZero-AI/api/chat/internal/types"
+	"GoZero-AI/internal/chatflow"
+
+	miniredis "github.com/alicebob/miniredis/v2"
+	"github.com/redis/go-redis/v9"
 )
 
 func TestTransitionStateDetailedFromStart(t *testing.T) {
@@ -165,5 +171,69 @@ func TestTransitionStateDetailedFromEvaluate(t *testing.T) {
 				t.Fatalf("TransitionStateDetailed(evaluate, %q) = (%q, %q), want (%q, %q)", tt.reply, gotState, gotReason, tt.wantState, tt.wantReason)
 			}
 		})
+	}
+}
+
+func TestDetectCandidateIntentEnd(t *testing.T) {
+	tests := []struct {
+		name    string
+		message string
+		wantEnd bool
+	}{
+		{name: "explicit quit interview", message: "我不想面试了", wantEnd: true},
+		{name: "end interview", message: "结束面试吧", wantEnd: true},
+		{name: "stop here", message: "今天先到这里", wantEnd: true},
+		{name: "do not continue", message: "不继续了", wantEnd: true},
+		{name: "single word end", message: "结束", wantEnd: true},
+		{name: "negated end", message: "先不结束，我们继续", wantEnd: false},
+		{name: "technical end word", message: "请求结束后 goroutine 怎么释放？", wantEnd: false},
+		{name: "normal answer", message: "我会先看 context 是否传到数据库调用。", wantEnd: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := detectCandidateIntent(tt.message)
+			if got.End != tt.wantEnd {
+				t.Fatalf("detectCandidateIntent(%q).End = %v, want %v", tt.message, got.End, tt.wantEnd)
+			}
+			if got.End && got.Reason != candidateEndIntentReason {
+				t.Fatalf("detectCandidateIntent(%q).Reason = %q, want %q", tt.message, got.Reason, candidateEndIntentReason)
+			}
+		})
+	}
+}
+
+func TestApplyCandidateEndIntentUpdatesFlowState(t *testing.T) {
+	redisServer, err := miniredis.Run()
+	if err != nil {
+		t.Fatalf("miniredis.Run() error = %v", err)
+	}
+	defer redisServer.Close()
+
+	client := redis.NewClient(&redis.Options{Addr: redisServer.Addr()})
+	defer client.Close()
+
+	sm := &StateManager{
+		ctx: context.Background(),
+		svcCtx: &svc.ServiceContext{
+			RedisClient: client,
+		},
+	}
+	scope := ConversationScope{ChatID: "candidate-end-session", Mode: "interview"}
+	snapshot, err := sm.ApplyCandidateEndIntent(scope)
+	if err != nil {
+		t.Fatalf("ApplyCandidateEndIntent() error = %v", err)
+	}
+	if snapshot.InterviewState != types.StateEnd {
+		t.Fatalf("InterviewState = %q, want %q", snapshot.InterviewState, types.StateEnd)
+	}
+	if snapshot.LifecycleState != chatflow.LifecycleCompleted {
+		t.Fatalf("LifecycleState = %q, want %q", snapshot.LifecycleState, chatflow.LifecycleCompleted)
+	}
+	if snapshot.ExecutionState != chatflow.ExecutionIdle {
+		t.Fatalf("ExecutionState = %q, want %q", snapshot.ExecutionState, chatflow.ExecutionIdle)
+	}
+	if snapshot.LastReason != candidateEndIntentReason {
+		t.Fatalf("LastReason = %q, want %q", snapshot.LastReason, candidateEndIntentReason)
 	}
 }

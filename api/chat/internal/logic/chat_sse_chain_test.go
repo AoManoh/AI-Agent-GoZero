@@ -138,6 +138,109 @@ func TestChatSSEPromptResponsePersistenceAndStateFlow(t *testing.T) {
 	}
 }
 
+func TestChatSSECandidateEndIntentShortCircuitsMainLLM(t *testing.T) {
+	mockLLM := newMockOpenAIServer(t, "不应该调用主模型")
+	defer mockLLM.close()
+
+	redisServer, err := miniredis.Run()
+	if err != nil {
+		t.Fatalf("miniredis.Run() error = %v", err)
+	}
+	defer redisServer.Close()
+
+	openAIConfig := openai.DefaultConfig("test-key")
+	openAIConfig.BaseURL = strings.TrimRight(mockLLM.URL, "/") + "/v1"
+	openAIClient := openai.NewClientWithConfig(openAIConfig)
+
+	fakePool := newChatFlowFakePool()
+	ctx, cancel := context.WithTimeout(chatAuth.WithUserID(context.Background(), fakePool.userID), 3*time.Second)
+	defer cancel()
+
+	svcCtx := &svc.ServiceContext{
+		Config: config.Config{
+			OpenAI: config.OpenAIConfig{
+				BaseURL:             openAIConfig.BaseURL,
+				Model:               "mock-chat-model",
+				MaxCompletionTokens: 128,
+				Temperature:         0.2,
+			},
+			VectorDB: config.VectorDBConfig{
+				EmbeddingModel: "mock-embedding-model",
+				Knowledge: config.Knowledge{
+					TopK:             3,
+					MaxContextLength: 160,
+				},
+			},
+		},
+		OpenAIClient: openAIClient,
+		VectorStore: &svc.VectorStore{
+			Pool:           fakePool,
+			OpenAIClient:   openAIClient,
+			EmbeddingModel: "mock-embedding-model",
+		},
+		RedisClient: redisClientForTest(redisServer.Addr()),
+	}
+	defer svcCtx.RedisClient.Close()
+
+	logic := &ChatLogic{
+		Logger: logx.WithContext(ctx),
+		ctx:    ctx,
+		svcCtx: svcCtx,
+	}
+	stream, err := logic.Chat(&types2.InterviewAppChatReq{
+		ChatId:  "sess-end-intent",
+		Mode:    sessionmode.KeyInterview,
+		Message: "我不想面试了",
+	})
+	if err != nil {
+		t.Fatalf("Chat() error = %v", err)
+	}
+
+	var response strings.Builder
+	var gotLatest bool
+	for chunk := range stream {
+		if chunk.IsLatest {
+			gotLatest = true
+			continue
+		}
+		response.WriteString(chunk.Content)
+	}
+	if !gotLatest {
+		t.Fatal("stream never emitted final latest marker")
+	}
+	if got := response.String(); got != candidateEndReply() {
+		t.Fatalf("stream response = %q, want %q", got, candidateEndReply())
+	}
+	if got := mockLLM.chatRequestCount(); got != 0 {
+		t.Fatalf("chat request count = %d, want 0", got)
+	}
+
+	messages := fakePool.savedMessages()
+	if len(messages) != 2 {
+		t.Fatalf("saved messages length = %d, want 2: %#v", len(messages), messages)
+	}
+	if messages[0].Role != openai.ChatMessageRoleUser || messages[1].Role != openai.ChatMessageRoleAssistant {
+		t.Fatalf("saved message roles = %#v", messages)
+	}
+	if messages[1].Content != candidateEndReply() {
+		t.Fatalf("saved assistant content = %q, want %q", messages[1].Content, candidateEndReply())
+	}
+
+	snapshot, err := chatflow.LoadSnapshot(ctx, svcCtx.RedisClient, chatflow.BuildContextKey("sess-end-intent", &fakePool.userID, sessionmode.KeyInterview), types2.StateStart)
+	if err != nil {
+		t.Fatalf("LoadSnapshot() error = %v", err)
+	}
+	if snapshot.InterviewState != types2.StateEnd || snapshot.LastReason != candidateEndIntentReason {
+		t.Fatalf("snapshot state/reason = (%s,%s), want (end,%s)", snapshot.InterviewState, snapshot.LastReason, candidateEndIntentReason)
+	}
+	if snapshot.LifecycleState != chatflow.LifecycleCompleted {
+		t.Fatalf("snapshot.LifecycleState = %q, want completed", snapshot.LifecycleState)
+	}
+	if snapshot.ExecutionState != chatflow.ExecutionIdle {
+		t.Fatalf("snapshot.ExecutionState = %q, want idle", snapshot.ExecutionState)
+	}
+}
+
 type mockOpenAIServer struct {
 	*httptest.Server
 
@@ -145,6 +248,7 @@ type mockOpenAIServer struct {
 	assistantReply string
 	mu             sync.Mutex
 	systemPrompt   string
+	chatRequests   int
 }
 
 func newMockOpenAIServer(t *testing.T, assistantReply string) *mockOpenAIServer {
@@ -167,6 +271,12 @@ func (m *mockOpenAIServer) capturedSystemPrompt() string {
 	return m.systemPrompt
 }
 
+func (m *mockOpenAIServer) chatRequestCount() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.chatRequests
+}
+
 func (m *mockOpenAIServer) handle(w http.ResponseWriter, r *http.Request) {
 	switch r.URL.Path {
 	case "/v1/embeddings":
@@ -184,6 +294,9 @@ func (m *mockOpenAIServer) handle(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
+		m.mu.Lock()
+		m.chatRequests++
+		m.mu.Unlock()
 		if !request.Stream {
 			http.Error(w, "expected stream request", http.StatusBadRequest)
 			return

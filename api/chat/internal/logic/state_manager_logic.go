@@ -15,6 +15,8 @@ import (
 
 const maxStateEvents = int64(50)
 
+const candidateEndIntentReason = "candidate_end_intent"
+
 type StateManager struct {
 	ctx    context.Context
 	svcCtx *svc.ServiceContext
@@ -24,6 +26,11 @@ type ConversationScope struct {
 	ChatID string
 	UserID *int64
 	Mode   string
+}
+
+type candidateIntent struct {
+	End    bool
+	Reason string
 }
 
 func NewStateManager(ctx context.Context, svcCtx *svc.ServiceContext) *StateManager {
@@ -104,6 +111,81 @@ func containsAny(s string, subStrings []string) bool {
 		}
 	}
 	return false
+}
+
+func detectCandidateIntent(message string) candidateIntent {
+	compact := normalizeIntentText(message)
+	if compact == "" {
+		return candidateIntent{}
+	}
+
+	if containsAny(compact, []string{
+		"不结束",
+		"不要结束",
+		"别结束",
+		"先不结束",
+		"还不结束",
+		"不是结束",
+		"不算结束",
+		"不用结束",
+		"不能结束",
+		"没有结束",
+	}) {
+		return candidateIntent{}
+	}
+
+	if compact == "结束" || compact == "退出" || compact == "停止" {
+		return candidateIntent{End: true, Reason: candidateEndIntentReason}
+	}
+
+	if containsAny(compact, []string{
+		"我不想面试了",
+		"不想面试了",
+		"不想面试",
+		"不面试了",
+		"不面了",
+		"结束面试",
+		"结束本次面试",
+		"结束吧",
+		"到此为止",
+		"先到这里",
+		"先到这",
+		"今天到这里",
+		"今天先到",
+		"退出面试",
+		"停止面试",
+		"中止面试",
+		"不想继续了",
+		"不继续了",
+		"不想继续",
+		"别问了",
+		"不问了",
+		"不聊了",
+		"放弃面试",
+		"面试到这里",
+		"面试先到这里",
+	}) {
+		return candidateIntent{End: true, Reason: candidateEndIntentReason}
+	}
+
+	return candidateIntent{}
+}
+
+func normalizeIntentText(message string) string {
+	normalized := strings.ToLower(strings.TrimSpace(message))
+	replacer := strings.NewReplacer(
+		" ", "",
+		"\t", "",
+		"\n", "",
+		"\r", "",
+		"。", "",
+		"，", "",
+		",", "",
+		".", "",
+		"！", "",
+		"!", "",
+	)
+	return replacer.Replace(normalized)
 }
 
 func looksLikeOpeningQuestion(s string) bool {
@@ -243,6 +325,35 @@ func (sm *StateManager) EvaluateAndUpdateState(scope ConversationScope, aiRespon
 			From:   from,
 			To:     nextState,
 			Reason: reason,
+			At:     snapshot.UpdatedAt,
+		}, nil
+	})
+	if err != nil {
+		return &snapshot, err
+	}
+	return &snapshot, nil
+}
+
+func (sm *StateManager) ApplyCandidateEndIntent(scope ConversationScope) (*chatflow.Snapshot, error) {
+	key := chatflow.BuildContextKey(scope.ChatID, scope.UserID, scope.Mode)
+	snapshot, err := chatflow.MutateSnapshot(sm.context(), sm.svcCtx.RedisClient, key, types.StateStart, maxStateEvents, func(snapshot chatflow.Snapshot) (chatflow.Snapshot, *chatflow.Event, error) {
+		from := snapshot.InterviewState
+		snapshot.InterviewState = types.StateEnd
+		snapshot.LifecycleState = chatflow.LifecycleCompleted
+		snapshot.ExecutionState = chatflow.ExecutionIdle
+		if from == types.StateEnd {
+			snapshot.LastEvent = "state.stable"
+		} else {
+			snapshot.LastEvent = "state.transition"
+		}
+		snapshot.LastReason = candidateEndIntentReason
+		snapshot.UpdatedAt = time.Now().Format(time.RFC3339)
+
+		return snapshot, &chatflow.Event{
+			Type:   "state",
+			From:   from,
+			To:     types.StateEnd,
+			Reason: candidateEndIntentReason,
 			At:     snapshot.UpdatedAt,
 		}, nil
 	})

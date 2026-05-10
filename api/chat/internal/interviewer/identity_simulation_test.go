@@ -76,7 +76,7 @@ func TestIdentityPromptCoverageMetrics(t *testing.T) {
 					{Key: "performance", Label: "性能优化"},
 				},
 			},
-			promptMarkers: []string{"资深 Vue 前端技术面试官", "诙谐型面试官", "中级 (3/5)", "前端架构、性能优化", "响应式系统"},
+			promptMarkers: []string{"资深 Vue 前端技术面试官", "诙谐型面试官", "中级 (3/5)", "前端架构、性能优化", "响应式系统", "设计系统", "浏览器调试路径"},
 		},
 		{
 			name:  "系统设计-架构深挖",
