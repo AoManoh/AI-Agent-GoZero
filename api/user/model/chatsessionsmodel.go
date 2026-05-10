@@ -64,6 +64,10 @@ type (
 	}
 )
 
+type chatSessionRunner interface {
+	QueryRowCtx(ctx context.Context, v any, query string, args ...any) error
+}
+
 const chatSessionSelectFields = `id, session_id, user_id, title, mode,
 direction_key, direction_label, difficulty_level, difficulty_label,
 interviewer_style, interviewer_style_label, focus_areas, follow_up_depth,
@@ -82,6 +86,14 @@ func (m *defaultChatSessionsModel) Create(ctx context.Context, userID int64, ses
 }
 
 func (m *defaultChatSessionsModel) CreateWithConfig(ctx context.Context, userID int64, sessionID, title, mode string, config SessionCreateConfig) (*ChatSession, error) {
+	return m.createWithConfig(ctx, m.conn, userID, sessionID, title, mode, config)
+}
+
+func CreateChatSessionWithConfigTx(ctx context.Context, session sqlx.Session, userID int64, sessionID, title, mode string, config SessionCreateConfig) (*ChatSession, error) {
+	return (&defaultChatSessionsModel{table: `"public"."chat_sessions"`}).createWithConfig(ctx, session, userID, sessionID, title, mode, config)
+}
+
+func (m *defaultChatSessionsModel) createWithConfig(ctx context.Context, runner chatSessionRunner, userID int64, sessionID, title, mode string, config SessionCreateConfig) (*ChatSession, error) {
 	focusAreas, err := marshalFocusAreas(config.FocusAreas)
 	if err != nil {
 		return nil, err
@@ -93,10 +105,10 @@ interviewer_style, interviewer_style_label, focus_areas, follow_up_depth,
 estimated_minutes, progress_percent, started_at, is_active
 )
 values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, $12, $13, 0, now(), true)
-returning %s`, m.table, chatSessionSelectFields)
+	returning %s`, m.table, chatSessionSelectFields)
 
 	var resp ChatSession
-	if err := m.conn.QueryRowCtx(ctx, &resp, query,
+	if err := runner.QueryRowCtx(ctx, &resp, query,
 		sessionID,
 		userID,
 		title,

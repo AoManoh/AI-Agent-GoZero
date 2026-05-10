@@ -58,6 +58,24 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 				Handler: user.InterviewPresetsHandler(serverCtx),
 			},
 			{
+				// 获取结构化面试题库统计
+				Method:  http.MethodGet,
+				Path:    "/interview/question-stats",
+				Handler: user.InterviewQuestionStatsHandler(serverCtx),
+			},
+			{
+				// 获取结构化面试题库列表
+				Method:  http.MethodGet,
+				Path:    "/interview/questions",
+				Handler: user.InterviewQuestionsHandler(serverCtx),
+			},
+			{
+				// 获取结构化面试题详情
+				Method:  http.MethodGet,
+				Path:    "/interview/questions/:id",
+				Handler: user.InterviewQuestionDetailHandler(serverCtx),
+			},
+			{
 				// 用户退出登录
 				Method:  http.MethodPost,
 				Path:    "/logout",

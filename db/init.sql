@@ -12,6 +12,10 @@ CREATE EXTENSION IF NOT EXISTS pg_trgm;
 -- ----------------------------
 -- 删除已存在的vector_store和knowledge_base表（如果存在）
 -- ----------------------------
+DROP TABLE IF EXISTS "public"."session_question_events";
+DROP TABLE IF EXISTS "public"."interview_question_sources";
+DROP TABLE IF EXISTS "public"."interview_questions";
+DROP TABLE IF EXISTS "public"."session_evaluation_items";
 DROP TABLE IF EXISTS "public"."session_evaluations";
 DROP TABLE IF EXISTS "public"."chat_sessions";
 DROP TABLE IF EXISTS "public"."vector_store";
@@ -71,6 +75,55 @@ CREATE INDEX idx_knowledge_base_user_id ON knowledge_base (user_id);
 CREATE INDEX idx_knowledge_base_visibility_status ON knowledge_base (visibility, status, updated_at DESC);
 CREATE INDEX idx_kb_document_identity ON knowledge_base (user_id, title, source, version);
 
+CREATE TABLE "public"."interview_questions" (
+                                                "id" BIGSERIAL PRIMARY KEY,
+                                                "question_key" VARCHAR(160) UNIQUE NOT NULL,
+                                                "direction_key" VARCHAR(64) NOT NULL,
+                                                "focus_key" VARCHAR(64) NOT NULL,
+                                                "focus_label" VARCHAR(80) NOT NULL DEFAULT '',
+                                                "difficulty_level" INTEGER NOT NULL CHECK ("difficulty_level" BETWEEN 1 AND 5),
+                                                "difficulty_label" VARCHAR(32) NOT NULL DEFAULT '',
+                                                "title" VARCHAR(240) NOT NULL,
+                                                "prompt" TEXT NOT NULL,
+                                                "expected_signals" JSONB NOT NULL DEFAULT '[]'::jsonb,
+                                                "follow_ups" JSONB NOT NULL DEFAULT '[]'::jsonb,
+                                                "evaluation_dimensions" JSONB NOT NULL DEFAULT '[]'::jsonb,
+                                                "tags" JSONB NOT NULL DEFAULT '[]'::jsonb,
+                                                "source_refs" JSONB NOT NULL DEFAULT '[]'::jsonb,
+                                                "batch_key" VARCHAR(80) NOT NULL DEFAULT '',
+                                                "batch_label" VARCHAR(120) NOT NULL DEFAULT '',
+                                                "sequence" INTEGER NOT NULL DEFAULT 0,
+                                                "batch_sequence" INTEGER NOT NULL DEFAULT 0,
+                                                "status" VARCHAR(32) NOT NULL DEFAULT 'ready',
+                                                "quality_score" DOUBLE PRECISION NOT NULL DEFAULT 0,
+                                                "usage_count" BIGINT NOT NULL DEFAULT 0,
+                                                "last_used_at" TIMESTAMPTZ,
+                                                "content_hash" VARCHAR(64),
+                                                "created_at" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                                                "updated_at" TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_interview_questions_direction_difficulty ON interview_questions (direction_key, difficulty_level, status, updated_at DESC);
+CREATE INDEX idx_interview_questions_focus ON interview_questions (focus_key, status, updated_at DESC);
+CREATE INDEX idx_interview_questions_usage ON interview_questions (usage_count DESC, last_used_at DESC);
+CREATE INDEX idx_interview_questions_content_hash ON interview_questions (content_hash);
+
+CREATE TABLE "public"."interview_question_sources" (
+                                                       "id" BIGSERIAL PRIMARY KEY,
+                                                       "question_id" BIGINT NOT NULL REFERENCES "public"."interview_questions"("id") ON DELETE CASCADE,
+                                                       "source_key" VARCHAR(160) NOT NULL DEFAULT '',
+                                                       "source_title" VARCHAR(240) NOT NULL DEFAULT '',
+                                                       "source_url" TEXT NOT NULL DEFAULT '',
+                                                       "source_type" VARCHAR(64) NOT NULL DEFAULT 'reference',
+                                                       "license_note" TEXT NOT NULL DEFAULT '',
+                                                       "batch_key" VARCHAR(80) NOT NULL DEFAULT '',
+                                                       "created_at" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                                                       UNIQUE ("question_id", "source_key", "source_url", "batch_key")
+);
+
+CREATE INDEX idx_interview_question_sources_question_id ON interview_question_sources (question_id);
+CREATE INDEX idx_interview_question_sources_source_key ON interview_question_sources (source_key);
+
 CREATE TABLE "public"."chat_sessions" (
                                           "id" BIGSERIAL PRIMARY KEY,
                                           "session_id" VARCHAR(64) UNIQUE NOT NULL,
@@ -100,6 +153,22 @@ CREATE TABLE "public"."chat_sessions" (
 CREATE INDEX idx_chat_sessions_user_id_last_message_at ON chat_sessions (user_id, last_message_at DESC);
 CREATE INDEX idx_chat_sessions_user_id_is_active ON chat_sessions (user_id, is_active);
 CREATE INDEX idx_chat_sessions_user_completed_at ON chat_sessions (user_id, completed_at DESC);
+
+CREATE TABLE "public"."session_question_events" (
+                                                   "id" BIGSERIAL PRIMARY KEY,
+                                                   "session_id" VARCHAR(64) NOT NULL REFERENCES "public"."chat_sessions"("session_id") ON DELETE CASCADE,
+                                                   "user_id" BIGINT NOT NULL REFERENCES "public"."users"("id") ON DELETE CASCADE,
+                                                   "question_id" BIGINT REFERENCES "public"."interview_questions"("id") ON DELETE SET NULL,
+                                                   "question_key" VARCHAR(160) NOT NULL DEFAULT '',
+                                                   "turn_index" INTEGER NOT NULL,
+                                                   "source" VARCHAR(32) NOT NULL DEFAULT 'bank',
+                                                   "question_snapshot" TEXT NOT NULL DEFAULT '',
+                                                   "created_at" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                                                   UNIQUE ("session_id", "user_id", "turn_index")
+);
+
+CREATE INDEX idx_session_question_events_user_session ON session_question_events (user_id, session_id, turn_index);
+CREATE INDEX idx_session_question_events_question_id ON session_question_events (question_id);
 
 CREATE TABLE "public"."resume_documents" (
                                              "id" BIGSERIAL PRIMARY KEY,

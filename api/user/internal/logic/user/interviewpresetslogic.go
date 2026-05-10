@@ -24,8 +24,19 @@ func NewInterviewPresetsLogic(ctx context.Context, svcCtx *svc.ServiceContext) *
 }
 
 func (l *InterviewPresetsLogic) InterviewPresets(_ *types.InterviewPresetsReq) (*types.InterviewPresetsResp, error) {
+	directions := append([]types.InterviewDirectionPreset(nil), interviewDirections...)
+	if l.svcCtx.InterviewQuestionsModel != nil {
+		if counts, err := l.svcCtx.InterviewQuestionsModel.DirectionCounts(l.ctx); err == nil && len(counts) > 0 {
+			for idx := range directions {
+				if count, ok := counts[directions[idx].Key]; ok {
+					directions[idx].QuestionCount = count
+				}
+			}
+		}
+	}
+
 	return &types.InterviewPresetsResp{
-		Directions:        append([]types.InterviewDirectionPreset(nil), interviewDirections...),
+		Directions:        directions,
 		Difficulties:      append([]types.InterviewDifficultyPreset(nil), interviewDifficulties...),
 		FocusOptions:      append([]types.InterviewFocusOption(nil), interviewFocusOptions...),
 		InterviewerStyles: append([]types.InterviewStyleOption(nil), interviewStyles...),

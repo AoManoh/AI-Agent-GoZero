@@ -76,6 +76,7 @@ type (
 		FocusKeys        []string `json:"focusKeys,optional"`
 		InterviewerStyle string   `json:"interviewerStyle,optional"`
 		EstimatedMinutes int64    `json:"estimatedMinutes,optional"`
+		QuestionKey      string   `json:"questionKey,optional"`
 	}
 	// 创建会话响应体
 	CreateSessionResp {
@@ -205,6 +206,81 @@ type (
 		Questions  []InterviewPlanQuestion  `json:"questions"`
 		Milestones []InterviewPlanMilestone `json:"milestones"`
 		PlanMeta   ReportMeta               `json:"planMeta"`
+	}
+	InterviewQuestionsReq {
+		DirectionKey string `form:"directionKey,optional"`
+		Difficulty   int64  `form:"difficulty,optional"`
+		FocusKeys    string `form:"focusKeys,optional"`
+		Keyword      string `form:"keyword,optional"`
+		Limit        int64  `form:"limit,optional"`
+		Offset       int64  `form:"offset,optional"`
+		Sort         string `form:"sort,optional"`
+	}
+	InterviewQuestionDetailReq {
+		Id string `path:"id"`
+	}
+	InterviewQuestionStatsReq  {}
+	InterviewQuestionItem {
+		Id                   int64    `json:"id"`
+		Key                  string   `json:"key"`
+		DirectionKey         string   `json:"directionKey"`
+		FocusKey             string   `json:"focusKey"`
+		FocusLabel           string   `json:"focusLabel"`
+		DifficultyLevel      int64    `json:"difficultyLevel"`
+		DifficultyLabel      string   `json:"difficultyLabel"`
+		Title                string   `json:"title"`
+		Prompt               string   `json:"prompt"`
+		ExpectedSignals      []string `json:"expectedSignals"`
+		FollowUps            []string `json:"followUps"`
+		EvaluationDimensions []string `json:"evaluationDimensions"`
+		Tags                 []string `json:"tags"`
+		SourceRefs           []string `json:"sourceRefs"`
+		BatchKey             string   `json:"batchKey"`
+		BatchLabel           string   `json:"batchLabel"`
+		Sequence             int64    `json:"sequence"`
+		BatchSequence        int64    `json:"batchSequence"`
+		Status               string   `json:"status"`
+		QualityScore         float64  `json:"qualityScore"`
+		UsageCount           int64    `json:"usageCount"`
+		LastUsedAt           string   `json:"lastUsedAt,optional"`
+		UpdatedAt            string   `json:"updatedAt"`
+		SourceCount          int64    `json:"sourceCount"`
+	}
+	InterviewQuestionSourceItem {
+		SourceKey   string `json:"sourceKey"`
+		SourceTitle string `json:"sourceTitle"`
+		SourceUrl   string `json:"sourceUrl"`
+		SourceType  string `json:"sourceType"`
+		LicenseNote string `json:"licenseNote"`
+		BatchKey    string `json:"batchKey"`
+	}
+	InterviewQuestionDirectionStat {
+		DirectionKey string `json:"directionKey"`
+		Count        int64  `json:"count"`
+	}
+	InterviewQuestionDifficultyStat {
+		DifficultyLevel int64 `json:"difficultyLevel"`
+		Count           int64 `json:"count"`
+	}
+	InterviewQuestionsResp {
+		Questions    []InterviewQuestionItem `json:"questions"`
+		Total        int64                   `json:"total"`
+		Limit        int64                   `json:"limit"`
+		Offset       int64                   `json:"offset"`
+		HasMore      bool                    `json:"hasMore"`
+		QuestionMeta ReportMeta              `json:"questionMeta"`
+	}
+	InterviewQuestionDetailResp {
+		Question     InterviewQuestionItem         `json:"question"`
+		Sources      []InterviewQuestionSourceItem `json:"sources"`
+		QuestionMeta ReportMeta                    `json:"questionMeta"`
+	}
+	InterviewQuestionStatsResp {
+		Total        int64                             `json:"total"`
+		Directions   []InterviewQuestionDirectionStat  `json:"directions"`
+		Difficulties []InterviewQuestionDifficultyStat `json:"difficulties"`
+		UpdatedAt    string                            `json:"updatedAt,optional"`
+		StatsMeta    ReportMeta                        `json:"statsMeta"`
 	}
 	// 会话列表响应体
 	SessionsResp {
@@ -757,6 +833,18 @@ service user-api {
 	@doc "预览新建面试的计划题目"
 	@handler InterviewPlanPreviewHandler
 	get /interview/plan/preview (InterviewPlanPreviewReq) returns (InterviewPlanResp)
+
+	@doc "获取结构化面试题库列表"
+	@handler InterviewQuestionsHandler
+	get /interview/questions (InterviewQuestionsReq) returns (InterviewQuestionsResp)
+
+	@doc "获取结构化面试题库统计"
+	@handler InterviewQuestionStatsHandler
+	get /interview/question-stats (InterviewQuestionStatsReq) returns (InterviewQuestionStatsResp)
+
+	@doc "获取结构化面试题详情"
+	@handler InterviewQuestionDetailHandler
+	get /interview/questions/:id (InterviewQuestionDetailReq) returns (InterviewQuestionDetailResp)
 
 	@doc "获取当前用户会话列表"
 	@handler SessionsHandler

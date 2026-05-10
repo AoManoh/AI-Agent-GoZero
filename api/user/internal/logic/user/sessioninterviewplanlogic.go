@@ -43,6 +43,33 @@ func (l *SessionInterviewPlanLogic) SessionInterviewPlan(req *types.SessionInter
 		return nil, err
 	}
 
-	resp := buildInterviewPlanResp(buildSessionConfigSnapshot(*session), req.Limit)
+	config := buildSessionConfigSnapshot(*session)
+	if l.svcCtx.InterviewQuestionsModel != nil {
+		if rows, _, err := l.svcCtx.InterviewQuestionsModel.List(l.ctx, model.InterviewQuestionListOptions{
+			DirectionKey: config.DirectionKey,
+			Difficulty:   config.DifficultyLevel,
+			FocusKeys:    interviewPlanFocusKeys(config),
+			Limit:        normalizeInterviewPlanLimit(req.Limit),
+			Sort:         "hot",
+		}); err == nil && len(rows) > 0 {
+			questions := make([]types.InterviewPlanQuestion, 0, len(rows))
+			for _, row := range rows {
+				questions = append(questions, buildInterviewPlanQuestionFromBank(row))
+			}
+			return &types.InterviewPlanResp{
+				Config:     config,
+				Questions:  questions,
+				Milestones: buildInterviewPlanMilestones(int64(len(questions))),
+				PlanMeta: types.ReportMeta{
+					SchemaVersion: "interview-plan-v1",
+					Available:     true,
+				},
+			}, nil
+		} else if err != nil {
+			l.Errorf("load session interview question bank plan failed: %v", err)
+		}
+	}
+
+	resp := buildInterviewPlanResp(config, req.Limit)
 	return &resp, nil
 }

@@ -18,6 +18,7 @@ type CreateSessionReq struct {
 	FocusKeys        []string `json:"focusKeys,optional"`
 	InterviewerStyle string   `json:"interviewerStyle,optional"`
 	EstimatedMinutes int64    `json:"estimatedMinutes,optional"`
+	QuestionKey      string   `json:"questionKey,optional"`
 }
 
 type CreateSessionResp struct {
@@ -156,6 +157,92 @@ type InterviewPresetsResp struct {
 	FocusOptions      []InterviewFocusOption      `json:"focusOptions"`
 	InterviewerStyles []InterviewStyleOption      `json:"interviewerStyles"`
 	DefaultConfig     SessionConfigSnapshot       `json:"defaultConfig"`
+}
+
+type InterviewQuestionDetailReq struct {
+	Id string `path:"id"`
+}
+
+type InterviewQuestionDetailResp struct {
+	Question     InterviewQuestionItem         `json:"question"`
+	Sources      []InterviewQuestionSourceItem `json:"sources"`
+	QuestionMeta ReportMeta                    `json:"questionMeta"`
+}
+
+type InterviewQuestionDifficultyStat struct {
+	DifficultyLevel int64 `json:"difficultyLevel"`
+	Count           int64 `json:"count"`
+}
+
+type InterviewQuestionDirectionStat struct {
+	DirectionKey string `json:"directionKey"`
+	Count        int64  `json:"count"`
+}
+
+type InterviewQuestionItem struct {
+	Id                   int64    `json:"id"`
+	Key                  string   `json:"key"`
+	DirectionKey         string   `json:"directionKey"`
+	FocusKey             string   `json:"focusKey"`
+	FocusLabel           string   `json:"focusLabel"`
+	DifficultyLevel      int64    `json:"difficultyLevel"`
+	DifficultyLabel      string   `json:"difficultyLabel"`
+	Title                string   `json:"title"`
+	Prompt               string   `json:"prompt"`
+	ExpectedSignals      []string `json:"expectedSignals"`
+	FollowUps            []string `json:"followUps"`
+	EvaluationDimensions []string `json:"evaluationDimensions"`
+	Tags                 []string `json:"tags"`
+	SourceRefs           []string `json:"sourceRefs"`
+	BatchKey             string   `json:"batchKey"`
+	BatchLabel           string   `json:"batchLabel"`
+	Sequence             int64    `json:"sequence"`
+	BatchSequence        int64    `json:"batchSequence"`
+	Status               string   `json:"status"`
+	QualityScore         float64  `json:"qualityScore"`
+	UsageCount           int64    `json:"usageCount"`
+	LastUsedAt           string   `json:"lastUsedAt,optional"`
+	UpdatedAt            string   `json:"updatedAt"`
+	SourceCount          int64    `json:"sourceCount"`
+}
+
+type InterviewQuestionSourceItem struct {
+	SourceKey   string `json:"sourceKey"`
+	SourceTitle string `json:"sourceTitle"`
+	SourceUrl   string `json:"sourceUrl"`
+	SourceType  string `json:"sourceType"`
+	LicenseNote string `json:"licenseNote"`
+	BatchKey    string `json:"batchKey"`
+}
+
+type InterviewQuestionStatsReq struct {
+}
+
+type InterviewQuestionStatsResp struct {
+	Total        int64                             `json:"total"`
+	Directions   []InterviewQuestionDirectionStat  `json:"directions"`
+	Difficulties []InterviewQuestionDifficultyStat `json:"difficulties"`
+	UpdatedAt    string                            `json:"updatedAt,optional"`
+	StatsMeta    ReportMeta                        `json:"statsMeta"`
+}
+
+type InterviewQuestionsReq struct {
+	DirectionKey string `form:"directionKey,optional"`
+	Difficulty   int64  `form:"difficulty,optional"`
+	FocusKeys    string `form:"focusKeys,optional"`
+	Keyword      string `form:"keyword,optional"`
+	Limit        int64  `form:"limit,optional"`
+	Offset       int64  `form:"offset,optional"`
+	Sort         string `form:"sort,optional"`
+}
+
+type InterviewQuestionsResp struct {
+	Questions    []InterviewQuestionItem `json:"questions"`
+	Total        int64                   `json:"total"`
+	Limit        int64                   `json:"limit"`
+	Offset       int64                   `json:"offset"`
+	HasMore      bool                    `json:"hasMore"`
+	QuestionMeta ReportMeta              `json:"questionMeta"`
 }
 
 type InterviewStyleOption struct {

@@ -21,6 +21,7 @@ type ServiceContext struct {
 	DB                      sqlx.SqlConn
 	UsersModel              model.UsersModel
 	ChatSessionsModel       model.ChatSessionsModel
+	InterviewQuestionsModel model.InterviewQuestionsModel
 	SessionEvaluationsModel model.SessionEvaluationsModel
 	EvaluationGenerator     *EvaluationGenerator
 	ResumeStore             *ResumeStore
@@ -61,6 +62,7 @@ func NewServiceContext(c config.Config) *ServiceContext {
 		DB:                      sqlConn,
 		UsersModel:              model.NewUsersModel(sqlConn),
 		ChatSessionsModel:       model.NewChatSessionsModel(sqlConn),
+		InterviewQuestionsModel: model.NewInterviewQuestionsModel(sqlConn),
 		SessionEvaluationsModel: model.NewSessionEvaluationsModel(sqlConn),
 		EvaluationGenerator:     NewEvaluationGenerator(evaluationClient, c),
 		ResumeStore:             NewResumeStore(sqlConn, embeddingClient, c.EmbeddingModel()),
