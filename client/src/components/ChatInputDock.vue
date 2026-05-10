@@ -76,7 +76,7 @@
 <script setup>
 import { ref, computed } from "vue";
 import { ElMessage } from "element-plus";
-import { uploadKnowledge } from "../api/index.js";
+import { apiService } from "../composables/useApi";
 
 const props = defineProps({
   isConnecting: {
@@ -133,13 +133,14 @@ const handleKnowledgeFileChange = async (uploadFile) => {
   try {
     const formData = new FormData();
     formData.append("file", uploadFile.raw);
-    await uploadKnowledge(formData);
+    await apiService.chat.knowledgeUpload(formData);
     loadingMessage.close();
     ElMessage.success("知识库文件上传成功");
     knowledgeFileList.value = [];
   } catch (error) {
     loadingMessage.close();
-    ElMessage.error(error.response?.data?.message || "知识库文件上传失败，请重试");
+    // core.js 拦截器已把后端 message 规范化到 error.message，无需再读 error.response.data。
+    ElMessage.error(error?.message || "知识库文件上传失败，请重试");
     knowledgeFileList.value = [];
   } finally {
     uploadingKnowledge.value = false;
