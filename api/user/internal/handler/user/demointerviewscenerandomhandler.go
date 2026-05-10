@@ -18,7 +18,8 @@ func DemoInterviewSceneRandomHandler(svcCtx *svc.ServiceContext) http.HandlerFun
 			return
 		}
 
-		l := logic.NewDemoInterviewSceneRandomLogic(r.Context(), svcCtx)
+		ctx := logic.WithAccessToken(r.Context(), bearerTokenFromHeader(r.Header.Get("Authorization")))
+		l := logic.NewDemoInterviewSceneRandomLogic(ctx, svcCtx)
 		resp, err := l.DemoInterviewSceneRandom(&req)
 		if err != nil {
 			httpx.ErrorCtx(r.Context(), w, err)

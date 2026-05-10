@@ -45,12 +45,18 @@ type DemoInterviewSceneRandomReq struct {
 }
 
 type DemoInterviewSceneRandomResp struct {
-	Available bool                        `json:"available"`
-	SessionId string                      `json:"sessionId,optional"`
-	Title     string                      `json:"title,optional"`
-	Mode      string                      `json:"mode,optional"`
-	ModeKey   string                      `json:"modeKey,optional"`
-	Messages  []DemoInterviewSceneMessage `json:"messages"`
+	Available             bool                        `json:"available"`
+	SessionId             string                      `json:"sessionId,optional"`
+	Title                 string                      `json:"title,optional"`
+	Mode                  string                      `json:"mode,optional"`
+	ModeKey               string                      `json:"modeKey,optional"`
+	Source                string                      `json:"source,optional"`
+	SourceLabel           string                      `json:"sourceLabel,optional"`
+	DirectionLabel        string                      `json:"directionLabel,optional"`
+	DifficultyLabel       string                      `json:"difficultyLabel,optional"`
+	InterviewerStyleLabel string                      `json:"interviewerStyleLabel,optional"`
+	FollowUpDepth         string                      `json:"followUpDepth,optional"`
+	Messages              []DemoInterviewSceneMessage `json:"messages"`
 }
 
 type EvaluationDimension struct {

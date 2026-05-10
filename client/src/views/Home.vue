@@ -7,8 +7,10 @@
     </div>
     <SiteHeader :fixed="true">
       <template #actions>
-        <button class="btn-ng" @click="goToLogin">登录</button>
-        <button class="btn-ns" @click="goToChat">开始体验</button>
+        <button v-if="isAuthenticated" class="btn-ng" @click="goToWorkbench">工作台</button>
+        <button v-else class="btn-ng" @click="goToLogin">登录</button>
+        <button v-if="isAuthenticated" class="btn-ns" @click="handleLogout">退出</button>
+        <button v-else class="btn-ns" @click="goToChat">开始体验</button>
       </template>
     </SiteHeader>
 
@@ -42,11 +44,14 @@
           <div class="demo-win">
             <div class="win-bar">
               <span class="wd r"></span><span class="wd y"></span><span class="wd g"></span>
-              <span class="win-lbl">AI Interview — Go 后端</span>
+              <span class="win-lbl">{{ demoSceneTitle }}</span>
             </div>
             <div class="demo-msgs" id="demo-msgs" ref="demoMsgsRef">
             </div>
-            <div class="demo-foot"><span class="live-dot"></span>实时追问中</div>
+            <div class="demo-foot">
+              <span class="live-dot"></span>
+              <span class="demo-foot-text">{{ demoSceneFoot }}</span>
+            </div>
           </div>
         </div>
       </section>
@@ -162,29 +167,57 @@ import { ref, onMounted, onBeforeUnmount } from "vue";
 import { useRouter } from "vue-router";
 import { useApi } from "../composables/useApi";
 import { useTheme } from "../composables/useTheme";
+import { useAuth } from "../composables/useAuth";
 import SiteHeader from "../components/SiteHeader.vue";
 import AppFooter from "../components/AppFooter.vue";
 
 const router = useRouter();
 const api = useApi();
 const { theme, toggleTheme } = useTheme();
+const { isAuthenticated, logout } = useAuth();
 
 const demoMsgsRef = ref(null);
+const demoSceneTitle = ref("AI Interview — Go 后端");
+const demoSceneFoot = ref("正在抽取演示片段");
 let demoTimer = null;
 let typeRafId = null;
 let activeScript = [];
 let isUnmounted = false;
 
-const goToChat = () => router.push("/chat");
+const goToChat = () => {
+  if (isAuthenticated.value) {
+    router.push("/workbench/new");
+    return;
+  }
+  router.push({ path: "/login", query: { redirect: "/workbench/new" } });
+};
 const goToLogin = () => router.push("/login");
+const goToWorkbench = () => router.push("/workbench");
+const handleLogout = async () => {
+  await logout();
+  router.push("/");
+};
 
-// --- Mock Terminal Animation Logic ---
+// --- Demo Terminal Animation Logic ---
 const FALLBACK_SCRIPT = [
   { r: 'ai',  name: 'AI 面试官',    t: '请解释 Go 的 goroutine 调度器是如何工作的？' },
   { r: 'usr', name: '你',           t: 'goroutine 采用 M:N 模型，由 Go runtime 调度，将 M 个 goroutine 映射到 N 个线程...' },
   { r: 'ai',  name: 'AI · 追问 #1', t: '好。当 goroutine 触发阻塞 syscall 时，调度器如何处理？' },
 ];
 activeScript = FALLBACK_SCRIPT;
+
+const FALLBACK_SCENE_META = {
+  title: "AI Interview — Go 后端",
+  foot: "本地兜底 · Go 后端 · 中级 · 资深技术官 · N+3",
+};
+
+const normalizeDemoFact = (value) => String(value || "").trim();
+
+const setFallbackDemoScene = () => {
+  activeScript = FALLBACK_SCRIPT;
+  demoSceneTitle.value = FALLBACK_SCENE_META.title;
+  demoSceneFoot.value = FALLBACK_SCENE_META.foot;
+};
 
 const mapDemoSceneToScript = (scene) => {
   if (!scene?.available || !Array.isArray(scene.messages)) {
@@ -206,18 +239,33 @@ const mapDemoSceneToScript = (scene) => {
     .filter(Boolean);
 };
 
+const applyDemoSceneFacts = (scene) => {
+  const title = normalizeDemoFact(scene?.title) || normalizeDemoFact(scene?.directionLabel) || "Go 后端";
+  const sourceLabel = normalizeDemoFact(scene?.sourceLabel) || "真实演示";
+  const facts = [
+    normalizeDemoFact(scene?.directionLabel),
+    normalizeDemoFact(scene?.difficultyLabel),
+    normalizeDemoFact(scene?.interviewerStyleLabel),
+    normalizeDemoFact(scene?.followUpDepth),
+  ].filter(Boolean);
+
+  demoSceneTitle.value = `AI Interview — ${title}`;
+  demoSceneFoot.value = facts.length ? `${sourceLabel} · ${facts.join(" · ")}` : `${sourceLabel} · 实时追问中`;
+};
+
 const loadDemoSceneScript = async () => {
   try {
     const scene = await api.user.demoInterviewSceneRandom({ limit: 3 });
     const nextScript = mapDemoSceneToScript(scene);
     if (!isUnmounted && nextScript.length >= 2) {
       activeScript = nextScript;
+      applyDemoSceneFacts(scene);
+      return;
     }
   } catch (error) {
-    if (!isUnmounted) {
-      activeScript = FALLBACK_SCRIPT;
-    }
+    // 首页演示不能被接口失败阻断；真实数据不可用时播放本地兜底脚本。
   }
+  if (!isUnmounted) setFallbackDemoScene();
 };
 
 // 每个字符的最小渲染间隔（毫秒）。
@@ -228,8 +276,9 @@ const CHAR_DELAY_MS = 60;
 function appendMsg(cfg) {
   const container = demoMsgsRef.value;
   if (!container) return null;
+  const role = cfg.r === "usr" ? "usr" : "ai";
   const div = document.createElement('div');
-  div.className = `dmsg ${cfg.r}`;
+  div.className = `dmsg ${role}`;
   // 关键结构：
   //   .dbody 是包裹 dlbl + dbbl 的列容器，必须明确 flex:1 1 auto 让它 stretch 到
   //   dmsg 剩余空间（固定宽度），否则它默认 hug-content，会让 .dbbl max-width 85%
@@ -237,12 +286,32 @@ function appendMsg(cfg) {
   //   .dbbl 自己保持 hug-content（inline-block），跟 content 一字字增长，
   //   触达固定 max-width 后自然换行，换行位置稳定。
   //   所有消息（含用户消息）都带打字光标，作为"逐字输入"的视觉锚点。
-  div.innerHTML = `<div class="dav">${cfg.r === 'ai' ? 'AI' : 'U'}</div>
-    <div class="dbody"><div class="dlbl">${cfg.name}</div>
-    <div class="dbbl"><span class="content"></span><span class="dcur"></span></div></div>`;
+  const avatar = document.createElement("div");
+  avatar.className = "dav";
+  avatar.textContent = role === "ai" ? "AI" : "U";
+
+  const body = document.createElement("div");
+  body.className = "dbody";
+
+  const label = document.createElement("div");
+  label.className = "dlbl";
+  label.textContent = normalizeDemoFact(cfg.name) || (role === "ai" ? "AI 面试官" : "你");
+
+  const bubble = document.createElement("div");
+  bubble.className = "dbbl";
+
+  const content = document.createElement("span");
+  content.className = "content";
+
+  const cursor = document.createElement("span");
+  cursor.className = "dcur";
+
+  bubble.append(content, cursor);
+  body.append(label, bubble);
+  div.append(avatar, body);
   container.appendChild(div);
   requestAnimationFrame(() => div.classList.add('show'));
-  return div.querySelector('.content');
+  return content;
 }
 
 // typeText 用 requestAnimationFrame + 时间戳累计来逐字吐字。
@@ -251,14 +320,20 @@ function appendMsg(cfg) {
 // 2. 后台 tab 时 RAF 暂停，回到前台不会"补吐"一大段文字；
 // 3. 时间戳节流让节奏不受单帧延迟影响，整体打字节奏稳定。
 function typeText(el, text, cb) {
+  const content = String(text || "");
+  if (!content) {
+    if (cb) cb();
+    return;
+  }
   let i = 0;
   let lastTs = 0;
   function step(ts) {
+    if (isUnmounted) return;
     if (!lastTs) lastTs = ts;
     if (ts - lastTs >= CHAR_DELAY_MS) {
-      el.textContent += text[i++];
+      el.textContent += content[i++];
       lastTs = ts;
-      if (i >= text.length) {
+      if (i >= content.length) {
         typeRafId = null;
         if (cb) cb();
         return;
@@ -272,11 +347,11 @@ function typeText(el, text, cb) {
 function runDemo() {
   let si = 0;
   function runNext() {
-    if (!demoMsgsRef.value) return;
+    if (isUnmounted || !demoMsgsRef.value) return;
     const script = activeScript.length ? activeScript : FALLBACK_SCRIPT;
     if (si >= script.length) {
       si = 0;
-      demoMsgsRef.value.innerHTML = '';
+      demoMsgsRef.value.replaceChildren();
       demoTimer = setTimeout(runNext, 2000);
       return;
     }
@@ -294,9 +369,10 @@ function runDemo() {
   demoTimer = setTimeout(runNext, 500);
 }
 
-onMounted(() => {
+onMounted(async () => {
+  await loadDemoSceneScript();
+  if (isUnmounted) return;
   runDemo();
-  loadDemoSceneScript();
 });
 
 onBeforeUnmount(() => {
@@ -304,10 +380,6 @@ onBeforeUnmount(() => {
   clearTimeout(demoTimer);
   if (typeRafId !== null) cancelAnimationFrame(typeRafId);
 });
-
-const startChat = () => {
-  router.push({ name: "Chat" });
-};
 </script>
 
 <style scoped>
@@ -757,6 +829,10 @@ const startChat = () => {
   font: 13px var(--mono);
   color: var(--t2);
   margin: 0 auto;
+  max-width: calc(100% - 80px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   letter-spacing: .03em;
   opacity: .7;
 }
@@ -877,6 +953,13 @@ const startChat = () => {
   gap: 8px;
   font: 12px var(--mono);
   color: rgba(255,255,255,.65);
+}
+
+.demo-foot-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .live-dot {

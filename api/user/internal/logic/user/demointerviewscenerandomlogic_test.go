@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"GoZero-AI/api/user/internal/auth"
 	"GoZero-AI/api/user/internal/svc"
 	"GoZero-AI/api/user/internal/types"
 	"GoZero-AI/internal/sessionmode"
@@ -45,9 +46,17 @@ func TestDemoInterviewSceneRandomReturnsEmptyWhenNoDemoSession(t *testing.T) {
 	}
 	defer db.Close()
 
-	mock.ExpectQuery(`select session_id, title, mode`).
+	mock.ExpectQuery(`select\s+session_id`).
 		WithArgs(demoInterviewSceneUserID, sessionmode.KeyInterview, 4, openai.ChatMessageRoleAssistant, openai.ChatMessageRoleUser).
-		WillReturnRows(sqlmock.NewRows([]string{"session_id", "title", "mode"}))
+		WillReturnRows(sqlmock.NewRows([]string{
+			"session_id",
+			"title",
+			"mode",
+			"direction_label",
+			"difficulty_label",
+			"interviewer_style_label",
+			"follow_up_depth",
+		}))
 
 	logic := NewDemoInterviewSceneRandomLogic(context.Background(), &svc.ServiceContext{
 		DB: sqlx.NewSqlConnFromDB(db),
@@ -75,10 +84,17 @@ func TestDemoInterviewSceneRandomBuildsDemoScene(t *testing.T) {
 	}
 	defer db.Close()
 
-	mock.ExpectQuery(`select session_id, title, mode`).
+	mock.ExpectQuery(`select\s+session_id`).
 		WithArgs(demoInterviewSceneUserID, sessionmode.KeyInterview, 4, openai.ChatMessageRoleAssistant, openai.ChatMessageRoleUser).
-		WillReturnRows(sqlmock.NewRows([]string{"session_id", "title", "mode"}).
-			AddRow("sess-demo", "Go 后端面试", sessionmode.KeyInterview))
+		WillReturnRows(sqlmock.NewRows([]string{
+			"session_id",
+			"title",
+			"mode",
+			"direction_label",
+			"difficulty_label",
+			"interviewer_style_label",
+			"follow_up_depth",
+		}).AddRow("sess-demo", "Go 后端面试", sessionmode.KeyInterview, "Go 后端", "资深", "压力面试官", "N+5"))
 	mock.ExpectQuery(`select role, content, created_at`).
 		WithArgs("sess-demo", demoInterviewSceneUserID, openai.ChatMessageRoleUser, openai.ChatMessageRoleAssistant, maxDemoInterviewSceneScanSize).
 		WillReturnRows(sqlmock.NewRows([]string{"role", "content", "created_at"}).
@@ -103,6 +119,13 @@ func TestDemoInterviewSceneRandomBuildsDemoScene(t *testing.T) {
 	if resp.Mode != sessionmode.LabelInterview || resp.ModeKey != sessionmode.KeyInterview {
 		t.Fatalf("mode = %q/%q, want %q/%q", resp.Mode, resp.ModeKey, sessionmode.LabelInterview, sessionmode.KeyInterview)
 	}
+	if resp.Source != demoInterviewSceneSourceAdmin || resp.SourceLabel != "管理员演示" {
+		t.Fatalf("source = %q/%q, want admin/管理员演示", resp.Source, resp.SourceLabel)
+	}
+	if resp.DirectionLabel != "Go 后端" || resp.DifficultyLabel != "资深" || resp.InterviewerStyleLabel != "压力面试官" || resp.FollowUpDepth != "N+5" {
+		t.Fatalf("demo facts = %q/%q/%q/%q, want Go 后端/资深/压力面试官/N+5",
+			resp.DirectionLabel, resp.DifficultyLabel, resp.InterviewerStyleLabel, resp.FollowUpDepth)
+	}
 	if len(resp.Messages) != 3 {
 		t.Fatalf("len(resp.Messages) = %d, want 3", len(resp.Messages))
 	}
@@ -112,4 +135,91 @@ func TestDemoInterviewSceneRandomBuildsDemoScene(t *testing.T) {
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("unmet sql expectations: %v", err)
 	}
+}
+
+func TestDemoInterviewSceneRandomPrefersCurrentUserScene(t *testing.T) {
+	now := time.Date(2026, 5, 10, 10, 0, 0, 0, time.UTC)
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New() error = %v", err)
+	}
+	defer db.Close()
+
+	mock.ExpectQuery(`select\s+session_id`).
+		WithArgs(int64(7), sessionmode.KeyInterview, 4, openai.ChatMessageRoleAssistant, openai.ChatMessageRoleUser).
+		WillReturnRows(sqlmock.NewRows(demoInterviewSceneSessionColumns()).
+			AddRow("sess-user", "我的 Go 面试", sessionmode.KeyInterview, "Go 后端", "中级", "资深技术官", "N+3"))
+	mock.ExpectQuery(`select role, content, created_at`).
+		WithArgs("sess-user", int64(7), openai.ChatMessageRoleUser, openai.ChatMessageRoleAssistant, maxDemoInterviewSceneScanSize).
+		WillReturnRows(sqlmock.NewRows([]string{"role", "content", "created_at"}).
+			AddRow(openai.ChatMessageRoleAssistant, "讲讲你的 Go 项目。", now).
+			AddRow(openai.ChatMessageRoleUser, "我做过 GoZero 微服务。", now.Add(time.Minute)).
+			AddRow(openai.ChatMessageRoleAssistant, "服务发现怎么做？", now.Add(2*time.Minute)))
+
+	logic := NewDemoInterviewSceneRandomLogic(withDemoAccessToken(t, context.Background(), 7), demoInterviewSceneSvcCtx(sqlx.NewSqlConnFromDB(db)))
+	resp, err := logic.DemoInterviewSceneRandom(&types.DemoInterviewSceneRandomReq{Limit: 3})
+	if err != nil {
+		t.Fatalf("DemoInterviewSceneRandom() error = %v", err)
+	}
+	if !resp.Available || resp.SessionId != "sess-user" {
+		t.Fatalf("resp = %+v, want current user scene", resp)
+	}
+	if resp.Source != demoInterviewSceneSourceUser || resp.SourceLabel != "我的面试记录" {
+		t.Fatalf("source = %q/%q, want user/我的面试记录", resp.Source, resp.SourceLabel)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet sql expectations: %v", err)
+	}
+}
+
+func TestDemoInterviewSceneRandomReturnsEmptyWhenCurrentUserHasNoScene(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New() error = %v", err)
+	}
+	defer db.Close()
+
+	mock.ExpectQuery(`select\s+session_id`).
+		WithArgs(int64(7), sessionmode.KeyInterview, 4, openai.ChatMessageRoleAssistant, openai.ChatMessageRoleUser).
+		WillReturnRows(sqlmock.NewRows(demoInterviewSceneSessionColumns()))
+
+	logic := NewDemoInterviewSceneRandomLogic(withDemoAccessToken(t, context.Background(), 7), demoInterviewSceneSvcCtx(sqlx.NewSqlConnFromDB(db)))
+	resp, err := logic.DemoInterviewSceneRandom(&types.DemoInterviewSceneRandomReq{Limit: 3})
+	if err != nil {
+		t.Fatalf("DemoInterviewSceneRandom() error = %v", err)
+	}
+	if resp.Available || len(resp.Messages) != 0 {
+		t.Fatalf("resp = %+v, want empty response for frontend fallback", resp)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet sql expectations: %v", err)
+	}
+}
+
+func demoInterviewSceneSessionColumns() []string {
+	return []string{
+		"session_id",
+		"title",
+		"mode",
+		"direction_label",
+		"difficulty_label",
+		"interviewer_style_label",
+		"follow_up_depth",
+	}
+}
+
+func withDemoAccessToken(t *testing.T, ctx context.Context, userID int64) context.Context {
+	t.Helper()
+
+	pair, err := auth.IssueTokenPair("demo-secret", time.Hour, 24*time.Hour, userID, "demo-user")
+	if err != nil {
+		t.Fatalf("IssueTokenPair() error = %v", err)
+	}
+	return WithAccessToken(ctx, pair.AccessToken)
+}
+
+func demoInterviewSceneSvcCtx(conn sqlx.SqlConn) *svc.ServiceContext {
+	svcCtx := &svc.ServiceContext{DB: conn}
+	svcCtx.Config.Auth.AccessSecret = "demo-secret"
+	return svcCtx
 }
