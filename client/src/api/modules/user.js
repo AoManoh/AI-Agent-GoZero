@@ -101,6 +101,32 @@ export const userEndpoints = {
     };
   },
 
+  // 结构化面试题库列表；前端题库页优先消费该接口，静态 JSON 仅作离线降级。
+  interviewQuestions(params = {}) {
+    return {
+      service: "user",
+      method: "get",
+      url: "/users/interview/questions",
+      params,
+    };
+  },
+
+  interviewQuestionDetail(id) {
+    return {
+      service: "user",
+      method: "get",
+      url: `/users/interview/questions/${encodeURIComponent(id)}`,
+    };
+  },
+
+  interviewQuestionStats() {
+    return {
+      service: "user",
+      method: "get",
+      url: "/users/interview/question-stats",
+    };
+  },
+
   // 当前用户简历列表（按绑定会话聚合）
   resumeArtifacts() {
     return {
