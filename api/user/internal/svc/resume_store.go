@@ -65,6 +65,26 @@ func (s *ResumeStore) SaveResume(ctx context.Context, userID int64, chatID, titl
 			modeKey = resolveResumeSessionMode("", mode)
 		}
 
+		if _, err := session.ExecCtx(ctx, `INSERT INTO "public"."chat_sessions" (session_id, user_id, title, mode, is_active)
+	VALUES ($1, $2, $3, $4, true)
+	ON CONFLICT (session_id) DO UPDATE
+	SET user_id = COALESCE("public"."chat_sessions".user_id, EXCLUDED.user_id),
+	    title = CASE
+	        WHEN "public"."chat_sessions".title = $5 AND EXCLUDED.title <> '' THEN EXCLUDED.title
+	        ELSE "public"."chat_sessions".title
+	    END,
+	    mode = CASE
+	        WHEN "public"."chat_sessions".mode IS NULL OR btrim("public"."chat_sessions".mode) = '' THEN EXCLUDED.mode
+	        ELSE "public"."chat_sessions".mode
+	    END,
+	    updated_at = now()`,
+			chatID, userID, title, modeKey, defaultSessionTitle); err != nil {
+			return err
+		}
+		if _, _, err := ensureResumeSessionWritable(ctx, session, userID, chatID); err != nil {
+			return err
+		}
+
 		if _, err := session.ExecCtx(ctx, `DELETE FROM "public"."vector_store" WHERE user_id = $1 AND chat_id = $2 AND doc_type = 'resume'`, userID, chatID); err != nil {
 			return err
 		}
@@ -91,23 +111,6 @@ values ($1, $2, $3, $4, $5, 'ready', $6, true, now(), now())`,
 				chatID, userID, resumeRole, chunk, embeddings[idx]); err != nil {
 				return err
 			}
-		}
-
-		if _, err := session.ExecCtx(ctx, `INSERT INTO "public"."chat_sessions" (session_id, user_id, title, mode, is_active)
-VALUES ($1, $2, $3, $4, true)
-ON CONFLICT (session_id) DO UPDATE
-SET user_id = COALESCE("public"."chat_sessions".user_id, EXCLUDED.user_id),
-    title = CASE
-        WHEN "public"."chat_sessions".title = $5 AND EXCLUDED.title <> '' THEN EXCLUDED.title
-        ELSE "public"."chat_sessions".title
-    END,
-    mode = CASE
-        WHEN "public"."chat_sessions".mode IS NULL OR btrim("public"."chat_sessions".mode) = '' THEN EXCLUDED.mode
-        ELSE "public"."chat_sessions".mode
-    END,
-    updated_at = now()`,
-			chatID, userID, title, modeKey, defaultSessionTitle); err != nil {
-			return err
 		}
 
 		return nil
