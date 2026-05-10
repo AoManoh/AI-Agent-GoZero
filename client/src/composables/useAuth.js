@@ -1,5 +1,5 @@
 import { computed, ref } from "vue";
-import { authStorage } from "../api/core.js";
+import { AUTH_CHANGED_EVENT, authStorage } from "../api/core.js";
 import { useApi } from "./useApi";
 
 const authState = ref(authStorage.getSession());
@@ -28,6 +28,9 @@ export function useAuth() {
 
   if (!initialized) {
     syncAuthState();
+    if (typeof window !== "undefined") {
+      window.addEventListener(AUTH_CHANGED_EVENT, syncAuthState);
+    }
     initialized = true;
   }
 
@@ -76,6 +79,8 @@ export function useAuth() {
       if (authState.value.accessToken) {
         await api.auth.logout();
       }
+    } catch {
+      // 登出以客户端清理登录态为准，后端注销失败不能阻断页面退出。
     } finally {
       clearSession();
     }
