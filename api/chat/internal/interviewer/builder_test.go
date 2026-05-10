@@ -68,13 +68,80 @@ func TestBuildPromptIncludesConciseProfessionalInterviewRules(t *testing.T) {
 		"保持简洁、专业、技术导向的回答风格",
 		"35-120 字",
 		"不超过 180 字",
-		"不要让候选人从多个题目、方向或操作中选择",
+		"只聚焦一个考察点或一个故障场景",
+		"不要同轮要求候选人同时说明场景、现象、定位、方案、验证等多个维度",
+		"自行选定一个具体切入点",
+		"禁止使用“挑”“选”“任选”“自选”“你选”“说一个你熟悉的”",
 		"不输出“1/2/3/4”式菜单",
 		"明确拒绝继续或要求结束时，简短确认结束",
+		"回合控制器",
+		"本轮唯一目标",
+		"本轮最多输出一个可回答的主问题",
+		"发送前默默检查",
 	} {
 		if !strings.Contains(prompt.SystemMessage, want) {
 			t.Fatalf("prompt missing concise professional rule %q:\n%s", want, prompt.SystemMessage)
 		}
+	}
+}
+
+func TestBuildPromptUsesStateAwareTurnControl(t *testing.T) {
+	tests := []struct {
+		name  string
+		state string
+		want  []string
+	}{
+		{
+			name:  "start chooses concrete entry point",
+			state: "start",
+			want: []string{
+				"像真人开场一样快速进入面试",
+				"自行选定一个具体切入点",
+				"用第一个问题确认候选人",
+			},
+		},
+		{
+			name:  "follow up anchors previous answer",
+			state: "follow_up",
+			want: []string{
+				"基于候选人上一轮回答继续追一个细节，不跳到全新主题",
+				"只追问上一轮回答里最关键或最含糊的一处",
+				"不要把一个问题拆成多个小问连续抛出",
+			},
+		},
+		{
+			name:  "end does not ask new question",
+			state: "end",
+			want: []string{
+				"简洁结束面试，不再继续出题",
+				"本轮不再提出新的技术问题",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			prompt := BuildPrompt(BuildInput{
+				ChatID: "turn-control-session",
+				State:  tt.state,
+				Session: &SessionConfig{
+					DirectionKey:     "go_backend",
+					DifficultyLevel:  4,
+					InterviewerStyle: "senior",
+					FocusAreas: []FocusArea{
+						{Key: "database", Label: "数据库"},
+					},
+				},
+			})
+			for _, want := range tt.want {
+				if !strings.Contains(prompt.SystemMessage, want) {
+					t.Fatalf("prompt missing turn control marker %q:\n%s", want, prompt.SystemMessage)
+				}
+			}
+			if !strings.Contains(prompt.SystemMessage, "本轮主考点: 数据库") {
+				t.Fatalf("prompt missing primary focus label:\n%s", prompt.SystemMessage)
+			}
+		})
 	}
 }
 

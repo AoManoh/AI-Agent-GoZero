@@ -61,6 +61,9 @@ func (sm *StateManager) GetFlowState(scope ConversationScope) (*chatflow.Snapsho
 func (sm *StateManager) UpdateExecutionState(scope ConversationScope, executionState, reason string) (*chatflow.Snapshot, error) {
 	key := chatflow.BuildContextKey(scope.ChatID, scope.UserID, scope.Mode)
 	snapshot, err := chatflow.MutateSnapshot(sm.context(), sm.svcCtx.RedisClient, key, types.StateStart, maxStateEvents, func(snapshot chatflow.Snapshot) (chatflow.Snapshot, *chatflow.Event, error) {
+		if snapshot.LifecycleState == chatflow.LifecycleCompleted || snapshot.InterviewState == chatflow.InterviewStateEnd {
+			return snapshot, nil, nil
+		}
 		from := snapshot.ExecutionState
 		snapshot.ExecutionState = executionState
 		if executionState == chatflow.ExecutionFailed {
@@ -242,7 +245,13 @@ func looksLikeOpeningQuestion(s string) bool {
 		"谈谈",
 		"讲一下",
 		"讲讲",
+		"先说",
+		"先看",
+		"第一步",
+		"会看什么",
+		"哪个指标",
 		"展开",
+		"如何",
 		"你提到",
 		"问你",
 		"问题",
@@ -258,16 +267,27 @@ func looksLikeFollowUpSignal(s string) bool {
 		"追问",
 		"详细说明",
 		"为什么",
+		"为什么先",
 		"怎么实现",
 		"接着讲讲",
 		"继续讲讲",
 		"继续说说",
+		"继续说",
+		"继续讲",
 		"再往下讲",
 		"往下讲",
 		"展开一下",
 		"展开讲讲",
 		"具体说说",
 		"具体讲讲",
+		"刚才",
+		"上一轮",
+		"你刚才",
+		"你提到",
+		"只说",
+		"收敛",
+		"第一眼",
+		"单一指标",
 		"你会怎么",
 		"会怎么",
 		"怎么做",
@@ -283,6 +303,30 @@ func looksLikeFollowUpSignal(s string) bool {
 		"如果",
 		"假设",
 		"换个角度",
+	})
+}
+
+func looksLikeNextQuestionSignal(s string) bool {
+	if containsAny(s, []string{
+		"不换题",
+		"不换主题",
+		"不是下一个问题",
+		"不是新问题",
+	}) {
+		return false
+	}
+	return containsAny(s, []string{
+		"下一个问题",
+		"下一题",
+		"新问题",
+		"换个主题",
+		"换一个主题",
+		"换到",
+		"另一个问题",
+		"再看一个问题",
+		"接下来聊",
+		"下一个点",
+		"换一个点",
 	})
 }
 
@@ -345,6 +389,9 @@ func (sm *StateManager) TransitionStateDetailed(currentState, aiRes string) (str
 		if looksLikeEvaluationSignal(lowerRes) {
 			return types.StateEvaluate, "evaluation_signal"
 		}
+		if looksLikeNextQuestionSignal(lowerRes) {
+			return types.StateQuestion, "next_question_signal"
+		}
 	case types.StateFollowUp:
 		if looksLikeCompletionSignal(lowerRes) {
 			return types.StateEnd, "completion_signal"
@@ -352,7 +399,7 @@ func (sm *StateManager) TransitionStateDetailed(currentState, aiRes string) (str
 		if looksLikeEvaluationSignal(lowerRes) {
 			return types.StateEvaluate, "evaluation_signal"
 		}
-		if containsAny(lowerRes, []string{"下一个问题", "新问题", "换个主题", "另一个问题"}) {
+		if looksLikeNextQuestionSignal(lowerRes) {
 			return types.StateQuestion, "next_question_signal"
 		}
 	case types.StateEvaluate:

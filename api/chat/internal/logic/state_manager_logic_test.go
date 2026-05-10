@@ -42,6 +42,12 @@ func TestTransitionStateDetailedFromStart(t *testing.T) {
 			wantReason: "opening_question_signal",
 		},
 		{
+			name:       "opening question without question mark still transitions",
+			reply:      "好，我们从订单服务切入。高并发下接口 RT 升高，你第一步会看什么指标，只说第一步。",
+			wantState:  types.StateQuestion,
+			wantReason: "opening_question_signal",
+		},
+		{
 			name:       "question mark transitions to question",
 			reply:      "我们直接开始：你怎么理解 Go 的并发模型？",
 			wantState:  types.StateQuestion,
@@ -99,6 +105,24 @@ func TestTransitionStateDetailedFromQuestion(t *testing.T) {
 			wantReason: "follow_up_signal",
 		},
 		{
+			name:       "negated ending with follow up stays follow up",
+			reply:      "我不是要结束这个问题，继续说为什么连接池会被打满？",
+			wantState:  types.StateFollowUp,
+			wantReason: "follow_up_signal",
+		},
+		{
+			name:       "summary wording with continuing probe stays follow up",
+			reply:      "你先总结一下刚才的答案，然后继续说为什么本地消息表会长期 pending。",
+			wantState:  types.StateFollowUp,
+			wantReason: "follow_up_signal",
+		},
+		{
+			name:       "next point without completion remains active question",
+			reply:      "这个问题不结束，我们继续下一个点，看你怎么保证超时能传到下游。",
+			wantState:  types.StateFollowUp,
+			wantReason: "follow_up_signal",
+		},
+		{
 			name:       "evaluation signal",
 			reply:      "我们做个阶段性评估，总结一下你的优缺点。",
 			wantState:  types.StateEvaluate,
@@ -152,6 +176,12 @@ func TestTransitionStateDetailedFromFollowUp(t *testing.T) {
 		{
 			name:       "new question after follow up",
 			reply:      "我们进入下一个问题，聊聊 channel 和 mutex 的选择。",
+			wantState:  types.StateQuestion,
+			wantReason: "next_question_signal",
+		},
+		{
+			name:       "next topic natural phrasing after follow up",
+			reply:      "我们换到数据库这一块，先说索引命中了但还是慢时你会看哪里。",
 			wantState:  types.StateQuestion,
 			wantReason: "next_question_signal",
 		},
@@ -267,6 +297,33 @@ func TestApplyCandidateEndIntentUpdatesFlowState(t *testing.T) {
 	}
 	if snapshot.LastReason != candidateEndIntentReason {
 		t.Fatalf("LastReason = %q, want %q", snapshot.LastReason, candidateEndIntentReason)
+	}
+}
+
+func TestUpdateExecutionStateDoesNotDowngradeCompletedFlowState(t *testing.T) {
+	client := newStateManagerRedisClient(t)
+	defer client.Close()
+
+	sm := &StateManager{
+		ctx: context.Background(),
+		svcCtx: &svc.ServiceContext{
+			RedisClient: client,
+		},
+	}
+	scope := ConversationScope{ChatID: "completed-race-session", Mode: "interview"}
+	if _, err := sm.ApplyCandidateEndIntent(scope); err != nil {
+		t.Fatalf("ApplyCandidateEndIntent() error = %v", err)
+	}
+
+	snapshot, err := sm.UpdateExecutionState(scope, chatflow.ExecutionFailed, "request_canceled")
+	if err != nil {
+		t.Fatalf("UpdateExecutionState() error = %v", err)
+	}
+	if snapshot.InterviewState != chatflow.InterviewStateEnd ||
+		snapshot.LifecycleState != chatflow.LifecycleCompleted ||
+		snapshot.ExecutionState != chatflow.ExecutionIdle ||
+		snapshot.LastReason != candidateEndIntentReason {
+		t.Fatalf("snapshot = %+v, want completed/end/idle without downgrade", snapshot)
 	}
 }
 

@@ -60,6 +60,7 @@ func BuildPrompt(input BuildInput) Prompt {
 	focusLabels := resolveFocusLabels(session.FocusAreas, domain)
 	difficulty := resolveDifficulty(session.DifficultyLevel, session.DifficultyLabel)
 	followUpDepth := defaultString(session.FollowUpDepth, difficulty.FollowUp)
+	turnControl := buildTurnControl(input.State, domain, difficulty, focusLabels)
 	estimatedMinutes := session.EstimatedMinutes
 	if estimatedMinutes <= 0 {
 		estimatedMinutes = 30
@@ -74,6 +75,7 @@ func BuildPrompt(input BuildInput) Prompt {
 	writeSessionConfig(&sb, session, domain, difficulty, focusLabels, followUpDepth, estimatedMinutes)
 	writeInterviewStrategy(&sb)
 	writeCurrentTask(&sb, input.State, style)
+	writeTurnControl(&sb, turnControl)
 	writeKnowledge(&sb, input.Knowledge, input.MaxKnowledgeRunes)
 	writeRoleLock(&sb)
 
@@ -123,8 +125,8 @@ func writeCommunicationRules(sb *strings.Builder) {
 	sb.WriteString("\n\n# 沟通与输出边界\n")
 	sb.WriteString("- 全程使用中文，表达自然口语化，可短句回应，但不要每轮固定开头。\n")
 	sb.WriteString("- 保持简洁、专业、技术导向的回答风格；常规阶段单次回复控制在 35-120 字，除最终总结外不超过 180 字。\n")
-	sb.WriteString("- 一次只问一个主问题；必要时可以先给一句以内短评，再追问一个明确问题。\n")
-	sb.WriteString("- 像真人面试官一样主动掌控节奏；不要让候选人从多个题目、方向或操作中选择，不输出“1/2/3/4”式菜单。\n")
+	sb.WriteString("- 一次只问一个主问题，且只聚焦一个考察点或一个故障场景；不要同轮要求候选人同时说明场景、现象、定位、方案、验证等多个维度。\n")
+	sb.WriteString("- 像真人面试官一样主动掌控节奏；根据简历或回答自行选定一个具体切入点，禁止使用“挑”“选”“任选”“自选”“你选”“说一个你熟悉的”这类让候选人选题的句式，不输出“1/2/3/4”式菜单。\n")
 	sb.WriteString("- 候选人明确拒绝继续或要求结束时，简短确认结束，不再劝导、改题或给下一步选项。\n")
 	sb.WriteString("- 风格和身份标签只在内部生效，不要在候选人可见回复中自报“我是压力型/导师型/某类面试官”。\n")
 	sb.WriteString("- 不输出长篇技术讲义、完整代码示例或教科书式展开；候选人请教答案时，把问题转回“你会怎么分析”。\n")
