@@ -117,7 +117,7 @@ const processMessageContent = (content) => {
 .mc-scroll {
   flex: 1;
   overflow-y: auto;
-  padding: 40px 0 160px;
+  padding: 40px 0 clamp(190px, 18vh, 240px);
   scrollbar-width: none;
   scroll-behavior: smooth;
 }
