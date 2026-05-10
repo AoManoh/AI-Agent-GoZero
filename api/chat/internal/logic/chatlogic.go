@@ -41,6 +41,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"time"
 
 	chatAuth "GoZero-AI/api/chat/internal/auth"
 	"GoZero-AI/internal/chatflow"
@@ -169,17 +170,24 @@ func (l *ChatLogic) Chat(req *types2.InterviewAppChatReq) (<-chan *types2.ChatRe
 		return nil, err
 	}
 
+	stateManager := NewStateManager(l.ctx, l.svcCtx)
+	releaseExecutionLock, err := stateManager.TryAcquireExecutionLock(scope)
+	if err != nil {
+		return nil, err
+	}
+
 	// 2. 启动一个 goroutine 执行耗时操作，进行异步通信
 	go func() {
 		defer close(ch)
+		defer releaseExecutionLock()
 
-		stateManager := NewStateManager(l.ctx, l.svcCtx)
+		ch <- &types2.ChatRes{Event: "phase", Content: chatflow.ExecutionRetrieving}
 		if _, err := stateManager.UpdateExecutionState(scope, chatflow.ExecutionRetrieving, "incoming_request"); err != nil {
 			l.Logger.Errorf("更新 flow 执行状态失败: %v", err)
 		}
 
 		// 2.1 首先就先将用户的对话内容，添加到向量存储中
-		if err := l.svcCtx.VectorStore.SaveMessageWithUser(l.ctx, req.ChatId, openai.ChatMessageRoleUser, req.Message, scopedUserID, effectiveMode); err != nil {
+		if err := l.saveConversationMessage(req.ChatId, openai.ChatMessageRoleUser, req.Message, scopedUserID, effectiveMode); err != nil {
 			l.Errorf("保存用户消息失败: %v", err)
 			_, _ = stateManager.UpdateExecutionState(scope, chatflow.ExecutionFailed, "user_message_persist_failed")
 			ch <- &types2.ChatRes{
@@ -193,17 +201,11 @@ func (l *ChatLogic) Chat(req *types2.InterviewAppChatReq) (<-chan *types2.ChatRe
 
 		if intent := detectCandidateIntent(req.Message); intent.End {
 			finalRes := candidateEndReply()
+			ch <- &types2.ChatRes{Event: "phase", Content: chatflow.ExecutionPersisting}
 			if _, err := stateManager.UpdateExecutionState(scope, chatflow.ExecutionPersisting, intent.Reason); err != nil {
 				l.Logger.Errorf("更新 flow 执行状态失败: %v", err)
 			}
-			if saveErr := l.svcCtx.VectorStore.SaveMessageWithUser(
-				l.ctx,
-				req.ChatId,
-				openai.ChatMessageRoleAssistant,
-				finalRes,
-				scopedUserID,
-				effectiveMode,
-			); saveErr != nil {
+			if saveErr := l.saveConversationMessage(req.ChatId, openai.ChatMessageRoleAssistant, finalRes, scopedUserID, effectiveMode); saveErr != nil {
 				l.Errorf("保存结束回复失败: %v", saveErr)
 				_, _ = stateManager.UpdateExecutionState(scope, chatflow.ExecutionFailed, "candidate_end_reply_persist_failed")
 				ch <- &types2.ChatRes{
@@ -218,6 +220,7 @@ func (l *ChatLogic) Chat(req *types2.InterviewAppChatReq) (<-chan *types2.ChatRe
 				l.Logger.Errorf("更新结束状态失败: %v", err)
 			}
 			ch <- &types2.ChatRes{Content: finalRes, IsLatest: false}
+			ch <- &types2.ChatRes{Event: "phase", Content: chatflow.ExecutionIdle}
 			ch <- &types2.ChatRes{IsLatest: true}
 			return
 		}
@@ -238,6 +241,7 @@ func (l *ChatLogic) Chat(req *types2.InterviewAppChatReq) (<-chan *types2.ChatRe
 		}
 
 		// 2.3 构建消息
+		ch <- &types2.ChatRes{Event: "phase", Content: chatflow.ExecutionGenerating}
 		if _, err := stateManager.UpdateExecutionState(scope, chatflow.ExecutionGenerating, "model_stream_start"); err != nil {
 			l.Logger.Errorf("更新 flow 执行状态失败: %v", err)
 		}
@@ -299,18 +303,12 @@ func (l *ChatLogic) Chat(req *types2.InterviewAppChatReq) (<-chan *types2.ChatRe
 					// 退出前先保存助手回复
 					// 流结束后处理状态更新
 					finalRes := fullResponse.String()
+					ch <- &types2.ChatRes{Event: "phase", Content: chatflow.ExecutionPersisting}
 					if _, markErr := stateManager.UpdateExecutionState(scope, chatflow.ExecutionPersisting, "assistant_message_persist"); markErr != nil {
 						l.Logger.Errorf("更新 flow 执行状态失败: %v", markErr)
 					}
 					if fullResponse.String() != "" {
-						if saveErr := l.svcCtx.VectorStore.SaveMessageWithUser(
-							l.ctx,
-							req.ChatId,
-							openai.ChatMessageRoleAssistant,
-							finalRes,
-							scopedUserID,
-							effectiveMode,
-						); saveErr != nil {
+						if saveErr := l.saveConversationMessage(req.ChatId, openai.ChatMessageRoleAssistant, finalRes, scopedUserID, effectiveMode); saveErr != nil {
 							l.Errorf("保存助手消息失败: %v", saveErr)
 							_, _ = stateManager.UpdateExecutionState(scope, chatflow.ExecutionFailed, "assistant_message_persist_failed")
 							ch <- &types2.ChatRes{IsLatest: true}
@@ -327,6 +325,7 @@ func (l *ChatLogic) Chat(req *types2.InterviewAppChatReq) (<-chan *types2.ChatRe
 						l.Logger.Infof("状态更新: %s -> %s", currentState, snapshot.InterviewState)
 					}
 
+					ch <- &types2.ChatRes{Event: "phase", Content: chatflow.ExecutionIdle}
 					ch <- &types2.ChatRes{IsLatest: true} // 流结束，发送结束标记
 					return
 				}
@@ -363,6 +362,22 @@ func (l *ChatLogic) Chat(req *types2.InterviewAppChatReq) (<-chan *types2.ChatRe
 	}()
 
 	return ch, nil
+}
+
+func (l *ChatLogic) saveConversationMessage(chatID, role, content string, userID *int64, mode string) error {
+	messageID, err := l.svcCtx.VectorStore.SaveMessageBodyWithUser(l.ctx, chatID, role, content, userID, mode)
+	if err != nil {
+		return err
+	}
+
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		if err := l.svcCtx.VectorStore.UpdateMessageEmbedding(ctx, messageID, content); err != nil {
+			l.Logger.Errorf("异步更新消息向量失败: message_id=%d err=%v", messageID, err)
+		}
+	}()
+	return nil
 }
 
 // getSessionHistory 构建AI对话的完整上下文历史

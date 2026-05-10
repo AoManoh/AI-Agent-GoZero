@@ -1,6 +1,7 @@
 package user
 
 import (
+	"database/sql"
 	"testing"
 	"time"
 
@@ -28,6 +29,26 @@ func TestNormalizeSessionMode(t *testing.T) {
 				t.Fatalf("normalizeSessionMode(%q) = %q, want %q", tt.input, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestBuildSessionItemMarksCompletedSessionInactive(t *testing.T) {
+	now := time.Date(2026, 5, 10, 10, 0, 0, 0, time.FixedZone("CST", 8*3600))
+	item := buildSessionItem(model.ChatSession{
+		SessionId:   "sess-finished",
+		Title:       "Go 后端面试",
+		Mode:        sessionmode.KeyInterview,
+		IsActive:    true,
+		CreatedAt:   now,
+		UpdatedAt:   now,
+		CompletedAt: sql.NullTime{Time: now, Valid: true},
+	})
+
+	if item.IsActive {
+		t.Fatalf("item.IsActive = true, want false for completed session")
+	}
+	if item.CompletedAt == "" {
+		t.Fatal("item.CompletedAt is empty, want finished timestamp")
 	}
 }
 

@@ -13,15 +13,17 @@ import (
 )
 
 const (
-	SnapshotVersion       = "chat-flow-v1"
-	StateKeyPrefix        = "chat_flow_state:v1:"
-	EventKeyPrefix        = "chat_flow_events:v1:"
-	LegacyStateKeyPrefix  = "chat_state:"
-	StateTTL              = 24 * time.Hour
-	DefaultEventLimit     = int64(50)
-	mutateSnapshotRetries = 32
+	SnapshotVersion        = "chat-flow-v1"
+	StateKeyPrefix         = "chat_flow_state:v1:"
+	EventKeyPrefix         = "chat_flow_events:v1:"
+	ExecutionLockKeyPrefix = "chat_flow_execution_lock:v1:"
+	LegacyStateKeyPrefix   = "chat_state:"
+	StateTTL               = 24 * time.Hour
+	DefaultEventLimit      = int64(50)
+	mutateSnapshotRetries  = 32
 
 	InterviewStateStart = "start"
+	InterviewStateEnd   = "end"
 
 	LifecycleActive    = "active"
 	LifecycleCompleted = "completed"
@@ -99,6 +101,10 @@ func StateRedisKey(key ContextKey) string {
 
 func EventRedisKey(key ContextKey) string {
 	return fmt.Sprintf("%s%s:%s:%s", EventKeyPrefix, key.OwnerScope, key.Lane, key.SessionID)
+}
+
+func ExecutionLockRedisKey(key ContextKey) string {
+	return fmt.Sprintf("%s%s:%s:%s", ExecutionLockKeyPrefix, key.OwnerScope, key.Lane, key.SessionID)
 }
 
 func LegacyStateRedisKey(sessionID string) string {

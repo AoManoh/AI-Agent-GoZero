@@ -1,6 +1,7 @@
 package config
 
 import (
+	"strings"
 	"time"
 
 	"GoZero-AI/internal/llmclient"
@@ -122,10 +123,18 @@ func (c Config) EvaluationModel() string {
 }
 
 func (c Config) EvaluationTemperature() float32 {
+	if modelRequiresUnitTemperature(c.EvaluationModel()) {
+		return 1
+	}
 	if c.OpenAI.EvaluationTemp <= 0 {
 		return 0.2
 	}
 	return c.OpenAI.EvaluationTemp
+}
+
+func modelRequiresUnitTemperature(model string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(model))
+	return strings.HasPrefix(normalized, "gpt-5")
 }
 
 func (c Config) EvaluationMaxTokens() int {

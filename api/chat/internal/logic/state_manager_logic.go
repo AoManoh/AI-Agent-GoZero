@@ -11,9 +11,13 @@ import (
 	"GoZero-AI/api/chat/internal/svc"
 	"GoZero-AI/api/chat/internal/types"
 	"GoZero-AI/internal/chatflow"
+	"GoZero-AI/internal/statuserr"
+
+	"github.com/redis/go-redis/v9"
 )
 
 const maxStateEvents = int64(50)
+const executionLockTTL = 10 * time.Minute
 
 const candidateEndIntentReason = "candidate_end_intent"
 
@@ -80,6 +84,45 @@ func (sm *StateManager) UpdateExecutionState(scope ConversationScope, executionS
 		return nil, fmt.Errorf("加载 flow state 失败: %w", err)
 	}
 	return &snapshot, nil
+}
+
+func (sm *StateManager) TryAcquireExecutionLock(scope ConversationScope) (func(), error) {
+	if sm.svcCtx == nil || sm.svcCtx.RedisClient == nil {
+		return func() {}, nil
+	}
+
+	key := chatflow.BuildContextKey(scope.ChatID, scope.UserID, scope.Mode)
+	lockKey := chatflow.ExecutionLockRedisKey(key)
+	token := fmt.Sprintf("%s:%d", key.SessionID, time.Now().UnixNano())
+	acquired, err := sm.svcCtx.RedisClient.SetNX(sm.context(), lockKey, token, executionLockTTL).Result()
+	if err != nil {
+		return nil, fmt.Errorf("获取会话执行锁失败: %w", err)
+	}
+	if !acquired {
+		return nil, statuserr.Conflict("当前会话正在生成回复，请稍后再试")
+	}
+
+	return func() {
+		releaseCtx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		_ = sm.svcCtx.RedisClient.Watch(releaseCtx, func(tx *redis.Tx) error {
+			value, err := tx.Get(releaseCtx, lockKey).Result()
+			if err == redis.Nil {
+				return nil
+			}
+			if err != nil {
+				return err
+			}
+			if value != token {
+				return nil
+			}
+			_, err = tx.TxPipelined(releaseCtx, func(pipe redis.Pipeliner) error {
+				pipe.Del(releaseCtx, lockKey)
+				return nil
+			})
+			return err
+		}, lockKey)
+	}, nil
 }
 
 func (sm *StateManager) RecordTurn(scope ConversationScope, role, reason string) error {
@@ -197,6 +240,9 @@ func looksLikeOpeningQuestion(s string) bool {
 		"聊聊",
 		"说说",
 		"谈谈",
+		"讲一下",
+		"讲讲",
+		"展开",
 		"你提到",
 		"问你",
 		"问题",
@@ -215,11 +261,21 @@ func looksLikeFollowUpSignal(s string) bool {
 		"怎么实现",
 		"接着讲讲",
 		"继续讲讲",
+		"继续说说",
+		"再往下讲",
+		"往下讲",
 		"展开一下",
+		"展开讲讲",
 		"具体说说",
 		"具体讲讲",
 		"你会怎么",
 		"会怎么",
+		"怎么做",
+		"怎么控制",
+		"怎么定位",
+		"怎么排查",
+		"怎么处理",
+		"怎么释放",
 		"怎么避免",
 		"怎么保证",
 		"哪些操作",
@@ -238,10 +294,29 @@ func looksLikeEvaluationSignal(s string) bool {
 }
 
 func looksLikeCompletionSignal(s string) bool {
-	if !containsAny(s, []string{"结束", "再见", "感谢参加"}) {
+	if containsAny(s, []string{"不结束", "不算结束", "没有结束", "不是结束", "还不结束", "先不结束"}) {
 		return false
 	}
-	return !containsAny(s, []string{"不结束", "不算结束", "没有结束", "不是结束", "还不结束", "先不结束"})
+	return containsAny(s, []string{
+		"结束这场面试",
+		"结束本次面试",
+		"结束今天的面试",
+		"本次面试结束",
+		"这场面试结束",
+		"面试结束",
+		"面试就到这里",
+		"面试先到这里",
+		"就先结束在这里",
+		"先结束在这里",
+		"总结并结束",
+		"阶段性总结并结束",
+		"今天就到这里",
+		"今天先到这里",
+		"今天的面试就到这里",
+		"感谢参加",
+		"感谢你参加",
+		"再见",
+	})
 }
 
 func (sm *StateManager) TransitionState(currentState, aiRes string) string {
@@ -261,6 +336,9 @@ func (sm *StateManager) TransitionStateDetailed(currentState, aiRes string) (str
 			return types.StateQuestion, "opening_question_signal"
 		}
 	case types.StateQuestion:
+		if looksLikeCompletionSignal(lowerRes) {
+			return types.StateEnd, "completion_signal"
+		}
 		if looksLikeFollowUpSignal(lowerRes) {
 			return types.StateFollowUp, "follow_up_signal"
 		}
@@ -268,6 +346,9 @@ func (sm *StateManager) TransitionStateDetailed(currentState, aiRes string) (str
 			return types.StateEvaluate, "evaluation_signal"
 		}
 	case types.StateFollowUp:
+		if looksLikeCompletionSignal(lowerRes) {
+			return types.StateEnd, "completion_signal"
+		}
 		if looksLikeEvaluationSignal(lowerRes) {
 			return types.StateEvaluate, "evaluation_signal"
 		}

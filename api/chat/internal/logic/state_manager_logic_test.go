@@ -2,11 +2,13 @@ package logic
 
 import (
 	"context"
+	"net/http"
 	"testing"
 
 	"GoZero-AI/api/chat/internal/svc"
 	"GoZero-AI/api/chat/internal/types"
 	"GoZero-AI/internal/chatflow"
+	"GoZero-AI/internal/statuserr"
 
 	miniredis "github.com/alicebob/miniredis/v2"
 	"github.com/redis/go-redis/v9"
@@ -30,6 +32,12 @@ func TestTransitionStateDetailedFromStart(t *testing.T) {
 		{
 			name:       "opening question without welcome still transitions",
 			reply:      "嗯，好的，我们来看看这个问题，你提到简历里深入理解 Go 的 G，先聊聊 GMP 调度模型。",
+			wantState:  types.StateQuestion,
+			wantReason: "opening_question_signal",
+		},
+		{
+			name:       "opening interview prompt using explain phrase transitions",
+			reply:      "好，那我们直接从项目切入。你做的 GoZero 订单服务，先讲一下订单创建接口的请求链路和幂等处理。",
 			wantState:  types.StateQuestion,
 			wantReason: "opening_question_signal",
 		},
@@ -85,10 +93,28 @@ func TestTransitionStateDetailedFromQuestion(t *testing.T) {
 			wantReason: "follow_up_signal",
 		},
 		{
+			name:       "natural implementation follow up",
+			reply:      "这个方向可以，你再往下讲机制：本地消息表长期 pending 时，你怎么定位是库锁还是 MQ 故障？",
+			wantState:  types.StateFollowUp,
+			wantReason: "follow_up_signal",
+		},
+		{
 			name:       "evaluation signal",
 			reply:      "我们做个阶段性评估，总结一下你的优缺点。",
 			wantState:  types.StateEvaluate,
 			wantReason: "evaluation_signal",
+		},
+		{
+			name:       "summary and explicit finish completes from question",
+			reply:      "我做一个阶段性总结并结束这场面试。",
+			wantState:  types.StateEnd,
+			wantReason: "completion_signal",
+		},
+		{
+			name:       "technical end word stays follow up",
+			reply:      "请求结束后 goroutine 怎么释放？",
+			wantState:  types.StateFollowUp,
+			wantReason: "follow_up_signal",
 		},
 		{
 			name:       "no transition",
@@ -128,6 +154,12 @@ func TestTransitionStateDetailedFromFollowUp(t *testing.T) {
 			reply:      "我们进入下一个问题，聊聊 channel 和 mutex 的选择。",
 			wantState:  types.StateQuestion,
 			wantReason: "next_question_signal",
+		},
+		{
+			name:       "summary and explicit finish completes from follow up",
+			reply:      "这场面试我就先结束在这里，下面给你阶段性总结。",
+			wantState:  types.StateEnd,
+			wantReason: "completion_signal",
 		},
 	}
 
@@ -236,4 +268,43 @@ func TestApplyCandidateEndIntentUpdatesFlowState(t *testing.T) {
 	if snapshot.LastReason != candidateEndIntentReason {
 		t.Fatalf("LastReason = %q, want %q", snapshot.LastReason, candidateEndIntentReason)
 	}
+}
+
+func TestTryAcquireExecutionLockRejectsConcurrentSession(t *testing.T) {
+	client := newStateManagerRedisClient(t)
+	defer client.Close()
+
+	sm := &StateManager{
+		ctx: context.Background(),
+		svcCtx: &svc.ServiceContext{
+			RedisClient: client,
+		},
+	}
+	scope := ConversationScope{ChatID: "lock-session", Mode: "interview"}
+	release, err := sm.TryAcquireExecutionLock(scope)
+	if err != nil {
+		t.Fatalf("TryAcquireExecutionLock() first error = %v", err)
+	}
+	defer release()
+
+	_, err = sm.TryAcquireExecutionLock(scope)
+	if err == nil {
+		t.Fatal("TryAcquireExecutionLock() second error = nil, want conflict")
+	}
+	code, ok := statuserr.StatusCode(err)
+	if !ok || code != http.StatusConflict {
+		t.Fatalf("status = %d ok=%v, want 409/true; err=%v", code, ok, err)
+	}
+}
+
+func newStateManagerRedisClient(t *testing.T) *redis.Client {
+	t.Helper()
+
+	server, err := miniredis.Run()
+	if err != nil {
+		t.Fatalf("miniredis.Run() error = %v", err)
+	}
+	t.Cleanup(server.Close)
+
+	return redis.NewClient(&redis.Options{Addr: server.Addr()})
 }

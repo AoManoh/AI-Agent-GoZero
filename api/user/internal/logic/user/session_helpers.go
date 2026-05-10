@@ -17,7 +17,7 @@ func buildSessionItem(session model.ChatSession) types.SessionItem {
 		Mode:         sessionmode.DisplayName(modeKey),
 		ModeKey:      modeKey,
 		MessageCount: session.MessageCount,
-		IsActive:     session.IsActive,
+		IsActive:     session.IsActive && !session.CompletedAt.Valid,
 		CreatedAt:    session.CreatedAt.Format(timeLayout),
 		UpdatedAt:    session.UpdatedAt.Format(timeLayout),
 	}

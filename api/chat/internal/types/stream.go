@@ -5,4 +5,5 @@ package types
 type ChatRes struct {
 	Content  string `json:"content"`
 	IsLatest bool   `json:"isLatest"`
+	Event    string `json:"event,optional"`
 }

@@ -303,16 +303,16 @@ func defaultAbilityRadar() []types.AbilityRadarPoint {
 
 func buildWorkbenchActions(sessionCount int, resume types.WorkbenchResumeSummary, knowledge types.WorkbenchKnowledgeSummary) []types.WorkbenchAction {
 	actions := []types.WorkbenchAction{
-		{Key: "new_interview", Label: "新建面试", Description: "选择方向、难度和侧重点，开始一场新的模拟面试。", Route: "/interview/new"},
+		{Key: "new_interview", Label: "新建面试", Description: "选择方向、难度和侧重点，开始一场新的模拟面试。", Route: "/workbench/new"},
 	}
 	if resume.Total == 0 {
-		actions = append(actions, types.WorkbenchAction{Key: "upload_resume", Label: "上传简历", Description: "上传简历后，AI 会围绕你的项目经历追问。", Route: "/resume"})
+		actions = append(actions, types.WorkbenchAction{Key: "upload_resume", Label: "上传简历", Description: "上传简历后，AI 会围绕你的项目经历追问。", Route: "/workbench/resume"})
 	}
 	if knowledge.Chunks == 0 {
-		actions = append(actions, types.WorkbenchAction{Key: "import_knowledge", Label: "导入知识", Description: "导入题库或技术资料，提高 RAG 追问质量。", Route: "/knowledge"})
+		actions = append(actions, types.WorkbenchAction{Key: "import_knowledge", Label: "导入知识", Description: "导入题库或技术资料，提高 RAG 追问质量。", Route: "/workbench/knowledge"})
 	}
 	if sessionCount > 0 {
-		actions = append(actions, types.WorkbenchAction{Key: "review_report", Label: "复盘报告", Description: "查看最近面试的评分、证据和改进建议。", Route: "/reports"})
+		actions = append(actions, types.WorkbenchAction{Key: "review_report", Label: "复盘报告", Description: "查看最近面试的评分、证据和改进建议。", Route: "/workbench"})
 	}
 	return actions
 }

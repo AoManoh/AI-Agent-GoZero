@@ -109,6 +109,8 @@ type execQuerier interface {
 	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
 }
 
+const vectorStoreEmbeddingDimensions = 1536
+
 var (
 	ErrSessionDeleted      = statuserr.Conflict("会话已删除，请创建新会话")
 	ErrSessionCompleted    = statuserr.Conflict("面试已结束，请创建新会话")
@@ -246,6 +248,69 @@ func (vs *VectorStore) SaveMessageWithUser(ctx context.Context, chatId, role, co
 	}
 
 	return tx.Commit(ctx)
+}
+
+func (vs *VectorStore) SaveMessageBodyWithUser(ctx context.Context, chatId, role, content string, userID *int64, mode string) (int64, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	if err := vs.ValidateSessionWrite(ctx, chatId, userID); err != nil {
+		return 0, err
+	}
+
+	tx, err := vs.Pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return 0, err
+	}
+	defer rollbackTx(tx)
+
+	if userID != nil {
+		if err := ensureSessionWritable(ctx, tx, chatId, *userID); err != nil {
+			return 0, err
+		}
+	}
+
+	var messageID int64
+	zeroEmbedding := zeroMessageEmbedding()
+	insertSQL := `INSERT INTO vector_store (chat_id, user_id, role, content, embedding, doc_type)
+VALUES ($1, $2, $3, $4, $5, 'message')
+RETURNING id`
+	if err := tx.QueryRow(ctx, insertSQL, chatId, nullableUserID(userID), role, content, zeroEmbedding).Scan(&messageID); err != nil {
+		return 0, err
+	}
+
+	if err := ensureChatSession(ctx, tx, chatId, userID, role, content, mode); err != nil {
+		return 0, err
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return 0, err
+	}
+	return messageID, nil
+}
+
+func (vs *VectorStore) UpdateMessageEmbedding(ctx context.Context, messageID int64, content string) error {
+	if messageID <= 0 {
+		return nil
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	embedding, err := vs.generateEmbedding(ctx, content)
+	if err != nil {
+		return fmt.Errorf("生成嵌入失败: %w", err)
+	}
+
+	_, err = vs.Pool.Exec(ctx, `UPDATE vector_store
+SET embedding = $1
+WHERE id = $2 AND doc_type = 'message'`, embedding, messageID)
+	return err
+}
+
+func zeroMessageEmbedding() pgvector.Vector {
+	return pgvector.NewVector(make([]float32, vectorStoreEmbeddingDimensions))
 }
 
 func (vs *VectorStore) ValidateSessionWrite(ctx context.Context, chatId string, userID *int64) error {
@@ -696,11 +761,11 @@ func ensureSessionWritable(ctx context.Context, db execQuerier, chatId string, u
 	if ownerID != userID {
 		return ErrSessionAccessDenied
 	}
-	if !isActive {
-		return ErrSessionDeleted
-	}
 	if isCompleted {
 		return ErrSessionCompleted
+	}
+	if !isActive {
+		return ErrSessionDeleted
 	}
 
 	return nil

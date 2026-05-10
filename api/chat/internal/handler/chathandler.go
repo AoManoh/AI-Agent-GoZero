@@ -113,6 +113,13 @@ func ChatHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
 					return
 				}
 
+				if resp.Event != "" {
+					if !sendSSEEvent(w, flusher, resp.Event, resp.Content) {
+						return
+					}
+					continue
+				}
+
 				if !sendSSEData(w, flusher, resp.Content) {
 					return
 				}
@@ -147,6 +154,21 @@ func sendSSEData(w http.ResponseWriter, flusher http.Flusher, content string) bo
 	safeContent = strings.ReplaceAll(safeContent, "\r", "\\r")
 
 	if _, err := fmt.Fprintf(w, "data: %s\n\n", safeContent); err != nil {
+		return false
+	}
+	flusher.Flush()
+	return true
+}
+
+func sendSSEEvent(w http.ResponseWriter, flusher http.Flusher, event, content string) bool {
+	safeEvent := strings.ReplaceAll(strings.TrimSpace(event), "\n", "")
+	safeEvent = strings.ReplaceAll(safeEvent, "\r", "")
+	if safeEvent == "" {
+		return true
+	}
+	safeContent := strings.ReplaceAll(content, "\n", "\\n")
+	safeContent = strings.ReplaceAll(safeContent, "\r", "\\r")
+	if _, err := fmt.Fprintf(w, "event: %s\ndata: %s\n\n", safeEvent, safeContent); err != nil {
 		return false
 	}
 	flusher.Flush()

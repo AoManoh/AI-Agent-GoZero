@@ -17,6 +17,7 @@ import (
 	types2 "GoZero-AI/api/chat/internal/types"
 	"GoZero-AI/internal/chatflow"
 	"GoZero-AI/internal/sessionmode"
+	"GoZero-AI/internal/statuserr"
 
 	miniredis "github.com/alicebob/miniredis/v2"
 	"github.com/jackc/pgx/v5"
@@ -89,6 +90,9 @@ func TestChatSSEPromptResponsePersistenceAndStateFlow(t *testing.T) {
 	for chunk := range stream {
 		if chunk.IsLatest {
 			gotLatest = true
+			continue
+		}
+		if chunk.Event != "" {
 			continue
 		}
 		response.WriteString(chunk.Content)
@@ -203,6 +207,9 @@ func TestChatSSECandidateEndIntentShortCircuitsMainLLM(t *testing.T) {
 			gotLatest = true
 			continue
 		}
+		if chunk.Event != "" {
+			continue
+		}
 		response.WriteString(chunk.Content)
 	}
 	if !gotLatest {
@@ -238,6 +245,56 @@ func TestChatSSECandidateEndIntentShortCircuitsMainLLM(t *testing.T) {
 	}
 	if snapshot.ExecutionState != chatflow.ExecutionIdle {
 		t.Fatalf("snapshot.ExecutionState = %q, want idle", snapshot.ExecutionState)
+	}
+}
+
+func TestChatSSERejectsConcurrentSessionGeneration(t *testing.T) {
+	redisServer, err := miniredis.Run()
+	if err != nil {
+		t.Fatalf("miniredis.Run() error = %v", err)
+	}
+	defer redisServer.Close()
+
+	fakePool := newChatFlowFakePool()
+	ctx := chatAuth.WithUserID(context.Background(), fakePool.userID)
+	svcCtx := &svc.ServiceContext{
+		Config: config.Config{
+			VectorDB: config.VectorDBConfig{
+				Knowledge: config.Knowledge{TopK: 3},
+			},
+		},
+		VectorStore: &svc.VectorStore{Pool: fakePool},
+		RedisClient: redisClientForTest(redisServer.Addr()),
+	}
+	defer svcCtx.RedisClient.Close()
+
+	sm := NewStateManager(ctx, svcCtx)
+	release, err := sm.TryAcquireExecutionLock(ConversationScope{
+		ChatID: "sess-busy",
+		UserID: &fakePool.userID,
+		Mode:   sessionmode.KeyInterview,
+	})
+	if err != nil {
+		t.Fatalf("TryAcquireExecutionLock() error = %v", err)
+	}
+	defer release()
+
+	logic := &ChatLogic{
+		Logger: logx.WithContext(ctx),
+		ctx:    ctx,
+		svcCtx: svcCtx,
+	}
+	_, err = logic.Chat(&types2.InterviewAppChatReq{
+		ChatId:  "sess-busy",
+		Mode:    sessionmode.KeyInterview,
+		Message: "继续追问 context 取消。",
+	})
+	if err == nil {
+		t.Fatal("Chat() error = nil, want conflict")
+	}
+	code, ok := statuserr.StatusCode(err)
+	if !ok || code != http.StatusConflict {
+		t.Fatalf("status = %d ok=%v, want 409/true; err=%v", code, ok, err)
 	}
 }
 
@@ -461,7 +518,16 @@ func (tx *chatFlowFakeTx) Query(_ context.Context, _ string, _ ...any) (pgx.Rows
 	return &chatFlowFakeRows{}, nil
 }
 
-func (tx *chatFlowFakeTx) QueryRow(_ context.Context, _ string, _ ...any) pgx.Row {
+func (tx *chatFlowFakeTx) QueryRow(_ context.Context, sql string, args ...any) pgx.Row {
+	if strings.Contains(sql, "INSERT INTO vector_store") {
+		tx.pool.mu.Lock()
+		defer tx.pool.mu.Unlock()
+		tx.pool.messages = append(tx.pool.messages, types2.VectorMessage{
+			Role:    args[2].(string),
+			Content: args[3].(string),
+		})
+		return chatFlowFakeRow{values: []any{int64(len(tx.pool.messages))}}
+	}
 	return chatFlowFakeRow{err: pgx.ErrNoRows}
 }
 
