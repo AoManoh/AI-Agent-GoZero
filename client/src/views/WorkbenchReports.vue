@@ -125,14 +125,20 @@ const roadmap = [
 ];
 
 onMounted(async () => {
+  // 占位 SFC 也接 /api/users/report-center/bootstrap：
+  // - 让占位页对接真实接口契约，未来升级到完整 SFC 时数据来源不需要换
+  // - bootstrap 同时拿到 overview + modes + 当前 mode 的 reports[]，里面就有最近会话 sessionId
+  // - 失败静默降级到 "完成首场面试后开启复盘" 的引导文案
   try {
-    const res = await apiService.user.workbenchBootstrap();
-    const sessions = Array.isArray(res?.recentSessions) ? res.recentSessions : [];
-    if (sessions[0]) {
-      recentSessionId.value = sessions[0].sessionId || sessions[0].id || "";
+    const res = await apiService.user.reportCenterBootstrap();
+    // ModeDetail.Reports 是 ReportCenterRecentReport[]，第 1 条 = 最近完成的会话
+    const reports = Array.isArray(res?.modeDetail?.reports) ? res.modeDetail.reports : [];
+    if (reports[0]) {
+      recentSessionId.value = reports[0].sessionId || reports[0].id || "";
     }
   } catch (error) {
-    // 静默降级：未拿到 sessionId 时显示"完成首场面试后开启复盘"
+    // 接口失败 / 401 / 用户未完成任何会话：保持 hasReplayLink=false，
+    // 模板会自动切到「完成首场面试后开启复盘」+「开始首场练习」CTA。
   }
 });
 </script>

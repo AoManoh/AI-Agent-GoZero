@@ -188,7 +188,10 @@
           </div>
           <h3 class="wb-qcard-title">简历库</h3>
           <p class="wb-qcard-desc" v-if="hasResume">
-            <span class="wb-qcard-num">{{ resumeTotal }}</span> 份 · {{ resumeChunkCount }} 片段已入库
+            <span class="wb-qcard-num">{{ resumeTotal }}</span> 份
+            <template v-if="resumeProjectsCount > 0"> · {{ resumeProjectsCount }} 个项目</template>
+            <template v-else-if="resumeChunkCount > 0"> · {{ resumeChunkCount }} 片段</template>
+            · 已分析
           </p>
           <p class="wb-qcard-desc" v-else>上传简历后，AI 会基于项目经历做深度追问。</p>
           <div class="wb-qcard-spacer"></div>
@@ -294,66 +297,103 @@
           </div>
         </div>
 
-        <!-- 右栏：能力雷达 -->
+        <!-- 右栏：能力雷达（有数据态 SVG / 0 数据态骨架） -->
         <div class="wb-card wb-radar">
           <header class="wb-block-head">
             <h3 class="wb-block-title">能力雷达</h3>
             <span class="wb-radar-meta">最近 5 场</span>
           </header>
 
-          <!-- viewBox 220×220 + preserveAspectRatio 保证 SVG 在容器内等比缩放，
-               不会因 aspect-ratio 容器崩塌而变形。 -->
-          <svg class="wb-radar-svg" viewBox="0 0 220 220" preserveAspectRatio="xMidYMid meet" role="img" aria-label="个人能力雷达图">
-            <!-- 5 层正五边形网格 -->
-            <g class="wb-radar-grid">
-              <polygon
-                v-for="(scale, i) in [1, 0.8, 0.6, 0.4, 0.2]"
-                :key="`grid-${i}`"
-                :points="getPolygonPoints(scale)"
-                class="wb-radar-grid-line"
+          <!-- v-if hasRadarData：后端 abilityRadar 至少 1 维 score>0 才渲染雷达 SVG，
+               避免「刚进页雷达多边形崩缩为中心点 + 78/90/72/65/82 假评分」的假现象。 -->
+          <template v-if="hasRadarData">
+            <!-- viewBox 220×220 + preserveAspectRatio 保证 SVG 在容器内等比缩放，
+                 不会因 aspect-ratio 容器崩塌而变形。 -->
+            <svg class="wb-radar-svg" viewBox="0 0 220 220" preserveAspectRatio="xMidYMid meet" role="img" aria-label="个人能力雷达图">
+              <!-- 5 层正五边形网格 -->
+              <g class="wb-radar-grid">
+                <polygon
+                  v-for="(scale, i) in [1, 0.8, 0.6, 0.4, 0.2]"
+                  :key="`grid-${i}`"
+                  :points="getPolygonPoints(scale)"
+                  class="wb-radar-grid-line"
+                />
+              </g>
+
+              <!-- 5 条径向线 -->
+              <line
+                v-for="(angle, i) in radarAngles"
+                :key="`line-${i}`"
+                x1="110"
+                y1="110"
+                :x2="110 + radarRadius * Math.cos(angle)"
+                :y2="110 + radarRadius * Math.sin(angle)"
+                class="wb-radar-line"
               />
-            </g>
 
-            <!-- 5 条径向线 -->
-            <line
-              v-for="(angle, i) in radarAngles"
-              :key="`line-${i}`"
-              x1="110"
-              y1="110"
-              :x2="110 + radarRadius * Math.cos(angle)"
-              :y2="110 + radarRadius * Math.sin(angle)"
-              class="wb-radar-line"
-            />
+              <!-- 用户能力多边形 -->
+              <polygon :points="userPolygonPoints" class="wb-radar-user" />
 
-            <!-- 用户能力多边形 -->
-            <polygon :points="userPolygonPoints" class="wb-radar-user" />
+              <!-- 顶点圆点 -->
+              <circle
+                v-for="(pt, i) in userPoints"
+                :key="`pt-${i}`"
+                :cx="pt.x"
+                :cy="pt.y"
+                r="3.5"
+                class="wb-radar-dot"
+              />
 
-            <!-- 顶点圆点 -->
-            <circle
-              v-for="(pt, i) in userPoints"
-              :key="`pt-${i}`"
-              :cx="pt.x"
-              :cy="pt.y"
-              r="3.5"
-              class="wb-radar-dot"
-            />
+              <!-- 维度标签 -->
+              <text
+                v-for="(dim, i) in radarDims"
+                :key="`label-${i}`"
+                :x="110 + (radarRadius + 18) * Math.cos(radarAngles[i])"
+                :y="110 + (radarRadius + 18) * Math.sin(radarAngles[i])"
+                text-anchor="middle"
+                dominant-baseline="middle"
+                class="wb-radar-label"
+              >{{ dim.label }}</text>
+            </svg>
 
-            <!-- 维度标签 -->
-            <text
-              v-for="(dim, i) in radarDims"
-              :key="`label-${i}`"
-              :x="110 + (radarRadius + 18) * Math.cos(radarAngles[i])"
-              :y="110 + (radarRadius + 18) * Math.sin(radarAngles[i])"
-              text-anchor="middle"
-              dominant-baseline="middle"
-              class="wb-radar-label"
-            >{{ dim.label }}</text>
-          </svg>
+            <div class="wb-radar-weaks">
+              <div class="wb-weaks-title">建议加强</div>
+              <div class="wb-weaks-list">
+                <span v-for="weak in weakSpots" :key="weak" class="wb-weak">{{ weak }}</span>
+              </div>
+            </div>
+          </template>
 
-          <div class="wb-radar-weaks">
-            <div class="wb-weaks-title">建议加强</div>
-            <div class="wb-weaks-list">
-              <span v-for="weak in weakSpots" :key="weak" class="wb-weak">{{ weak }}</span>
+          <!-- 0 数据态：雷达骨架 + 引导文案（完成首场后填满准确评分） -->
+          <div v-else class="wb-radar-empty">
+            <svg class="wb-radar-empty-svg" viewBox="0 0 220 220" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+              <!-- 静态骨架五边形，5 层 grid + 5 条径线，用 muted 色调 -->
+              <g class="wb-radar-empty-grid">
+                <polygon v-for="(scale, i) in [1, 0.8, 0.6, 0.4, 0.2]" :key="`empty-grid-${i}`" :points="getPolygonPoints(scale)" />
+              </g>
+              <line
+                v-for="(angle, i) in radarAngles"
+                :key="`empty-line-${i}`"
+                x1="110"
+                y1="110"
+                :x2="110 + radarRadius * Math.cos(angle)"
+                :y2="110 + radarRadius * Math.sin(angle)"
+                class="wb-radar-empty-line"
+              />
+              <!-- 5 个维度标签仍保留，用 muted 色 -->
+              <text
+                v-for="(dim, i) in radarDims"
+                :key="`empty-label-${i}`"
+                :x="110 + (radarRadius + 18) * Math.cos(radarAngles[i])"
+                :y="110 + (radarRadius + 18) * Math.sin(radarAngles[i])"
+                text-anchor="middle"
+                dominant-baseline="middle"
+                class="wb-radar-empty-label"
+              >{{ dim.label }}</text>
+            </svg>
+            <div class="wb-radar-empty-text">
+              <div class="wb-radar-empty-title">完成首场面试</div>
+              <div class="wb-radar-empty-sub">5 个维度评分会填满雷达。</div>
             </div>
           </div>
         </div>
@@ -375,12 +415,13 @@ const { username: storedUsername } = useAuth();
 const profileUsername = ref("");
 const displayName = computed(() => profileUsername.value || storedUsername.value || "同学");
 
-// === 统计数据：mock 默认值，onMounted 从 sessions 聚合后覆盖 ===
+// === 统计数据：默认 0/—占位，onMounted 从 bootstrap.stats 与 sessions 聚合后覆盖 ===
+// 原则 5（1 sourcing 4 cards principles）：后端没字段的地方走空态。
+// 删除了原 bankCount=256 hardcode mock，题库数现从 interviewPresets.directions[].questionCount 派生。
 const stats = ref({
   completed: 0,
   avgScore: "—",
   lastAt: "暂无",
-  bankCount: 256,
 });
 
 // === bootstrap 原始响应快照：用于 heroState computed 派生 4 状态分支 ===
@@ -392,8 +433,9 @@ const bootstrapData = ref(null);
 // 旧的 resumeName/Status/ProjectsHint 已重构为基于 resumeSummary 派生的 computed
 
 // 简历摘要：从 bootstrapData.resumeSummary 派生，0 数据态在 computed 处理
-// （applyResumeSummary 已存在，只把字段映射到这里使用）
-const resumeSummary = ref({ total: 0, latestTitle: "", chunkCount: 0, latestUpdatedAt: "" });
+// projectsCount 字段由后端 0e22383 commit 交付（feat(workbench): 补充简历项目数摘要），
+// 表示 AI 分析出的项目数量（比 chunkCount 在用户语义上更可读）。
+const resumeSummary = ref({ total: 0, latestTitle: "", chunkCount: 0, projectsCount: 0, latestUpdatedAt: "" });
 
 // 知识库摘要：bootstrapData.knowledgeSummary 派生（之前完全没消费）
 const knowledgeSummary = ref({ documents: 0, chunks: 0, latestTitle: "", latestAddedAt: "" });
@@ -402,28 +444,26 @@ const knowledgeSummary = ref({ documents: 0, chunks: 0, latestTitle: "", latestA
 // 后端入库 1614 题后 questionCount 自动从 DB 派生，前端代码无需改
 const interviewPresets = ref({ directions: [], difficulties: [], focusOptions: [] });
 
-// === 最近面试列表：mock，onMounted 接入 /users/sessions 后覆盖 ===
-const mockSessions = [
-  { id: "m1", title: "Go 微服务设计与拆分", direction: "Go 后端", difficulty: "中级", difficultyLevel: "mid", score: 82, duration: 35, time: "2 小时前", link: "/workbench/new" },
-  { id: "m2", title: "分布式事务一致性", direction: "后端架构", difficulty: "资深", difficultyLevel: "high", score: 75, duration: 42, time: "昨天", link: "/workbench/new" },
-  { id: "m3", title: "Vue 3 响应式原理", direction: "前端", difficulty: "中级", difficultyLevel: "mid", score: 88, duration: 28, time: "3 天前", link: "/workbench/new" },
-  { id: "m4", title: "Linux 内存管理", direction: "系统", difficulty: "资深", difficultyLevel: "high", score: 70, duration: 50, time: "5 天前", link: "/workbench/new" },
-  { id: "m5", title: "Redis 持久化策略", direction: "Go 后端", difficulty: "中级", difficultyLevel: "mid", score: 85, duration: 32, time: "1 周前", link: "/workbench/new" },
-];
-
-const recentSessions = ref(mockSessions);
+// === 最近面试列表：从 /users/sessions 与 bootstrap.recentSessions 拉 ===
+// 原则 5：接口失败/返回空列表时不造假数据，模板 wb-empty 分支会呈现「还没有面试记录 + 新建面试」。
+// 删除了原 mockSessions 5 条假数据（m1-m5），避免 401/网络失败时误导用户「已有记录」。
+const recentSessions = ref([]);
 
 // === 能力雷达 ===
 // 5 个能力维度，覆盖技术深度 / 表达 / 沟通：
 // 项目深度（projects）/ 语言基础（lang）/ 算法（algo）/ 架构（arch）/ 表达（comm）
-// 这里用 ref 是为了 bootstrap 接入后能响应式覆盖；bootstrap 会保留原有 5 个 key，但 label/value 可能被后端覆盖。
+// 默认 5 维骨架 value=0，applyAbilityRadar 从 bootstrap.abilityRadar 拿真实评分覆盖。
+// 原则 5：不再 hardcode 78/90/72/65/82 假评分，0 数据态走雷达空态分支。
 const radarDims = ref([
-  { key: "project", label: "项目深度", value: 78, maxScore: 100 },
-  { key: "lang", label: "语言基础", value: 90, maxScore: 100 },
-  { key: "algo", label: "算法", value: 72, maxScore: 100 },
-  { key: "arch", label: "架构", value: 65, maxScore: 100 },
-  { key: "comm", label: "表达", value: 82, maxScore: 100 },
+  { key: "project", label: "项目深度", value: 0, maxScore: 100 },
+  { key: "lang", label: "语言基础", value: 0, maxScore: 100 },
+  { key: "algo", label: "算法", value: 0, maxScore: 100 },
+  { key: "arch", label: "架构", value: 0, maxScore: 100 },
+  { key: "comm", label: "表达", value: 0, maxScore: 100 },
 ]);
+
+// 雷达是否有真实数据：至少 1 维 score > 0 才算有。模板用这个 computed 在 SVG 雷达与「完成首场」空态之间切。
+const hasRadarData = computed(() => radarDims.value.some((d) => (d.value || 0) > 0));
 
 const radarRadius = 90;
 
@@ -550,24 +590,15 @@ const onboardSteps = computed(() => {
 });
 
 // 核心：heroState computed —— 优先级 S1 > S2 > S3 > S4 > S0
-// 设计原则：所有字段在 bootstrap 失败时都有 mock 兜底，避免 hero 闪烁空状态
+// 设计原则：bootstrap 失败时走 S0（诚实的「连接中」空态），不再用 mock 调出 S4 假装「已有进度」。
+// （原则 5：后端没字段就空态「不造假」）
 const heroState = computed(() => {
   const b = bootstrapData.value;
 
-  // S0 兜底：bootstrap 完全失败（含 401 / 网络）时显示
+  // bootstrap 完全失败（含 401 / 网络）时直接走 S0。
+  // S0 自身包含引导文案与 CTA，比「用静态推荐词填 S4」更诚实。
   if (!b) {
-    // 只有在彻底无数据时才走 S0；mock 阶段已经填了 stats + recentSessions，因此默认走 S4
-    if (stats.value.completed === 0 && recentSessions.value.length === 0) {
-      return { kind: "S0" };
-    }
-    // 有 mock 数据 → 走 S4 推荐兜底
-    return {
-      kind: "S4",
-      title: "继续巩固后端基础",
-      description: "保持每周 2-3 场节奏，能让能力雷达稳定上升。",
-      ctaLabel: "新建一场",
-      link: "/workbench/new",
-    };
+    return { kind: "S0" };
   }
 
   // S1 首次用户：完成数 0 且没有 session
@@ -685,6 +716,8 @@ const hasResume = computed(() => resumeSummary.value.total > 0);
 const resumeStatus = computed(() => (hasResume.value ? "已上传" : "未上传"));
 const resumeTotal = computed(() => resumeSummary.value.total || 0);
 const resumeChunkCount = computed(() => resumeSummary.value.chunkCount || 0);
+// projectsCount（0e22383 后端交付）：模板优先用「N 个项目」文案，0 时 fallback 到 chunkCount。
+const resumeProjectsCount = computed(() => resumeSummary.value.projectsCount || 0);
 const resumeMeta = computed(() => {
   if (!hasResume.value) return "上传后开启项目深度追问";
   return resumeSummary.value.latestTitle
@@ -782,14 +815,11 @@ const loadSessions = async () => {
       : Array.isArray(res)
         ? res
         : [];
-    if (list.length === 0) {
-      // 真实接口返回空列表时也展示 mock，避免新用户主页极度空荡；
-      // 后续接入 hasFirstSession 标志后再切换到 wb-empty。
-      return;
-    }
+    // 空列表也写入空数组：明确「没有数据」而不是「还在加载」。
+    // 原则 5：不再「列表为空时保留 mock」，模板 wb-empty 会接手呈现「还没有面试记录」。
     recentSessions.value = list.slice(0, 5).map(toRecentSessionRow);
 
-    // 聚合统计
+    // 聚合统计（list 为空时 completed=0，avgScore 保留默认 "—"，lastAt 保留 "暂无"）
     stats.value.completed = list.length;
     const scoredList = recentSessions.value.filter((r) => r.score > 0);
     if (scoredList.length > 0) {
@@ -800,7 +830,8 @@ const loadSessions = async () => {
       stats.value.lastAt = recentSessions.value[0].time;
     }
   } catch (error) {
-    // 静默降级；mockSessions 已经填好。
+    // 接口失败时保持 recentSessions 为空数组，模板 wb-empty 分支生效。
+    // 不再造 mock 假数据，让 0 数据态如实呈现。
   }
 };
 
@@ -830,6 +861,8 @@ const applyResumeSummary = (summary) => {
     total: typeof summary.total === "number" ? summary.total : 0,
     latestTitle: summary.latestTitle || "",
     chunkCount: typeof summary.chunkCount === "number" ? summary.chunkCount : 0,
+    // 0e22383 后端补充的项目数摘要：用户语义级别指标，比 chunkCount（embed 内部细节）更可读。
+    projectsCount: typeof summary.projectsCount === "number" ? summary.projectsCount : 0,
     latestUpdatedAt: summary.latestUpdatedAt || "",
   };
 };
@@ -904,12 +937,9 @@ const loadWorkbenchBootstrap = async () => {
 };
 
 onMounted(async () => {
-  // mock 数据先呈现，避免首次进入主页有空白闪烁。
-  stats.value.completed = mockSessions.length;
-  stats.value.avgScore = Math.round(
-    mockSessions.reduce((acc, s) => acc + s.score, 0) / mockSessions.length
-  );
-  stats.value.lastAt = mockSessions[0].time;
+  // 原则 5：不预填 mock。所有数据从 bootstrap / sessions / presets 拉，失败走空态。
+  // 让 UI 真实反映「是否拿到数据」，不造「已有内容」的假象。
+  // 代价：首次进入会有 ~200ms 「空态 → 有数据」的闪烁（可接受），换取「0 数据态不造假」的系统诚实性。
 
   // 首选 bootstrap 一次拿完；失败时 fallback 到 profile + sessions 双调用。
   // interviewPresets 与 bootstrap 并行拉（独立端点 + 给题库卡用），失败不影响主流程。
@@ -2078,6 +2108,69 @@ onMounted(async () => {
 .wb-weak:hover {
   background: rgba(220, 155, 90, 0.12);
   border-color: rgba(220, 155, 90, 0.4);
+}
+
+/* ============ 雷达 0 数据态：骨架 + 引导文案 ============ */
+/* 设计原则（原则 5：不造 mock）：
+   后端 abilityRadar 返回空 / 全 0 时，不再画一个塌缩到中心的多边形 + 78/90 假评分；
+   而是显示「完成首场面试」骨架，让 5 维标签仍可见，但不暗示「已有评分」。 */
+.wb-radar-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 18px 12px 14px;
+  gap: 16px;
+}
+
+.wb-radar-empty-svg {
+  width: 100%;
+  max-width: 280px;
+  height: auto;
+  /* 整体 muted opacity 让它在视觉上像是「等待数据填充」的占位 */
+  opacity: 0.42;
+  user-select: none;
+}
+
+/* 骨架五边形：比真实雷达更淡的网格线 */
+.wb-radar-empty-grid polygon {
+  fill: none;
+  stroke: rgba(255, 255, 255, 0.06);
+  stroke-width: 1;
+}
+
+.wb-radar-empty-line {
+  stroke: rgba(255, 255, 255, 0.05);
+  stroke-width: 1;
+}
+
+/* 维度标签保留，但 muted；让用户知道未来雷达会展示哪 5 维 */
+.wb-radar-empty-label {
+  font: 500 11px var(--sans);
+  fill: rgba(255, 255, 255, 0.40);
+  letter-spacing: .02em;
+  user-select: none;
+}
+
+.wb-radar-empty-text {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  text-align: center;
+  /* 不要 margin-top：上方 svg gap 已经给了节奏 */
+}
+
+.wb-radar-empty-title {
+  font: 600 14px var(--display);
+  color: var(--t2);
+  letter-spacing: .01em;
+}
+
+.wb-radar-empty-sub {
+  font-size: 12.5px;
+  color: var(--t3);
+  line-height: 1.55;
 }
 
 /* ============ 响应式 ============ */
