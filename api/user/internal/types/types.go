@@ -756,6 +756,7 @@ type WorkbenchResumeSummary struct {
 	LatestTitle     string `json:"latestTitle,optional"`
 	LatestUpdatedAt string `json:"latestUpdatedAt,optional"`
 	ChunkCount      int64  `json:"chunkCount"`
+	ProjectsCount   int64  `json:"projectsCount"`
 }
 
 type WorkbenchStats struct {

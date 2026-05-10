@@ -195,8 +195,21 @@ limit 1`, userID)
 		if latest.UpdatedAt.Valid {
 			summary.LatestUpdatedAt = latest.UpdatedAt.Time.Format(timeLayout)
 		}
+		chunks, err := loadResumeArtifactChunks(l.ctx, l.svcCtx.DB, userID, latest.SessionId)
+		if err != nil {
+			return types.WorkbenchResumeSummary{}, err
+		}
+		summary.ProjectsCount = buildWorkbenchResumeProjectsCount(chunks)
 	}
 	return summary, nil
+}
+
+func buildWorkbenchResumeProjectsCount(chunks []resumeArtifactChunkRow) int64 {
+	contents := resumeChunkContents(chunks)
+	if len(contents) == 0 {
+		return 0
+	}
+	return int64(len(buildResumeProjectHighlights(contents)))
 }
 
 func (l *WorkbenchBootstrapLogic) buildKnowledgeSummary(userID int64) (types.WorkbenchKnowledgeSummary, error) {
