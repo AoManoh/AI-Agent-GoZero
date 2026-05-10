@@ -78,6 +78,12 @@ vendor/
 # 临时测试用脚本
 /scripts/
 
+# 前端运行时/导入用生成数据资产
+/client/public/data/
+
+# Playwright MCP 运行记录
+/.playwright-mcp/
+
 # openACE / ACE 本地索引与缓存：永远不进版本库
 # (实际缓存默认在 ~/.cache/openace-mcp，但兜底防止任何子目录意外生成)
 **/.openace/
