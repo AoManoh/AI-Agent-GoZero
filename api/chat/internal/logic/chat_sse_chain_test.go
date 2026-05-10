@@ -13,6 +13,7 @@ import (
 
 	chatAuth "GoZero-AI/api/chat/internal/auth"
 	"GoZero-AI/api/chat/internal/config"
+	"GoZero-AI/api/chat/internal/interviewer"
 	"GoZero-AI/api/chat/internal/svc"
 	types2 "GoZero-AI/api/chat/internal/types"
 	"GoZero-AI/internal/chatflow"
@@ -139,6 +140,134 @@ func TestChatSSEPromptResponsePersistenceAndStateFlow(t *testing.T) {
 	}
 	if snapshot.ExecutionState != chatflow.ExecutionIdle {
 		t.Fatalf("snapshot.ExecutionState = %q, want idle", snapshot.ExecutionState)
+	}
+}
+
+func TestChatSSEQuestionPracticeStuckInjectsGuidancePrompt(t *testing.T) {
+	mockLLM := newMockOpenAIServer(t, "没关系，我们先拆小一点：新旧 embedding 版本为什么不能共用同一个向量索引？")
+	defer mockLLM.close()
+
+	redisServer, err := miniredis.Run()
+	if err != nil {
+		t.Fatalf("miniredis.Run() error = %v", err)
+	}
+	defer redisServer.Close()
+
+	openAIConfig := openai.DefaultConfig("test-key")
+	openAIConfig.BaseURL = strings.TrimRight(mockLLM.URL, "/") + "/v1"
+	openAIClient := openai.NewClientWithConfig(openAIConfig)
+
+	fakePool := newChatFlowFakePool()
+	fakePool.sessionConfig = svc.SessionInterviewConfig{
+		DirectionKey:     "go_backend",
+		DirectionLabel:   "Go 后端",
+		DifficultyLevel:  5,
+		DifficultyLabel:  "专家",
+		InterviewerStyle: "mentor",
+		FocusAreas:       []byte(`[{"key":"rag","label":"RAG 架构"},{"key":"engineering","label":"工程实践"}]`),
+		FollowUpDepth:    "N+7",
+		EstimatedMinutes: 30,
+	}
+	fakePool.practiceContext = &svc.SessionPracticeContext{
+		QuestionKey:      "go-rag-embedding-version",
+		Source:           "bank",
+		QuestionSnapshot: "如果 embedding 模型升级导致向量维度和语义空间变化，你会如何在线迁移知识库并保证新旧检索不互相污染？",
+	}
+	fakePool.messages = append(fakePool.messages, types2.VectorMessage{
+		Role:    openai.ChatMessageRoleAssistant,
+		Content: fakePool.practiceContext.QuestionSnapshot,
+	})
+
+	ctx, cancel := context.WithTimeout(chatAuth.WithUserID(context.Background(), fakePool.userID), 3*time.Second)
+	defer cancel()
+
+	svcCtx := &svc.ServiceContext{
+		Config: config.Config{
+			OpenAI: config.OpenAIConfig{
+				BaseURL:             openAIConfig.BaseURL,
+				Model:               "mock-chat-model",
+				MaxCompletionTokens: 128,
+				Temperature:         0.2,
+			},
+			VectorDB: config.VectorDBConfig{
+				EmbeddingModel: "mock-embedding-model",
+				Knowledge: config.Knowledge{
+					TopK:             3,
+					MaxContextLength: 160,
+				},
+			},
+		},
+		OpenAIClient: openAIClient,
+		VectorStore: &svc.VectorStore{
+			Pool:           fakePool,
+			OpenAIClient:   openAIClient,
+			EmbeddingModel: "mock-embedding-model",
+		},
+		RedisClient: redisClientForTest(redisServer.Addr()),
+	}
+	defer svcCtx.RedisClient.Close()
+
+	logic := &ChatLogic{
+		Logger: logx.WithContext(ctx),
+		ctx:    ctx,
+		svcCtx: svcCtx,
+	}
+	stream, err := logic.Chat(&types2.InterviewAppChatReq{
+		ChatId:  "sess-practice-e2e",
+		Mode:    sessionmode.KeyInterview,
+		Message: "不知道",
+	})
+	if err != nil {
+		t.Fatalf("Chat() error = %v", err)
+	}
+
+	var response strings.Builder
+	var gotLatest bool
+	for chunk := range stream {
+		if chunk.IsLatest {
+			gotLatest = true
+			continue
+		}
+		if chunk.Event != "" {
+			continue
+		}
+		response.WriteString(chunk.Content)
+	}
+	if !gotLatest {
+		t.Fatal("stream never emitted final latest marker")
+	}
+	if got := response.String(); got != mockLLM.assistantReply {
+		t.Fatalf("stream response = %q, want %q", got, mockLLM.assistantReply)
+	}
+
+	capturedPrompt := mockLLM.capturedSystemPrompt()
+	for _, marker := range []string{
+		"当前场景: 题库练习",
+		"不进入正式面试评分",
+		"题库题目标识: go-rag-embedding-version",
+		"不主动切换下一题",
+		"stuck_count=1",
+		"help_offered=false",
+		"candidate_signal=candidate_stuck",
+		"候选人刚表示没有思路，先降低问题粒度",
+		"本轮一句短安抚后，只问一个更小的问题",
+	} {
+		if !strings.Contains(capturedPrompt, marker) {
+			t.Fatalf("captured prompt missing question practice marker %q:\n%s", marker, capturedPrompt)
+		}
+	}
+
+	stateManager := NewStateManager(ctx, svcCtx)
+	guidance, err := stateManager.loadPracticeGuidance(ConversationScope{
+		ChatID: "sess-practice-e2e",
+		UserID: &fakePool.userID,
+		Mode:   sessionmode.KeyInterview,
+	})
+	if err != nil {
+		t.Fatalf("loadPracticeGuidance() error = %v", err)
+	}
+	if guidance.StuckCount != 1 || guidance.LastSignal != interviewer.CandidateSignalStuck || guidance.TeachingMode {
+		t.Fatalf("practice guidance = %#v, want stuck_count=1 stuck signal teaching=false", guidance)
 	}
 }
 
@@ -396,9 +525,10 @@ func redisClientForTest(addr string) *redis.Client {
 }
 
 type chatFlowFakePool struct {
-	userID        int64
-	sessionConfig svc.SessionInterviewConfig
-	knowledgeRows [][]any
+	userID          int64
+	sessionConfig   svc.SessionInterviewConfig
+	practiceContext *svc.SessionPracticeContext
+	knowledgeRows   [][]any
 
 	mu       sync.Mutex
 	messages []types2.VectorMessage
@@ -483,6 +613,15 @@ func (p *chatFlowFakePool) QueryRow(_ context.Context, sql string, args ...any) 
 			cfg.FollowUpDepth,
 			cfg.EstimatedMinutes,
 			cfg.ProgressPercent,
+		}}
+	case strings.Contains(sql, "FROM session_question_events"):
+		if p.practiceContext == nil {
+			return chatFlowFakeRow{err: pgx.ErrNoRows}
+		}
+		return chatFlowFakeRow{values: []any{
+			p.practiceContext.QuestionKey,
+			p.practiceContext.Source,
+			p.practiceContext.QuestionSnapshot,
 		}}
 	default:
 		return chatFlowFakeRow{err: pgx.ErrNoRows}

@@ -27,10 +27,31 @@ type SessionConfig struct {
 	ProgressPercent       int64
 }
 
+const (
+	ScenarioFormalInterview  = "formal_interview"
+	ScenarioQuestionPractice = "question_practice"
+
+	CandidateSignalNone              = "none"
+	CandidateSignalStuck             = "candidate_stuck"
+	CandidateSignalTeachingRequested = "teaching_requested"
+	CandidateSignalSubstantiveAnswer = "substantive_answer"
+)
+
+type ScenarioConfig struct {
+	Type             string
+	QuestionKey      string
+	QuestionSnapshot string
+	StuckCount       int
+	HelpOffered      bool
+	TeachingMode     bool
+	CandidateSignal  string
+}
+
 type BuildInput struct {
 	ChatID            string
 	State             string
 	Session           *SessionConfig
+	Scenario          *ScenarioConfig
 	Knowledge         []KnowledgeChunk
 	MaxKnowledgeRunes int
 }

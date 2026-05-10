@@ -76,6 +76,12 @@ type SessionInterviewConfig struct {
 	ProgressPercent       int64
 }
 
+type SessionPracticeContext struct {
+	QuestionKey      string
+	Source           string
+	QuestionSnapshot string
+}
+
 type KnowledgeDocument struct {
 	DocumentID int64
 	OwnerID    int64
@@ -744,6 +750,29 @@ LIMIT 1`, chatId, *userID)
 		return SessionInterviewConfig{}, false, err
 	}
 	return config, true, nil
+}
+
+func (vs *VectorStore) LoadSessionPracticeContext(ctx context.Context, chatId string, userID *int64) (SessionPracticeContext, bool, error) {
+	if userID == nil || strings.TrimSpace(chatId) == "" {
+		return SessionPracticeContext{}, false, nil
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	var practice SessionPracticeContext
+	row := vs.Pool.QueryRow(ctx, `SELECT question_key, source, question_snapshot
+FROM session_question_events
+WHERE session_id = $1 AND user_id = $2 AND source = 'bank'
+ORDER BY turn_index ASC
+LIMIT 1`, chatId, *userID)
+	if err := row.Scan(&practice.QuestionKey, &practice.Source, &practice.QuestionSnapshot); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return SessionPracticeContext{}, false, nil
+		}
+		return SessionPracticeContext{}, false, err
+	}
+	return practice, true, nil
 }
 
 func ensureSessionWritable(ctx context.Context, db execQuerier, chatId string, userID int64) error {

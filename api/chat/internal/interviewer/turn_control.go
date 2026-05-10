@@ -11,7 +11,7 @@ type turnControl struct {
 	SelfCheck      string
 }
 
-func buildTurnControl(state string, domain DomainProfile, difficulty difficultyProfile, focusLabels []string) turnControl {
+func buildTurnControl(state string, domain DomainProfile, difficulty difficultyProfile, focusLabels []string, scenario ScenarioConfig) turnControl {
 	normalizedState := trimSpace(state)
 	if normalizedState == "" {
 		normalizedState = "question"
@@ -56,7 +56,48 @@ func buildTurnControl(state string, domain DomainProfile, difficulty difficultyP
 	if difficulty.Level >= 4 && normalizedState != "end" {
 		control.EvidenceTarget += " 难度按资深级处理，关注容量边界、资源生命周期、故障隔离或可验证证据。"
 	}
+	applyScenarioTurnControl(&control, scenario)
 	return control
+}
+
+func applyScenarioTurnControl(control *turnControl, scenario ScenarioConfig) {
+	if control == nil || scenario.Type != ScenarioQuestionPractice {
+		return
+	}
+
+	control.ForbiddenMoves = append(control.ForbiddenMoves,
+		"不要跳到下一道题或另起主题。",
+		"不要直接给完整标准答案、完整方案清单或长篇教学。",
+	)
+	control.SelfCheck += " 如果是题库练习，额外检查是否仍围绕当前题、是否没有跳题、是否没有替候选人答完整答案。"
+
+	if scenario.TeachingMode {
+		control.Objective = "围绕当前题进入分步教学，但仍保持引导式节奏。"
+		control.EvidenceTarget = "本轮只讲清一个关键点，并通过一个检查问题确认候选人是否跟上。"
+		control.QuestionBudget = "本轮最多解释一个小概念或一个决策点；结尾只问一个检查问题。"
+		return
+	}
+
+	if scenario.CandidateSignal != CandidateSignalStuck {
+		control.Objective = "围绕题库当前题继续练习，用一个问题推动候选人表达自己的分析。"
+		control.EvidenceTarget = "观察候选人对当前题核心机制、迁移边界或隔离策略的理解。"
+		return
+	}
+
+	switch {
+	case scenario.StuckCount >= 3:
+		control.Objective = "候选人已连续卡住，先确认是否需要详细讲解，不再继续加压追问。"
+		control.EvidenceTarget = "获取候选人是否同意进入讲解模式的明确反馈。"
+		control.QuestionBudget = "本轮只问是否需要详细讲解；不要讲完整答案，不要切换题目。"
+	case scenario.StuckCount == 2:
+		control.Objective = "候选人再次卡住，给一个很小提示后继续引导。"
+		control.EvidenceTarget = "只引导候选人说出当前题的一个关键切分维度。"
+		control.QuestionBudget = "本轮先给一句很小提示，再问一个更小的问题；总长度控制在 120 字以内。"
+	default:
+		control.Objective = "候选人刚表示没有思路，先降低问题粒度。"
+		control.EvidenceTarget = "让候选人先说出第一步判断，而不是完整方案。"
+		control.QuestionBudget = "本轮一句短安抚后，只问一个更小的问题；不要给答案。"
+	}
 }
 
 func primaryFocusLabel(labels []string) string {

@@ -145,6 +145,72 @@ func TestBuildPromptUsesStateAwareTurnControl(t *testing.T) {
 	}
 }
 
+func TestBuildPromptIncludesQuestionPracticeStuckGuidance(t *testing.T) {
+	prompt := BuildPrompt(BuildInput{
+		ChatID: "question-practice-session",
+		State:  "follow_up",
+		Session: &SessionConfig{
+			DirectionKey:     "go_backend",
+			DifficultyLevel:  5,
+			InterviewerStyle: "mentor",
+		},
+		Scenario: &ScenarioConfig{
+			Type:            ScenarioQuestionPractice,
+			QuestionKey:     "go-rag-embedding-version",
+			StuckCount:      1,
+			CandidateSignal: CandidateSignalStuck,
+		},
+	})
+
+	for _, want := range []string{
+		"当前场景: 题库练习",
+		"不进入正式面试评分",
+		"当前题目已经作为历史 assistant 消息出现",
+		"不主动切换下一题",
+		"不要给完整标准答案",
+		"stuck_count=1",
+		"candidate_signal=candidate_stuck",
+		"候选人刚表示没有思路，先降低问题粒度",
+		"本轮一句短安抚后，只问一个更小的问题",
+		"不要直接给完整标准答案、完整方案清单或长篇教学",
+	} {
+		if !strings.Contains(prompt.SystemMessage, want) {
+			t.Fatalf("prompt missing question practice marker %q:\n%s", want, prompt.SystemMessage)
+		}
+	}
+}
+
+func TestBuildPromptIncludesQuestionPracticeTeachingMode(t *testing.T) {
+	prompt := BuildPrompt(BuildInput{
+		ChatID: "question-practice-teaching-session",
+		State:  "follow_up",
+		Session: &SessionConfig{
+			DirectionKey:     "go_backend",
+			DifficultyLevel:  4,
+			InterviewerStyle: "mentor",
+		},
+		Scenario: &ScenarioConfig{
+			Type:            ScenarioQuestionPractice,
+			QuestionKey:     "go-rag-embedding-version",
+			TeachingMode:    true,
+			CandidateSignal: CandidateSignalTeachingRequested,
+		},
+	})
+
+	for _, want := range []string{
+		"teaching_mode=true",
+		"candidate_signal=teaching_requested",
+		"采用分步自问自答或引导式讲解",
+		"围绕当前题进入分步教学",
+		"本轮最多解释一个小概念或一个决策点",
+		"结尾只问一个检查问题",
+	} {
+		if !strings.Contains(prompt.SystemMessage, want) {
+			t.Fatalf("prompt missing teaching mode marker %q:\n%s", want, prompt.SystemMessage)
+		}
+	}
+}
+
 func TestBuildPromptIncludesFrontendVueQualityCues(t *testing.T) {
 	prompt := BuildPrompt(BuildInput{
 		ChatID: "frontend-session",

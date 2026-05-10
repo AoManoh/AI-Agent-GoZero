@@ -251,8 +251,20 @@ func (l *ChatLogic) Chat(req *types2.InterviewAppChatReq) (<-chan *types2.ChatRe
 		} else if err != nil {
 			l.Logger.Errorf("读取会话配置失败: %v", err)
 		}
+		var scenarioConfig *interviewer.ScenarioConfig
+		if practiceContext, found, err := l.svcCtx.VectorStore.LoadSessionPracticeContext(l.ctx, req.ChatId, scopedUserID); err == nil && found {
+			guidance, err := stateManager.UpdatePracticeGuidance(scope, req.Message)
+			if err != nil {
+				l.Logger.Errorf("更新题库练习引导状态失败: %v", err)
+				guidance = defaultPracticeGuidanceSnapshot()
+			}
+			scenario := practiceScenarioConfig(practiceContext, guidance)
+			scenarioConfig = &scenario
+		} else if err != nil {
+			l.Logger.Errorf("读取题库练习上下文失败: %v", err)
+		}
 
-		openSession, err := l.buildMessagesWithState(req.ChatId, currentState, knowledgeChunks, scopedUserID, sessionConfig)
+		openSession, err := l.buildMessagesWithState(req.ChatId, currentState, knowledgeChunks, scopedUserID, sessionConfig, scenarioConfig)
 		if err != nil {
 			l.Logger.Errorf("构建消息失败: %v", err)
 			_, _ = stateManager.UpdateExecutionState(scope, chatflow.ExecutionFailed, "build_messages_failed")
@@ -521,11 +533,12 @@ func (l *ChatLogic) getSessionHistory(chatId string, knowledge []types2.Knowledg
 //
 //	[]openai.ChatCompletionMessage: 包含状态感知系统消息和历史对话的完整上下文
 //	error: 历史消息检索失败或上下文构建异常
-func (l *ChatLogic) buildMessagesWithState(chatId, currentState string, knowledge []types2.KnowledgeChunk, userID *int64, sessionConfig *svc.SessionInterviewConfig) ([]openai.ChatCompletionMessage, error) {
+func (l *ChatLogic) buildMessagesWithState(chatId, currentState string, knowledge []types2.KnowledgeChunk, userID *int64, sessionConfig *svc.SessionInterviewConfig, scenarioConfig *interviewer.ScenarioConfig) ([]openai.ChatCompletionMessage, error) {
 	prompt := interviewer.BuildPrompt(interviewer.BuildInput{
 		ChatID:            chatId,
 		State:             currentState,
 		Session:           buildInterviewerSessionConfig(sessionConfig),
+		Scenario:          scenarioConfig,
 		Knowledge:         buildInterviewerKnowledge(knowledge),
 		MaxKnowledgeRunes: l.svcCtx.Config.VectorDB.Knowledge.MaxContextLength,
 	})

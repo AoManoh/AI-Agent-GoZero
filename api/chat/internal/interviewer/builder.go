@@ -55,12 +55,13 @@ var difficultyProfiles = map[int64]difficultyProfile{
 
 func BuildPrompt(input BuildInput) Prompt {
 	session := normalizeSession(input.Session)
+	scenario := normalizeScenario(input.Scenario)
 	domain := ResolveDomain(session.DirectionKey, session.DirectionLabel)
 	style := SelectStyleByKey(session.InterviewerStyle, input.ChatID)
 	focusLabels := resolveFocusLabels(session.FocusAreas, domain)
 	difficulty := resolveDifficulty(session.DifficultyLevel, session.DifficultyLabel)
 	followUpDepth := defaultString(session.FollowUpDepth, difficulty.FollowUp)
-	turnControl := buildTurnControl(input.State, domain, difficulty, focusLabels)
+	turnControl := buildTurnControl(input.State, domain, difficulty, focusLabels, scenario)
 	estimatedMinutes := session.EstimatedMinutes
 	if estimatedMinutes <= 0 {
 		estimatedMinutes = 30
@@ -73,6 +74,7 @@ func BuildPrompt(input BuildInput) Prompt {
 	sb.WriteString("\n\n")
 	sb.WriteString(BuildStylePrompt(style))
 	writeSessionConfig(&sb, session, domain, difficulty, focusLabels, followUpDepth, estimatedMinutes)
+	writeScenarioPolicy(&sb, scenario)
 	writeInterviewStrategy(&sb)
 	writeCurrentTask(&sb, input.State, style)
 	writeTurnControl(&sb, turnControl)
@@ -177,6 +179,28 @@ func writeSessionConfig(sb *strings.Builder, session SessionConfig, domain Domai
 	sb.WriteString("- 执行要求: 每轮问题优先围绕方向、难度和侧重点展开；候选人回答空泛时，要求补充具体机制、边界条件、项目证据或失败复盘。")
 }
 
+func writeScenarioPolicy(sb *strings.Builder, scenario ScenarioConfig) {
+	sb.WriteString("\n\n# 场景策略\n")
+	switch scenario.Type {
+	case ScenarioQuestionPractice:
+		sb.WriteString("- 当前场景: 题库练习；目标是帮助候选人掌握当前题，不进入正式面试评分。\n")
+		if scenario.QuestionKey != "" {
+			sb.WriteString("- 题库题目标识: ")
+			sb.WriteString(scenario.QuestionKey)
+			sb.WriteString("\n")
+		}
+		sb.WriteString("- 当前题目已经作为历史 assistant 消息出现；围绕这道题继续推进，不主动切换下一题。\n")
+		sb.WriteString("- 候选人回答“不知道”“不会”“没思路”时，不要给完整标准答案；先用一句话安抚，再把题目拆成一个更小的问题。\n")
+		sb.WriteString("- 连续卡住 2 轮时，只给一个很小提示，并继续问一个可回答的小问题。\n")
+		sb.WriteString("- 连续卡住 3 轮及以上时，先询问是否需要详细讲解；用户同意前不要进入长篇教学。\n")
+		sb.WriteString("- 教学模式开启后，采用分步自问自答或引导式讲解，每轮只讲一个概念或一个决策点，并用一个检查问题收尾。\n")
+		sb.WriteString(fmt.Sprintf("- 练习状态: stuck_count=%d, help_offered=%t, teaching_mode=%t, candidate_signal=%s。", scenario.StuckCount, scenario.HelpOffered, scenario.TeachingMode, defaultString(scenario.CandidateSignal, CandidateSignalNone)))
+	default:
+		sb.WriteString("- 当前场景: 正式模拟面试；保持评估导向，用问题观察候选人能力，不主动进入教学模式。\n")
+		sb.WriteString("- 候选人卡住时，可以给一个很小提示继续观察推理过程，但不要替候选人完成答案。")
+	}
+}
+
 func writeInterviewStrategy(sb *strings.Builder) {
 	sb.WriteString("\n\n# 提问与评估策略\n")
 	sb.WriteString("- 技术深挖: 从“是什么”推进到“为什么”“怎么落地”“边界在哪里”“如何验证”。\n")
@@ -254,6 +278,35 @@ func normalizeSession(session *SessionConfig) SessionConfig {
 		}
 	}
 	return *session
+}
+
+func normalizeScenario(scenario *ScenarioConfig) ScenarioConfig {
+	if scenario == nil {
+		return ScenarioConfig{
+			Type:            ScenarioFormalInterview,
+			CandidateSignal: CandidateSignalNone,
+		}
+	}
+	normalized := *scenario
+	normalized.Type = normalizeKey(normalized.Type)
+	if normalized.Type == "" {
+		normalized.Type = ScenarioFormalInterview
+	}
+	if normalized.Type != ScenarioQuestionPractice {
+		normalized.Type = ScenarioFormalInterview
+		normalized.TeachingMode = false
+		normalized.StuckCount = 0
+	}
+	if normalized.StuckCount < 0 {
+		normalized.StuckCount = 0
+	}
+	normalized.CandidateSignal = normalizeKey(normalized.CandidateSignal)
+	if normalized.CandidateSignal == "" {
+		normalized.CandidateSignal = CandidateSignalNone
+	}
+	normalized.QuestionKey = trimSpace(normalized.QuestionKey)
+	normalized.QuestionSnapshot = trimSpace(normalized.QuestionSnapshot)
+	return normalized
 }
 
 func resolveFocusLabels(areas []FocusArea, domain DomainProfile) []string {
