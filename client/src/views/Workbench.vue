@@ -137,39 +137,44 @@
         </aside>
       </section>
 
-      <!-- ============ 4 张快捷入口卡 ============ -->
-      <section class="wb-quick" aria-label="快捷入口">
-        <article class="wb-qcard wb-qcard-resume">
+      <!-- ============ 4 业务领域状态卡 ============ -->
+      <!--
+        信息架构定位（详见 docs/requirements/2026-05-10-workbench-information-architecture.md）：
+        - Hero 多态卡 = 时间维度（"我此刻该做什么"，已隐含面试领域陈述）
+        - 4 业务卡 = 空间维度（"4 个非面试支撑业务的当前进度"）
+        - 删除「继续上次」「新建面试」两旧卡（与 Hero S2 / 顶 nav CTA 重复）
+        - 新增「报告中心」「知识库」两缺口卡（暴露后端已就绪但前端无入口的子产品）
+        - 「简历」「题库」保留并升级为业务陈述卡，主数字 amber gradient text 作视觉锚
+      -->
+      <section class="wb-quick" aria-label="业务领域状态">
+        <!-- ## 卡 1：报告中心（暴露 ReportCenter 子产品入口） ## -->
+        <article class="wb-qcard wb-qcard-report">
           <div class="wb-qcard-head">
-            <span class="wb-qcard-icon" aria-hidden="true">⏵</span>
-            <span class="wb-qcard-tag wb-tag-amber">进行中</span>
+            <span class="wb-qcard-icon" aria-hidden="true">
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round">
+                <path d="M2.5 13.5h11" stroke-linecap="round" />
+                <rect x="3.5" y="8" width="2" height="5" />
+                <rect x="7" y="5" width="2" height="8" />
+                <rect x="10.5" y="9.5" width="2" height="3.5" />
+                <path d="M3.5 4.5l3.5-2.5 3 2 3-3" stroke-linecap="round" />
+              </svg>
+            </span>
+            <span class="wb-qcard-tag" :class="{ 'wb-tag-amber': hasReports }">{{ reportsTag }}</span>
           </div>
-          <h3 class="wb-qcard-title">继续上次面试</h3>
-          <p class="wb-qcard-desc">{{ resumeDirection }} · {{ resumeDifficulty }}</p>
-          <div class="wb-progress" role="progressbar" :aria-valuenow="resumeProgress" aria-valuemin="0" aria-valuemax="100">
-            <div class="wb-progress-bar" :style="{ width: resumeProgress + '%' }"></div>
-          </div>
-          <div class="wb-qcard-foot">
-            <span class="wb-qcard-meta">已完成 {{ resumeProgress }}%</span>
-            <router-link :to="resumeLink" class="wb-qcard-link">继续 →</router-link>
-          </div>
-        </article>
-
-        <article class="wb-qcard wb-qcard-new">
-          <div class="wb-qcard-head">
-            <span class="wb-qcard-icon" aria-hidden="true">+</span>
-            <span class="wb-qcard-tag">立即开始</span>
-          </div>
-          <h3 class="wb-qcard-title">新建面试</h3>
-          <p class="wb-qcard-desc">选择岗位、难度和重点方向，一键开练。</p>
+          <h3 class="wb-qcard-title">报告中心</h3>
+          <p class="wb-qcard-desc" v-if="hasReports">
+            <span class="wb-qcard-num">{{ stats.completed }}</span> 份报告 · 平均 {{ stats.avgScore }} 分
+          </p>
+          <p class="wb-qcard-desc" v-else>完成首场面试后，这里会显示能力分析与复盘建议。</p>
           <div class="wb-qcard-spacer"></div>
           <div class="wb-qcard-foot">
-            <span class="wb-qcard-meta">3 步配置完成</span>
-            <router-link to="/workbench/new" class="wb-qcard-link">体验 →</router-link>
+            <span class="wb-qcard-meta">{{ reportsMeta }}</span>
+            <router-link :to="reportsLink" class="wb-qcard-link">{{ reportsCta }} →</router-link>
           </div>
         </article>
 
-        <article class="wb-qcard wb-qcard-doc">
+        <!-- ## 卡 2：简历库（消费 bootstrapData.resumeSummary） ## -->
+        <article class="wb-qcard wb-qcard-resume">
           <div class="wb-qcard-head">
             <span class="wb-qcard-icon" aria-hidden="true">
               <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round">
@@ -181,15 +186,43 @@
             </span>
             <span class="wb-qcard-tag">{{ resumeStatus }}</span>
           </div>
-          <h3 class="wb-qcard-title">简历</h3>
-          <p class="wb-qcard-desc">{{ resumeName || '上传简历后 AI 会针对项目深度追问' }}</p>
+          <h3 class="wb-qcard-title">简历库</h3>
+          <p class="wb-qcard-desc" v-if="hasResume">
+            <span class="wb-qcard-num">{{ resumeTotal }}</span> 份 · {{ resumeChunkCount }} 片段已入库
+          </p>
+          <p class="wb-qcard-desc" v-else>上传简历后，AI 会基于项目经历做深度追问。</p>
           <div class="wb-qcard-spacer"></div>
           <div class="wb-qcard-foot">
-            <span class="wb-qcard-meta">{{ resumeProjectsHint }}</span>
-            <router-link to="/workbench/resume" class="wb-qcard-link">管理 →</router-link>
+            <span class="wb-qcard-meta">{{ resumeMeta }}</span>
+            <router-link to="/workbench/resume" class="wb-qcard-link">{{ resumeCta }} →</router-link>
           </div>
         </article>
 
+        <!-- ## 卡 3：知识库（消费 bootstrapData.knowledgeSummary） ## -->
+        <article class="wb-qcard wb-qcard-knowledge">
+          <div class="wb-qcard-head">
+            <span class="wb-qcard-icon" aria-hidden="true">
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round">
+                <path d="M3 2.5h6.5L13 5.5v8H3z" />
+                <path d="M3 11.5h10" />
+                <path d="M5 5.5h3M5 8h5" stroke-linecap="round" />
+              </svg>
+            </span>
+            <span class="wb-qcard-tag">{{ knowledgeTag }}</span>
+          </div>
+          <h3 class="wb-qcard-title">知识库</h3>
+          <p class="wb-qcard-desc" v-if="hasKnowledge">
+            <span class="wb-qcard-num">{{ knowledgeDocuments }}</span> 篇 · {{ knowledgeChunks }} 块
+          </p>
+          <p class="wb-qcard-desc" v-else>上传文档后，AI 会在面试时引用你提供的资料。</p>
+          <div class="wb-qcard-spacer"></div>
+          <div class="wb-qcard-foot">
+            <span class="wb-qcard-meta">{{ knowledgeMeta }}</span>
+            <router-link to="/workbench/knowledge" class="wb-qcard-link">{{ knowledgeCta }} →</router-link>
+          </div>
+        </article>
+
+        <!-- ## 卡 4：题库（消费 interviewPresets.directions[].questionCount 累加） ## -->
         <article class="wb-qcard wb-qcard-bank">
           <div class="wb-qcard-head">
             <span class="wb-qcard-icon" aria-hidden="true">
@@ -199,13 +232,15 @@
                 <path d="M9.6 4.2l3.4 .8v9l-3.4-.8z" />
               </svg>
             </span>
-            <span class="wb-qcard-tag">{{ stats.bankCount }}+ 题</span>
+            <span class="wb-qcard-tag">题库</span>
           </div>
           <h3 class="wb-qcard-title">题库浏览</h3>
-          <p class="wb-qcard-desc">按方向、难度、能力筛选，看真实题目预演。</p>
+          <p class="wb-qcard-desc">
+            <span class="wb-qcard-num">{{ bankTotalQuestions }}</span> 题 · {{ bankDirectionsCount }} 个方向
+          </p>
           <div class="wb-qcard-spacer"></div>
           <div class="wb-qcard-foot">
-            <span class="wb-qcard-meta">已收录 6 个方向</span>
+            <span class="wb-qcard-meta">按方向 / 难度筛选</span>
             <router-link to="/workbench/bank" class="wb-qcard-link">浏览 →</router-link>
           </div>
         </article>
@@ -352,16 +387,20 @@ const stats = ref({
 // 设计上保留指针/数组/嵌套对象的原貌，避免 stats 扁平化丢失字段。
 const bootstrapData = ref(null);
 
-// === 继续上次面试卡片数据 ===
-const resumeDirection = ref("Go 后端");
-const resumeDifficulty = ref("中级难度");
-const resumeProgress = ref(60);
-const resumeLink = ref("/workbench/new");
+// === 4 业务领域状态卡所需数据源 ===
+// 旧的 resumeDirection/Difficulty/Progress/Link 已删除（功能被 Hero S2 完全覆盖）
+// 旧的 resumeName/Status/ProjectsHint 已重构为基于 resumeSummary 派生的 computed
 
-// === 简历卡片数据 ===
-const resumeName = ref("");
-const resumeStatus = ref("未上传");
-const resumeProjectsHint = ref("上传后开启项目深度追问");
+// 简历摘要：从 bootstrapData.resumeSummary 派生，0 数据态在 computed 处理
+// （applyResumeSummary 已存在，只把字段映射到这里使用）
+const resumeSummary = ref({ total: 0, latestTitle: "", chunkCount: 0, latestUpdatedAt: "" });
+
+// 知识库摘要：bootstrapData.knowledgeSummary 派生（之前完全没消费）
+const knowledgeSummary = ref({ documents: 0, chunks: 0, latestTitle: "", latestAddedAt: "" });
+
+// 面试 presets（题库卡数据源）：从 /api/users/interview/presets 拉，directions[].questionCount 累加
+// 后端入库 1614 题后 questionCount 自动从 DB 派生，前端代码无需改
+const interviewPresets = ref({ directions: [], difficulties: [], focusOptions: [] });
 
 // === 最近面试列表：mock，onMounted 接入 /users/sessions 后覆盖 ===
 const mockSessions = [
@@ -596,7 +635,7 @@ const heroState = computed(() => {
       title: next.label || "下一步建议",
       description: next.description || "",
       ctaLabel: "立即开始",
-      link: next.route || "/workbench/new",
+      link: normalizeWorkbenchRoute(next.route || "/workbench/new"),
     };
   }
   return {
@@ -607,6 +646,77 @@ const heroState = computed(() => {
     link: "/workbench/new",
   };
 });
+
+const normalizeWorkbenchRoute = (route) => {
+  const value = String(route || "").trim();
+  const routeMap = {
+    "/interview/new": "/workbench/new",
+    "/resume": "/workbench/resume",
+    "/knowledge": "/workbench/knowledge",
+    // /reports 与 /workbench/reports 都映射到新增的报告中心路由
+    "/reports": "/workbench/reports",
+    "/workbench/reports": "/workbench/reports",
+  };
+  return routeMap[value] || value || "/workbench/new";
+};
+
+// ============ 4 业务领域状态卡 computed 派生 ============
+// 设计原则：每张卡都有 hasXxx 判断 0 数据态，文案 / CTA / link 都通过 computed 派生
+// 让 template 保持声明式，所有业务逻辑（如"完成首场后跳哪里"）集中在 script 里维护。
+
+// === 卡 1：报告中心 ===
+// 0 数据态（决策 4=B）：显示「完成首场面试后查看分析」+ CTA 跳 /workbench/new
+// 有数据态：显示「N 份报告 · 平均 X 分」+ CTA 跳 /workbench/reports（决策 5=A：占位 SFC）
+const hasReports = computed(() => stats.value.completed > 0);
+const reportsTag = computed(() => (hasReports.value ? "已生成" : "等待数据"));
+const reportsLink = computed(() => (hasReports.value ? "/workbench/reports" : "/workbench/new"));
+const reportsCta = computed(() => (hasReports.value ? "看分析" : "去面试"));
+const reportsMeta = computed(() => {
+  if (!hasReports.value) return "暂未生成";
+  return stats.value.lastAt && stats.value.lastAt !== "暂无"
+    ? `上次 ${stats.value.lastAt}`
+    : "已就绪";
+});
+
+// === 卡 2：简历库 ===
+// 0 数据态：显示「上传简历后 AI 基于项目经历追问」+ CTA "上传 →"
+// 有数据态：显示「N 份 · M 片段已入库」+ CTA "管理 →"
+const hasResume = computed(() => resumeSummary.value.total > 0);
+const resumeStatus = computed(() => (hasResume.value ? "已上传" : "未上传"));
+const resumeTotal = computed(() => resumeSummary.value.total || 0);
+const resumeChunkCount = computed(() => resumeSummary.value.chunkCount || 0);
+const resumeMeta = computed(() => {
+  if (!hasResume.value) return "上传后开启项目深度追问";
+  return resumeSummary.value.latestTitle
+    ? `最新：${resumeSummary.value.latestTitle}`
+    : "已分析";
+});
+const resumeCta = computed(() => (hasResume.value ? "管理" : "上传"));
+
+// === 卡 3：知识库 ===
+// 0 数据态：显示「上传文档后 AI 引用资料」+ CTA "上传 →"
+// 有数据态：显示「N 篇 · M 块」+ CTA "管理 →"
+const hasKnowledge = computed(() => knowledgeSummary.value.documents > 0);
+const knowledgeTag = computed(() => (hasKnowledge.value ? "已入库" : "未上传"));
+const knowledgeDocuments = computed(() => knowledgeSummary.value.documents || 0);
+const knowledgeChunks = computed(() => knowledgeSummary.value.chunks || 0);
+const knowledgeMeta = computed(() => {
+  if (!hasKnowledge.value) return "支持 PDF / 文本资料";
+  return knowledgeSummary.value.latestTitle
+    ? `最新：${knowledgeSummary.value.latestTitle}`
+    : "已就绪";
+});
+const knowledgeCta = computed(() => (hasKnowledge.value ? "管理" : "上传"));
+
+// === 卡 4：题库 ===
+// 数据源：interviewPresets.directions[].questionCount 累加
+// 后端入库 1614 题后 questionCount 自动从 DB 派生，前端代码无需改
+const bankTotalQuestions = computed(() => {
+  const dirs = interviewPresets.value.directions || [];
+  if (dirs.length === 0) return stats.value.bankCount || 0;
+  return dirs.reduce((sum, d) => sum + (typeof d.questionCount === "number" ? d.questionCount : 0), 0);
+});
+const bankDirectionsCount = computed(() => (interviewPresets.value.directions || []).length);
 
 // === 时间格式化（绝对时间戳 → "2 小时前" / "昨天" / "3 天前" 等） ===
 const formatRelativeTime = (timestamp) => {
@@ -678,9 +788,6 @@ const loadSessions = async () => {
       return;
     }
     recentSessions.value = list.slice(0, 5).map(toRecentSessionRow);
-    if (recentSessions.value[0]?.id) {
-      resumeLink.value = recentSessions.value[0].link;
-    }
 
     // 聚合统计
     stats.value.completed = list.length;
@@ -697,18 +804,8 @@ const loadSessions = async () => {
   }
 };
 
-// 用成续会话覆盖 “继续上次面试” 卡片的默认文案。
-const applyContinueSession = (cont) => {
-  if (!cont) return;
-  const cfg = cont.config || {};
-  if (cfg.directionLabel) resumeDirection.value = cfg.directionLabel;
-  if (cfg.difficultyLabel) resumeDifficulty.value = cfg.difficultyLabel;
-  if (typeof cont.progress === "number") {
-    resumeProgress.value = Math.max(0, Math.min(100, cont.progress));
-  }
-  const sid = cont.session?.sessionId || cont.session?.id;
-  if (sid) resumeLink.value = `/chat?sessionId=${encodeURIComponent(sid)}`;
-};
+// applyContinueSession 已删除：旧 4 卡的「继续上次面试」与 Hero S2 多态卡 100% 功能重复，
+// 现在只由 heroState computed 处理 continueSession，4 卡区不再消费此字段。
 
 // 用后端返回的能力雷达覆盖本地 5 维默认。维持 5 个项以避免雷达多边形变形。
 const applyAbilityRadar = (points) => {
@@ -726,17 +823,42 @@ const applyAbilityRadar = (points) => {
   radarDims.value = next;
 };
 
-// 用简历摘要覆盖主页 “简历” 快捷卡。
+// 用后端简历摘要覆盖卡片数据源。新版 4 卡的简历库卡通过 computed 派生展示文案。
 const applyResumeSummary = (summary) => {
   if (!summary) return;
-  if (summary.latestTitle) {
-    resumeName.value = summary.latestTitle;
-  }
-  if (typeof summary.total === "number" && summary.total > 0) {
-    resumeStatus.value = "已上传";
-    resumeProjectsHint.value = summary.chunkCount > 0
-      ? `${summary.total} 份简历 · ${summary.chunkCount} 片段已入库`
-      : `${summary.total} 份简历`;
+  resumeSummary.value = {
+    total: typeof summary.total === "number" ? summary.total : 0,
+    latestTitle: summary.latestTitle || "",
+    chunkCount: typeof summary.chunkCount === "number" ? summary.chunkCount : 0,
+    latestUpdatedAt: summary.latestUpdatedAt || "",
+  };
+};
+
+// 用后端知识库摘要覆盖卡片数据源（之前完全没消费这个字段）。
+const applyKnowledgeSummary = (summary) => {
+  if (!summary) return;
+  knowledgeSummary.value = {
+    documents: typeof summary.documents === "number" ? summary.documents : 0,
+    chunks: typeof summary.chunks === "number" ? summary.chunks : 0,
+    latestTitle: summary.latestTitle || "",
+    latestAddedAt: summary.latestAddedAt || "",
+  };
+};
+
+// 拉 interviewPresets，给题库卡提供方向数 + 题数累加。
+// 这个端点在 WorkbenchNew.vue 也用，但工作台首页是 4 卡的题库卡专用入口，
+// 因此 onMounted 中独立调用一次（小数据 + 高复用，不需要 store 缓存）。
+const loadInterviewPresets = async () => {
+  try {
+    const res = await apiService.user.interviewPresets();
+    if (!res) return;
+    interviewPresets.value = {
+      directions: Array.isArray(res.directions) ? res.directions : [],
+      difficulties: Array.isArray(res.difficulties) ? res.difficulties : [],
+      focusOptions: Array.isArray(res.focusOptions) ? res.focusOptions : [],
+    };
+  } catch (error) {
+    // 静默降级：computed 在 directions=[] 时显示「采集中」占位文案。
   }
 };
 
@@ -764,15 +886,13 @@ const loadWorkbenchBootstrap = async () => {
       }
     }
 
-    applyContinueSession(res.continueSession);
+    // continueSession 由 heroState computed 直接读 bootstrapData，不再有 applyContinueSession
     applyAbilityRadar(res.abilityRadar);
     applyResumeSummary(res.resumeSummary);
+    applyKnowledgeSummary(res.knowledgeSummary);
 
     if (Array.isArray(res.recentSessions) && res.recentSessions.length > 0) {
       recentSessions.value = res.recentSessions.slice(0, 5).map(toRecentSessionRow);
-      if (!res.continueSession && recentSessions.value[0]?.link) {
-        resumeLink.value = recentSessions.value[0].link;
-      }
       if (recentSessions.value[0]) {
         stats.value.lastAt = recentSessions.value[0].time;
       }
@@ -791,8 +911,12 @@ onMounted(async () => {
   );
   stats.value.lastAt = mockSessions[0].time;
 
-  // 首选 bootstrap 一次拿完；失败时测陛 fallback 到 profile + sessions 双调用。
-  const ok = await loadWorkbenchBootstrap();
+  // 首选 bootstrap 一次拿完；失败时 fallback 到 profile + sessions 双调用。
+  // interviewPresets 与 bootstrap 并行拉（独立端点 + 给题库卡用），失败不影响主流程。
+  const [ok] = await Promise.all([
+    loadWorkbenchBootstrap(),
+    loadInterviewPresets(),
+  ]);
   if (!ok) {
     loadProfile();
     loadSessions();
@@ -1419,42 +1543,47 @@ onMounted(async () => {
   background: rgba(255, 255, 255, 0.1);
 }
 
-/* ============ 4 张快捷入口卡 ============ */
+/* ============ 4 业务领域状态卡 ============ */
+/* 设计定位（详见 docs/requirements/2026-05-10-workbench-information-architecture.md）：
+   - 与 Hero v2 的 wb-card 同源质感（哑光黑 + 多层 shadow + radius 20）但薄一点（min-height 220 变 240）
+   - 保持"hero 厚 / 4 卡薄"的视觉层级
+   - amber accent 仅在「主数字」上使用 gradient text，让 1614 / 348 / N 这些量化指标成为视觉锚 */
 .wb-quick {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: 16px;
+  gap: 18px;
   margin-bottom: 56px;
 }
 
-/* 单卡：Home demo-win 同源哑光黑卡（缩小版），垂直渐变 + 双层 border-box 微透白边。 */
+/* 单卡：与 Hero v2 的 wb-card 同质感（哑光暖黑 + hairline border + 多层 shadow） */
 .wb-qcard {
   position: relative;
   display: flex;
   flex-direction: column;
   gap: 14px;
-  /* min-height 保证 4 张卡视觉等高即使内容长度不同。 */
-  min-height: 220px;
-  padding: 20px 22px 22px;
+  /* min-height 240：比 hero card 320 薄点，但比原 220 厚，让 4 卡与 hero 状态卡视觉节奏对齐。 */
+  min-height: 240px;
+  padding: 28px 30px 24px;
   background:
     linear-gradient(180deg,
-      rgba(18, 19, 24, 1) 0%,
-      rgba(11, 12, 16, 1) 50%,
-      rgba(7, 8, 11, 1) 100%
+      rgba(22, 20, 18, 1) 0%,
+      rgba(18, 16, 14, 1) 60%,
+      rgba(13, 12, 10, 1) 100%
     ) padding-box,
     linear-gradient(160deg,
-      rgba(255, 255, 255, 0.12) 0%,
+      rgba(255, 255, 255, 0.10) 0%,
       rgba(255, 255, 255, 0.03) 30%,
       rgba(255, 255, 255, 0.02) 70%,
       rgba(255, 255, 255, 0.06) 100%
     ) border-box;
   border: 1px solid transparent;
-  border-radius: var(--radius-lg);
+  /* radius 20 与 hero card 对齐，让 4 卡与 hero 会话同质感 */
+  border-radius: 20px;
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.05),
-    0 14px 32px rgba(0, 0, 0, 0.32);
-  /* z-index: 1 + isolation 让 hover translateY 不与 aurora 父层叠加产生
-     stacking 异常（陷阱 #5/#6）。 */
+    inset 0 1px 0 rgba(255, 255, 255, 0.04),
+    0 18px 44px rgba(0, 0, 0, 0.36),
+    0 2px 8px rgba(0, 0, 0, 0.18);
+  /* isolation 让 hover translateY 不与 aurora 父层叠加产生 stacking 异常。 */
   isolation: isolate;
   transition: transform .28s ease, box-shadow .28s ease, border-color .28s ease;
 }
@@ -1462,29 +1591,26 @@ onMounted(async () => {
 .wb-qcard:hover {
   transform: translateY(-3px);
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.08),
-    0 20px 44px rgba(0, 0, 0, 0.45);
+    inset 0 1px 0 rgba(255, 255, 255, 0.07),
+    0 24px 60px rgba(0, 0, 0, 0.46),
+    0 2px 10px rgba(0, 0, 0, 0.22);
 }
 
-/* 新建面试卡：略微暖色 wash，让它在 4 张卡里成为"行动召唤"的视觉锚点。
-   不用全白底（那会是 hero CTA 的视觉重量），仅在 background 顶层叠一层
-   极淡暖琥珀 alpha 0.04，hover 时增到 0.07。 */
-.wb-qcard-new {
-  background:
-    linear-gradient(180deg,
-      rgba(28, 22, 18, 1) 0%,
-      rgba(18, 14, 11, 1) 50%,
-      rgba(10, 8, 6, 1) 100%
-    ) padding-box,
-    linear-gradient(160deg,
-      rgba(220, 155, 90, 0.32) 0%,
-      rgba(220, 155, 90, 0.08) 50%,
-      rgba(220, 155, 90, 0.18) 100%
-    ) border-box;
+/* === 各卡 amber accent 区分。 ===
+   设计原则：4 卡 amber 浓度梯度上升让「资源量」反映在色彩层级。
+   - report (报告中心)：amber Z+1（深明） — 是头牌业务、应该最冸
+   - resume (简历库)：amber Z（中明）
+   - knowledge (知识库)：amber Z（中明）
+   - bank (题库)：amber Z（中明）
+   amber Z+1 / Z 的差异在 hover 边框上呈现，静态保持一致 hairline 以免锁锁热闹。 */
+.wb-qcard-report:hover {
+  border-color: rgba(240, 180, 60, 0.42);
 }
 
-.wb-qcard-new:hover {
-  border-color: rgba(220, 155, 90, 0.5);
+.wb-qcard-resume:hover,
+.wb-qcard-knowledge:hover,
+.wb-qcard-bank:hover {
+  border-color: rgba(240, 180, 60, 0.28);
 }
 
 /* card head：图标 + tag 横排。 */
@@ -1515,12 +1641,11 @@ onMounted(async () => {
   display: block;
 }
 
-.wb-qcard-new .wb-qcard-icon {
-  background: rgba(220, 155, 90, 0.12);
-  border-color: rgba(220, 155, 90, 0.35);
-  color: rgba(220, 155, 90, 0.95);
-  font-weight: 700;
-  font-size: 22px;
+/* 报告中心卡的 icon 包中 amber，让头牌卡鬼象靠不住。 */
+.wb-qcard-report .wb-qcard-icon {
+  background: rgba(240, 180, 60, 0.10);
+  border-color: rgba(240, 180, 60, 0.30);
+  color: rgba(240, 180, 60, 0.95);
 }
 
 .wb-qcard-tag {
@@ -1541,10 +1666,24 @@ onMounted(async () => {
   border-color: rgba(220, 155, 90, 0.25);
 }
 
-.wb-qcard-new .wb-qcard-tag:not(.wb-tag-amber) {
-  color: rgba(220, 155, 90, 0.95);
-  background: rgba(220, 155, 90, 0.1);
-  border-color: rgba(220, 155, 90, 0.3);
+/* === 卡「主数字」 amber gradient text === */
+/* 1614 / 348 / 5 / N 这些量化数据是各卡的视觉锚，
+   用 background-clip: text + amber gradient 让数字从「描述文」中跳出来、
+   成为「你现在拥有多少」的反身。与 radar 各能力点、metric 那一些 amber 变体形成同一色彩语言。 */
+.wb-qcard-num {
+  font: 700 22px var(--display);
+  background: linear-gradient(
+    135deg,
+    rgba(255, 230, 160, 0.95) 0%,
+    rgba(240, 180, 60, 0.95) 55%,
+    rgba(220, 145, 65, 0.92) 100%
+  );
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  letter-spacing: -.01em;
+  /* 微薄 letter-spacing 让 4 位以上数字（1614）可读性更好 */
+  margin-right: 2px;
 }
 
 .wb-qcard-title {
@@ -1608,31 +1747,25 @@ onMounted(async () => {
   color: rgba(220, 155, 90, 0.95);
 }
 
-.wb-qcard-new .wb-qcard-link {
-  background: var(--t);
-  color: var(--bg);
+/* 报告中心卡的 CTA 采用塑质感：白底 + 黑字，与「报告 = 核心产出」的业务重量匹配。
+   其他 3 卡保持 hairline outline。 */
+.wb-qcard-report .wb-qcard-link {
+  background: rgba(240, 180, 60, 0.92);
+  color: rgba(20, 18, 14, 1);
   border-color: transparent;
+  font-weight: 700;
 }
 
-.wb-qcard-new .wb-qcard-link:hover {
-  background: rgba(255, 250, 240, 0.92);
-  color: var(--bg);
+.wb-qcard-report .wb-qcard-link:hover {
+  background: rgba(255, 200, 100, 1);
+  color: rgba(20, 18, 14, 1);
 }
 
-/* 进度条 */
-.wb-progress {
-  width: 100%;
-  height: 4px;
-  background: rgba(255, 255, 255, 0.06);
-  border-radius: var(--radius-pill);
-  overflow: hidden;
-}
-
-.wb-progress-bar {
-  height: 100%;
-  background: linear-gradient(90deg, rgba(220, 155, 90, 0.6) 0%, rgba(220, 155, 90, 0.95) 100%);
-  border-radius: inherit;
-  transition: width .4s ease;
+/* 0 数据态下报告 CTA 不加 amber wash（避免「让你去面试」提示过于强烈） */
+.wb-qcard-report:not(:has(.wb-qcard-num)) .wb-qcard-link {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--t);
+  font-weight: 600;
 }
 
 /* ============ 下方两栏：sessions + radar ============ */

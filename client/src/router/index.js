@@ -1,4 +1,5 @@
 import { createRouter, createWebHistory } from "vue-router";
+import { authStorage } from "../api/core";
 
 const routes = [
   {
@@ -18,6 +19,7 @@ const routes = [
     meta: {
       title: "AI 模拟面试",
       description: "与AI面试官展开深入对话，获得实时评估与建议。",
+      requiresAuth: true,
     },
   },
   {
@@ -38,6 +40,74 @@ const routes = [
       description: "创建账户，开启沉浸式技术面试体验。",
     },
   },
+
+  // ============ Workbench routes ============
+  // 工作台主页 + 4 个 section 子页。所有 workbench 路由都需要登录。
+  // 未登录访问会被 router.beforeEach 拦截到 /login?redirect=<原 fullPath>。
+  {
+    path: "/workbench",
+    name: "Workbench",
+    component: () => import("../views/Workbench.vue"),
+    meta: {
+      title: "工作台 · AI 面试官",
+      description: "查看练习进度、最近面试与能力雷达，快速进入下一场面试。",
+      requiresAuth: true,
+    },
+  },
+  {
+    path: "/workbench/new",
+    name: "WorkbenchNew",
+    component: () => import("../views/WorkbenchNew.vue"),
+    meta: {
+      title: "新建面试 · AI 面试官",
+      description: "选择岗位、难度和重点方向，配置一场专属面试。",
+      requiresAuth: true,
+    },
+  },
+  {
+    path: "/workbench/resume",
+    name: "WorkbenchResume",
+    component: () => import("../views/WorkbenchResume.vue"),
+    meta: {
+      title: "简历管理 · AI 面试官",
+      description: "上传与管理简历，让 AI 基于项目内容做深度追问。",
+      requiresAuth: true,
+    },
+  },
+  {
+    path: "/workbench/bank",
+    name: "WorkbenchBank",
+    component: () => import("../views/WorkbenchBank.vue"),
+    meta: {
+      title: "题库浏览 · AI 面试官",
+      description: "按方向、难度、能力筛选真实面试题，看 AI 如何追问。",
+      requiresAuth: true,
+    },
+  },
+  {
+    path: "/workbench/knowledge",
+    name: "WorkbenchKnowledge",
+    component: () => import("../views/WorkbenchKnowledge.vue"),
+    meta: {
+      title: "知识库 · AI 面试官",
+      description: "上传文档，AI 会基于检索增强 (RAG) 在面试时引用你提供的资料。",
+      requiresAuth: true,
+    },
+  },
+  // 报告中心：当前为占位 SFC，完整 SFC 由独立需求阶段实现
+  // 详见 docs/requirements/2026-05-10-workbench-information-architecture.md 决策 5=A
+  {
+    path: "/workbench/reports",
+    name: "WorkbenchReports",
+    component: () => import("../views/WorkbenchReports.vue"),
+    meta: {
+      title: "报告中心 · AI 面试官",
+      description: "查看跨会话能力分析、单场报告与练习模式表现。",
+      requiresAuth: true,
+    },
+  },
+
+  // 兜底重定向：未匹配路由回到首页
   {
     path: "/:pathMatch(.*)*",
     redirect: "/",
@@ -47,6 +117,27 @@ const routes = [
 const router = createRouter({
   history: createWebHistory(),
   routes,
+});
+
+// === Auth guard ===
+// 设计：仅检查 localStorage 里是否有 accessToken；不发起 /users/profile 校验
+// 因为：(1) 路由切换需要瞬时响应，不能等 HTTP；
+//      (2) 真实失效会被业务接口的 401 拦截器统一处理（后续接入）。
+// 未登录时携带 redirect query 跳到 /login，便于 Login 完成后回流。
+router.beforeEach((to, from, next) => {
+  if (!to.meta?.requiresAuth) {
+    next();
+    return;
+  }
+  const session = authStorage.getSession();
+  if (session?.accessToken) {
+    next();
+    return;
+  }
+  next({
+    path: "/login",
+    query: { redirect: to.fullPath },
+  });
 });
 
 router.afterEach((to) => {
