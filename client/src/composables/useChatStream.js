@@ -1,11 +1,17 @@
 import { ref } from "vue";
 import { ElMessage } from "element-plus";
-import { chatWithLoveApp } from "../api/index.js";
+import { apiService } from "./useApi.js";
+
+const PHASE_IDLE = "idle";
+const PHASE_CONNECTING = "connecting";
+const PHASE_ERROR = "error";
 
 export function useChatStream(initialMessages = []) {
   const messages = ref([...initialMessages]);
   const isStreaming = ref(false);
   const streamRef = ref(null);
+  const phase = ref(PHASE_IDLE);
+  const streamError = ref("");
 
   const appendAIChunk = (content) => {
     if (!content) return;
@@ -26,6 +32,12 @@ export function useChatStream(initialMessages = []) {
 
   const setStreaming = (state) => {
     isStreaming.value = state;
+    if (state && phase.value === PHASE_IDLE) {
+      phase.value = PHASE_CONNECTING;
+    }
+    if (!state && phase.value !== PHASE_ERROR) {
+      phase.value = PHASE_IDLE;
+    }
     if (!state) {
       const last = messages.value[messages.value.length - 1];
       if (last && last.isStreaming) {
@@ -37,7 +49,7 @@ export function useChatStream(initialMessages = []) {
   const normalizeChunk = (raw) =>
     raw.replaceAll("\\n", "\n").replaceAll("\\r", "\r");
 
-  const startStream = (formData, chatId) => {
+  const startStream = (formData, chatId, options = {}) => {
     if (isStreaming.value) {
       ElMessage.warning("AI 正在回复，请稍候");
       return;
@@ -48,28 +60,41 @@ export function useChatStream(initialMessages = []) {
       streamRef.value = null;
     }
 
-    formData.append("chatId", chatId);
+    streamError.value = "";
+    phase.value = PHASE_CONNECTING;
     setStreaming(true);
 
-    const stream = chatWithLoveApp(formData, chatId);
+    const stream = apiService.chat.interviewStream(formData, chatId);
     streamRef.value = stream;
 
-    stream.onmessage = (data) => {
+    stream.onmessage = (data, event = "message") => {
       if (!data) return;
+      if (event === "phase") {
+        phase.value = String(data || PHASE_CONNECTING);
+        return;
+      }
       if (data === "[DONE]") {
         setStreaming(false);
+        options.onDone?.();
         return;
       }
       appendAIChunk(normalizeChunk(String(data)));
     };
 
-    stream.onerror = () => {
+    stream.onerror = (error) => {
       setStreaming(false);
-      ElMessage.error("对话连接异常，请稍后再试");
+      phase.value = PHASE_ERROR;
+      streamError.value = error?.message || "对话连接异常";
+      if (error?.response?.status === 409) {
+        ElMessage.warning(streamError.value || "该面试仍在生成中，请稍后再试");
+      } else {
+        ElMessage.error("对话连接异常，请稍后再试");
+      }
       if (streamRef.value) {
         streamRef.value.close();
         streamRef.value = null;
       }
+      options.onError?.(error);
     };
   };
 
@@ -105,6 +130,7 @@ export function useChatStream(initialMessages = []) {
       delete last.isStreaming;
     }
     isStreaming.value = false;
+    phase.value = PHASE_IDLE;
   };
 
   const setMessages = (nextMessages) => {
@@ -113,12 +139,15 @@ export function useChatStream(initialMessages = []) {
       streamRef.value = null;
     }
     isStreaming.value = false;
+    phase.value = PHASE_IDLE;
     messages.value = Array.isArray(nextMessages) ? [...nextMessages] : [];
   };
 
   return {
     messages,
     isStreaming,
+    phase,
+    streamError,
     appendAIChunk,
     setStreaming,
     startStream,

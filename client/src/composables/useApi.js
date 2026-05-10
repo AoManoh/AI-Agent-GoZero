@@ -11,12 +11,16 @@ const wrapEndpoints = (endpoints, runner = runEndpoint) => {
   return wrapped;
 };
 
+// chat 域里只有 interviewStream 走 SSE 流式，其他都是普通 HTTP。
+const { interviewStream: _interviewStreamFactory, ...chatHttpEndpoints } = chatEndpoints;
+
 export const apiService = {
   auth: wrapEndpoints(authEndpoints),
   user: wrapEndpoints(userEndpoints),
   chat: {
     interviewStream: (payload, chatId) =>
       runStreamEndpoint(chatEndpoints.interviewStream(payload, chatId)),
+    ...wrapEndpoints(chatHttpEndpoints),
   },
 };
 

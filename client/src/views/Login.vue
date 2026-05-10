@@ -77,7 +77,7 @@
 
 <script setup>
 import { ref } from "vue";
-import { useRouter } from "vue-router";
+import { useRoute, useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
 import SiteHeader from "../components/SiteHeader.vue";
 import ThemeToggle from "../components/ThemeToggle.vue";
@@ -86,12 +86,21 @@ import { useTheme } from "../composables/useTheme";
 import { useAuth } from "../composables/useAuth";
 
 const router = useRouter();
+const route = useRoute();
 const { theme, toggleTheme } = useTheme();
 const { login } = useAuth();
 
 const username = ref("");
 const password = ref("");
 const loading = ref(false);
+
+const resolveRedirectPath = () => {
+  const redirect = typeof route.query.redirect === "string" ? route.query.redirect : "";
+  if (!redirect || !redirect.startsWith("/") || redirect.startsWith("//") || redirect.startsWith("/login")) {
+    return "/workbench";
+  }
+  return redirect;
+};
 
 async function handleSubmit() {
   if (loading.value) return;
@@ -104,7 +113,7 @@ async function handleSubmit() {
   try {
     await login({ username: username.value, password: password.value });
     ElMessage.success("登录成功");
-    router.push({ name: "Chat" });
+    router.push(resolveRedirectPath());
   } catch (error) {
     ElMessage.error(error?.message || "登录失败，请稍后再试");
   } finally {

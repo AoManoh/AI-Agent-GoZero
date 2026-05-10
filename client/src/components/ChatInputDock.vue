@@ -2,6 +2,7 @@
   <div class="input-dock">
     <div class="input-hints">
       <span v-if="fileName" class="file-tag">已附加：{{ fileName }}</span>
+      <span v-if="statusLabel" class="hint">{{ statusLabel }}</span>
       <span v-if="uploadingKnowledge" class="hint">知识库文件上传中...</span>
     </div>
     
@@ -82,6 +83,10 @@ const props = defineProps({
   isConnecting: {
     type: Boolean,
     default: false,
+  },
+  statusLabel: {
+    type: String,
+    default: "",
   }
 });
 
