@@ -240,13 +240,24 @@ const goToResumePage = () => {
 };
 
 // === 难度等级（mock first，onMounted 异步接入 interviewPresets 覆盖）===
-// 后端 difficulty.level 是 int，映射为本地 string key 供 createSession 传参。
-const DIFFICULTY_KEY_BY_LEVEL = { 1: "junior", 2: "mid", 3: "senior", 4: "expert" };
+// 后端 InterviewDifficultyPreset 是 5 级（Level 1-5），label 分别为 入门/初级/中级/资深/专家。
+// 本地 string key 仅用于 UI 状态与 createSession 传参，最终通过
+// utils/interviewSession.js 的 normalizeDifficultyLevel(key) 反向转回 int 1-5。
+// 必须与 DIFFICULTY_LEVEL_ALIASES (utils/interviewSession.js) 严格反向一致，
+// 否则 UI 显示的难度与提交给后端的难度会错位（详见 docs/code-review/2026-05-10-home-auth-workbench-e2e.md #5）。
+const DIFFICULTY_KEY_BY_LEVEL = {
+  1: "entry",   // 入门
+  2: "junior",  // 初级
+  3: "mid",     // 中级
+  4: "senior",  // 资深
+  5: "expert",  // 专家
+};
 const difficulties = ref([
-  { key: "junior", label: "初级", desc: "基础概念 + 常见场景" },
-  { key: "mid", label: "中级", desc: "项目深度 + 系统设计" },
-  { key: "senior", label: "资深", desc: "架构权衡 + 故障复盘" },
-  { key: "expert", label: "专家", desc: "极限场景 + 跨域综合" },
+  { key: "entry", label: "入门", desc: "确认基本概念和术语理解" },
+  { key: "junior", label: "初级", desc: "常见场景与基础工程经验" },
+  { key: "mid", label: "中级", desc: "机制、取舍与故障复盘" },
+  { key: "senior", label: "资深", desc: "架构判断与工程边界" },
+  { key: "expert", label: "专家", desc: "高压技术面 · 系统化论证" },
 ]);
 
 const selectedDifficultyLabel = computed(() => {
@@ -350,11 +361,22 @@ const loadPresets = async () => {
     }
 
     if (Array.isArray(res.difficulties) && res.difficulties.length > 0) {
-      difficulties.value = res.difficulties.map((dif) => ({
-        key: DIFFICULTY_KEY_BY_LEVEL[dif.level] || "mid",
-        label: dif.label,
-        desc: dif.description,
-      }));
+      difficulties.value = res.difficulties.map((dif) => {
+        const key = DIFFICULTY_KEY_BY_LEVEL[dif.level];
+        if (!key) {
+          // 后端新增了等级但前端常量未更新；显式 warn 而非悄悄降级到 mid。
+          // 兜底用 "mid" 保证 UI 不崩，同时通过 console 让开发者立刻发现契约漂移。
+          console.warn(
+            `[WorkbenchNew] 未知难度 level=${dif.level}，请同步更新 DIFFICULTY_KEY_BY_LEVEL` +
+              ` 与 utils/interviewSession.js 的 DIFFICULTY_LEVEL_ALIASES`,
+          );
+        }
+        return {
+          key: key || "mid",
+          label: dif.label,
+          desc: dif.description,
+        };
+      });
     }
 
     if (Array.isArray(res.focusOptions) && res.focusOptions.length > 0) {
