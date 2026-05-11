@@ -82,7 +82,7 @@ const publicKnowledgeAdminUserID int64 = 1
 //	http.HandlerFunc: 符合Go-Zero框架规范的HTTP处理函数
 func KnowledgeUploadHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		userID, ok := requirePublicKnowledgeAdmin(w, r, svcCtx)
+		userID, ok := requireKnowledgeUploaderUserID(w, r, svcCtx)
 		if !ok {
 			return
 		}
@@ -154,6 +154,53 @@ func KnowledgeUploadHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
 	}
 }
 
+// requireKnowledgeUploaderUserID 校验 PDF 上传知识的请求者必须是已登录用户。
+//
+// 权限语义（2026-05-12 Q7=B 决策）:
+//   - 匿名（无 Authorization header）→ 401 拒绝
+//   - access token 无效或已过期 → 401 拒绝
+//   - 任何已登录用户均可上传，**不再要求 admin 身份**
+//   - 上传后 visibility 由 svc/vector_store.go knowledgeVisibilityForUser 自动按 user_id 推导：
+//   - user_id == publicKnowledgeAdminUserID(1) → visibility=public
+//   - 其他 user_id → visibility=private
+//
+// 历史背景与作用范围:
+//   - 仅供 KnowledgeUploadHandler（PDF multipart 上传）使用，前端 workbench 私人知识库子页的上传链路
+//   - KnowledgeTextUploadHandler（JSON 文本资料包导入，admin/工具调用专用）继续走 requirePublicKnowledgeAdmin，
+//     语义与本函数互不影响；前端未触达 KnowledgeTextUpload，仅作为 admin/grok-search 等工具的导入通道
+//   - 2026-05-12 升级私人知识库子页时新增本函数，让普通用户能上传 PDF 到自己的私人知识库
+func requireKnowledgeUploaderUserID(w http.ResponseWriter, r *http.Request, svcCtx *svc.ServiceContext) (int64, bool) {
+	ctx := r.Context()
+	accessToken := bearerTokenFromHeader(r.Header.Get("Authorization"))
+	if accessToken == "" {
+		httpx.WriteJsonCtx(ctx, w, http.StatusUnauthorized, map[string]any{
+			"message": "请先登录后上传知识",
+		})
+		return 0, false
+	}
+
+	userID, err := chatAuth.ParseAccessTokenUserID(svcCtx.Config.Auth.AccessSecret, accessToken)
+	if err != nil {
+		httpx.WriteJsonCtx(ctx, w, http.StatusUnauthorized, map[string]any{
+			"message": "access token 无效或已过期",
+		})
+		return 0, false
+	}
+
+	return userID, true
+}
+
+// requirePublicKnowledgeAdmin 校验请求者必须是公共知识管理员（user_id == publicKnowledgeAdminUserID）。
+//
+// 适用范围（2026-05-12 Q7=B 决策细分）:
+//   - 仅供 KnowledgeTextUploadHandler（JSON 文本资料包导入）使用
+//   - 该入口是工具/admin 调用通道（如 grok-search 自动抓取后批量导入公共知识库），前端未触达
+//   - 与 requireKnowledgeUploaderUserID 互不影响，PDF 上传不再走此函数
+//
+// 拒绝条件:
+//   - 匿名 → 401
+//   - access token 无效或已过期 → 401
+//   - user_id != publicKnowledgeAdminUserID → 403
 func requirePublicKnowledgeAdmin(w http.ResponseWriter, r *http.Request, svcCtx *svc.ServiceContext) (int64, bool) {
 	ctx := r.Context()
 	accessToken := bearerTokenFromHeader(r.Header.Get("Authorization"))

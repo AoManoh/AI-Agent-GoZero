@@ -12,7 +12,14 @@ import (
 	"github.com/golang-jwt/jwt/v4"
 )
 
-func TestRequirePublicKnowledgeAdmin(t *testing.T) {
+// TestRequireKnowledgeUploaderUserID 验证 PDF 上传的鉴权 helper 行为（2026-05-12 Q7=B 决策）。
+//
+// 覆盖场景:
+//   - 匿名（无 Authorization header）→ 401
+//   - 无效 access token → 401
+//   - admin（user_id == publicKnowledgeAdminUserID）登录 → 200，userID 正确
+//   - 普通 user 登录 → 200，userID 正确（不再 reject 非 admin，是 Q7=B 与原 admin gate 的核心差别）
+func TestRequireKnowledgeUploaderUserID(t *testing.T) {
 	const secret = "test-secret"
 	svcCtx := &svc.ServiceContext{
 		Config: config.Config{},
@@ -24,21 +31,30 @@ func TestRequirePublicKnowledgeAdmin(t *testing.T) {
 		token      string
 		wantStatus int
 		wantOK     bool
+		wantUserID int64
 	}{
 		{
 			name:       "missing token",
 			wantStatus: http.StatusUnauthorized,
 		},
 		{
-			name:       "non admin",
-			token:      signAccessToken(t, secret, 2),
-			wantStatus: http.StatusForbidden,
+			name:       "invalid token",
+			token:      "not-a-jwt",
+			wantStatus: http.StatusUnauthorized,
 		},
 		{
-			name:       "admin",
+			name:       "admin login allowed",
 			token:      signAccessToken(t, secret, publicKnowledgeAdminUserID),
 			wantStatus: http.StatusOK,
 			wantOK:     true,
+			wantUserID: publicKnowledgeAdminUserID,
+		},
+		{
+			name:       "non admin login allowed",
+			token:      signAccessToken(t, secret, 42),
+			wantStatus: http.StatusOK,
+			wantOK:     true,
+			wantUserID: 42,
 		},
 	}
 
@@ -50,15 +66,15 @@ func TestRequirePublicKnowledgeAdmin(t *testing.T) {
 			}
 			recorder := httptest.NewRecorder()
 
-			_, ok := requirePublicKnowledgeAdmin(recorder, request, svcCtx)
+			gotUserID, ok := requireKnowledgeUploaderUserID(recorder, request, svcCtx)
 			if ok != tt.wantOK {
 				t.Fatalf("ok = %v, want %v", ok, tt.wantOK)
 			}
 			if !tt.wantOK && recorder.Code != tt.wantStatus {
 				t.Fatalf("status = %d, want %d", recorder.Code, tt.wantStatus)
 			}
-			if tt.wantOK && recorder.Code != tt.wantStatus {
-				t.Fatalf("status = %d, want %d", recorder.Code, tt.wantStatus)
+			if tt.wantOK && gotUserID != tt.wantUserID {
+				t.Fatalf("userID = %d, want %d", gotUserID, tt.wantUserID)
 			}
 		})
 	}

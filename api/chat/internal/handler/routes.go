@@ -45,7 +45,7 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 				Handler: KnowledgeTextUploadHandler(serverCtx),
 			},
 			{
-				// 公共知识库 PDF 上传接口，使用 multipart/form-data，要求 file(PDF) part 和管理员 Bearer token
+				// 知识库 PDF 上传接口，使用 multipart/form-data，要求 file(PDF) part 与登录态 Bearer token；admin(user_id=1) 上传 → visibility=public，普通 user 上传 → visibility=private（2026-05-12 Q7=B 角色路由）
 				Method:  http.MethodPost,
 				Path:    "/api/ai/knowledge/upload",
 				Handler: KnowledgeUploadHandler(serverCtx),
