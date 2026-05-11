@@ -27,8 +27,55 @@
           - C7 S1 polling + 状态机 + 5 分钟硬超时 + 手动刷新
       -->
       <div class="wb-resume-shell" :data-state="resumeState">
-        <!-- 左栏 280px：评估区（C3-C4 填充） -->
+        <!-- 左栏：简历版本切换 dropdown（C3 commit）+ 元数据 + 评估占位（C4 填充） -->
         <aside class="wb-resume-left" aria-label="简历评估">
+          <!-- C3: 简历版本切换 selector。与 ?artifact= URL query 双向同步 -->
+          <div
+            v-if="resumes.length > 0"
+            class="wb-resume-selector"
+            :class="{ 'wb-resume-selector-open': selectorOpen }"
+          >
+            <button
+              type="button"
+              class="wb-resume-selector-trigger"
+              :aria-expanded="selectorOpen"
+              aria-haspopup="listbox"
+              @click.stop="toggleSelector"
+            >
+              <span class="wb-resume-selector-name">{{ selectedResume?.name || '选择简历' }}</span>
+              <span
+                v-if="selectedResume?.overallScore != null && selectedResume?.evaluationStatus === 'ready'"
+                class="wb-resume-selector-score"
+              >{{ formatScore(selectedResume.overallScore) }} 分</span>
+              <span class="wb-resume-selector-caret" aria-hidden="true">▾</span>
+            </button>
+            <ul v-if="selectorOpen" class="wb-resume-selector-menu" role="listbox">
+              <li
+                v-for="r in resumes"
+                :key="r.id"
+                class="wb-resume-selector-item"
+                :class="{ 'wb-resume-selector-item-active': r.id === selectedId }"
+                role="option"
+                :aria-selected="r.id === selectedId"
+                @click.stop="handleSelectArtifact(r.id)"
+              >
+                <span class="wb-resume-selector-item-name">{{ r.name }}</span>
+                <span
+                  v-if="r.overallScore != null && r.evaluationStatus === 'ready'"
+                  class="wb-resume-selector-item-score"
+                >{{ formatScore(r.overallScore) }} 分</span>
+              </li>
+            </ul>
+          </div>
+
+          <!-- 元数据条（选中后显示：技能数 / chunk 数 + 上传时间） -->
+          <div v-if="selectedResume" class="wb-resume-meta-bar">
+            <span>{{ selectedResume.skillCount ? `${selectedResume.skillCount} 技能` : (selectedResume.size || '—') }}</span>
+            <span aria-hidden="true">·</span>
+            <span>{{ selectedResume.uploadedAt }}</span>
+          </div>
+
+          <!-- 评估占位：C4 commit 填充 5 维 + tooltip + 总结 + 强项 + 风险 + 圆环 -->
           <div class="wb-resume-placeholder wb-resume-placeholder--left">
             <div class="wb-resume-placeholder-icon" aria-hidden="true">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4">
@@ -36,8 +83,9 @@
                 <path d="M12 7v5l3 2" stroke-linecap="round" />
               </svg>
             </div>
-            <p>上传简历后这里会显示<br><strong>总评分 + 5 维评估</strong></p>
-            <p class="wb-resume-placeholder-meta">由 C3-C4 commit 填充</p>
+            <p v-if="selectedResume">已选中：<strong>{{ selectedResume.name }}</strong></p>
+            <p v-else>上传简历后这里会显示<br><strong>总评分 + 5 维评估</strong></p>
+            <p class="wb-resume-placeholder-meta">由 C4 commit 填充</p>
           </div>
         </aside>
 
@@ -123,9 +171,13 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, onMounted, onUnmounted, ref, watch } from "vue";
+import { useRoute, useRouter } from "vue-router";
 import WorkbenchLayout from "../components/dashboard/WorkbenchLayout.vue";
 import { apiService } from "../composables/useApi";
+
+const route = useRoute();
+const router = useRouter();
 
 // === 上传 ===
 const fileInputRef = ref(null);
@@ -327,6 +379,46 @@ const resumeState = computed(() => {
   return "S0";
 });
 
+// === C3: 简历版本切换 dropdown selector ===
+// 设计要点：
+//   - selector trigger 点击后弹出 menu，点选项后 selectedId 更新 + URL ?artifact= 同步
+//   - 点击 selector 外部自动关闭menu（onMounted/onUnmounted 绑定 document click）
+//   - 浏览器前进后退（改变 ?artifact=）同步 selectedId（watch route.query.artifact）
+//   - 与 D-U3 钻深页 push 路由策略分离：本处用 router.replace（不污染历史）
+const selectorOpen = ref(false);
+
+const toggleSelector = () => {
+  selectorOpen.value = !selectorOpen.value;
+};
+
+const handleSelectArtifact = (id) => {
+  if (id === selectedId.value) {
+    selectorOpen.value = false;
+    return;
+  }
+  selectedId.value = id;
+  selectorOpen.value = false;
+  router.replace({ query: { ...route.query, artifact: id } });
+};
+
+// 点击 selector 外部关闭 dropdown
+const handleClickOutsideSelector = (e) => {
+  if (!e.target.closest('.wb-resume-selector')) {
+    selectorOpen.value = false;
+  }
+};
+
+// URL query 变化（浏览器后退 / 外部链接）→ 同步 selectedId
+watch(
+  () => route.query.artifact,
+  (queryId) => {
+    const id = String(queryId || '');
+    if (id && id !== selectedId.value && resumes.value.find((r) => r.id === id)) {
+      selectedId.value = id;
+    }
+  }
+);
+
 // 后端 status (string) → 本地状态表（UI：parsed/parsing/failed）
 const mapArtifactStatus = (raw) => {
   if (!raw) return "parsing";
@@ -465,8 +557,26 @@ watch(selectedId, (id) => {
   if (id) loadResumeAnalysis(id);
 });
 
-onMounted(() => {
-  loadResumes();
+// C3: onMounted 黑 selector 外部点击监听 + 按顺序拉列表 → 选中默认简历 → 同步 URL
+onMounted(async () => {
+  document.addEventListener('click', handleClickOutsideSelector);
+  await loadResumes();
+  // 优先采用 ?artifact=:id query；未命中时 fallback 默认选中第一份简历
+  const queryArtifact = String(route.query.artifact || '');
+  const matched = queryArtifact && resumes.value.find((r) => r.id === queryArtifact);
+  if (matched) {
+    selectedId.value = queryArtifact;
+  } else if (resumes.value.length > 0 && !selectedId.value) {
+    selectedId.value = resumes.value[0].id;
+    // 如果 URL 上没有 ?artifact=，同步上去，避免刷新后选中丢失
+    if (selectedId.value !== queryArtifact) {
+      router.replace({ query: { ...route.query, artifact: selectedId.value } });
+    }
+  }
+});
+
+onUnmounted(() => {
+  document.removeEventListener('click', handleClickOutsideSelector);
 });
 
 const getStatusLabel = (status) => {
@@ -545,6 +655,133 @@ const formatScore = (score) => {
 
 .wb-resume-mid {
   min-width: 0;
+}
+
+/* ============ 简历版本切换 dropdown selector（C3 commit）============ */
+/* 位于左栏顶部，点击弹出 menu。trigger 与 .wb-resume-card 同渐变底 + gradient border-box，
+   使顶部控件与下方评估卡视觉语言一致。 */
+.wb-resume-selector {
+  position: relative;
+  margin-bottom: 12px;
+}
+
+.wb-resume-selector-trigger {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 12px 14px;
+  background:
+    linear-gradient(180deg, rgba(18, 19, 24, 0.92) 0%, rgba(11, 12, 16, 0.92) 100%) padding-box,
+    linear-gradient(160deg, rgba(255, 255, 255, 0.10) 0%, rgba(255, 255, 255, 0.025) 100%) border-box;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  color: var(--t);
+  font: 600 13px var(--sans);
+  cursor: pointer;
+  transition: border-color .2s ease;
+  text-align: left;
+  isolation: isolate;
+}
+
+.wb-resume-selector-trigger:hover,
+.wb-resume-selector-open .wb-resume-selector-trigger {
+  border-color: rgba(220, 155, 90, 0.4);
+}
+
+.wb-resume-selector-name {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.wb-resume-selector-score {
+  font: 600 12px var(--mono);
+  color: rgba(220, 155, 90, 0.95);
+  letter-spacing: .04em;
+  flex-shrink: 0;
+}
+
+.wb-resume-selector-caret {
+  font-size: 14px;
+  color: var(--t3);
+  transition: transform .2s ease;
+  flex-shrink: 0;
+}
+
+.wb-resume-selector-open .wb-resume-selector-caret {
+  transform: rotate(180deg);
+}
+
+/* menu 在 trigger 下方弹出。max-height + overflow-y 避免简历过多时 menu 溢出页面。 */
+.wb-resume-selector-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  z-index: 10;
+  list-style: none;
+  margin: 0;
+  padding: 6px;
+  background:
+    linear-gradient(180deg, rgba(18, 19, 24, 0.96) 0%, rgba(11, 12, 16, 0.96) 100%) padding-box,
+    linear-gradient(160deg, rgba(255, 255, 255, 0.10) 0%, rgba(255, 255, 255, 0.025) 100%) border-box;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.4);
+  isolation: isolate;
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.wb-resume-selector-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 9px 12px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background-color .15s ease, color .15s ease;
+  font: 13px var(--sans);
+  color: var(--t2);
+}
+
+.wb-resume-selector-item:hover {
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--t);
+}
+
+.wb-resume-selector-item-active {
+  background: rgba(220, 155, 90, 0.10);
+  color: rgba(255, 224, 190, 0.98);
+}
+
+.wb-resume-selector-item-name {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.wb-resume-selector-item-score {
+  font: 600 11px var(--mono);
+  color: rgba(220, 155, 90, 0.85);
+  letter-spacing: .04em;
+  flex-shrink: 0;
+}
+
+/* 元数据条：简历描述。mono 体 + 字间距 .04em，与项目现有 mono meta 样式一致。 */
+.wb-resume-meta-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font: 11px var(--mono);
+  color: var(--t3);
+  letter-spacing: .04em;
+  margin: 0 0 14px;
+  padding: 0 4px;
 }
 
 /* 占位样式：C2.2 卡片化。
