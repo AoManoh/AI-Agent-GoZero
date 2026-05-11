@@ -438,7 +438,8 @@ onMounted(() => {
   max-width: 1320px;
   margin: 0 auto;
   padding: 0 44px 120px;
-  /* 底部 120px 留白：避让 sticky summary bar 高度 88 + 32 间距 */
+  /* 底部 120px 留白：summary bar 自然布局到页面底部后的呼吸空间（原 sticky 避让
+     语义已废弃，方案 A：summary 不再 sticky，改为普通页面底部块）。 */
 }
 
 /* === Hero === */
@@ -862,10 +863,12 @@ onMounted(() => {
   color: var(--t);
 }
 
-/* ============ 底部 sticky summary bar ============ */
+/* ============ 底部 summary bar ============ */
+/* 设计决策：原 position:sticky+bottom:24 在 1440x900 桌面视口下会浮在视口底部覆盖
+   「关联简历」+「难度等级」区域（plan §4 Task 3 / D-1 决策方案 A）。
+   改为普通页面底部块：summary 自然出现在所有 fieldset 之后，用户必须滚动到页面底部
+   才能看到，不再阻挡首屏阅读路径。响应式 @media 查询保留 flex-direction:column 不变。 */
 .wb-summary-bar {
-  position: sticky;
-  bottom: 24px;
   margin-top: 48px;
   display: flex;
   align-items: center;
