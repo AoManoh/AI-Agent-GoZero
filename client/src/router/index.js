@@ -74,6 +74,21 @@ const routes = [
       requiresAuth: true,
     },
   },
+  // 简历完整详情钻深页（设计图 241 / 261）。
+  // 路由策略：独立 SFC + 独立路由（D-Q3 决策），保留浏览器前进后退能力，
+  // 与主面板列表 ?artifact=:id query 命名分离，避免冲突。
+  // 入口：/workbench/resume 主面板右栏 [看完整详情 →]，使用 router.push 保留历史（D-U3）。
+  // 详见 docs/requirements/2026-05-12-workbench-resume-redesign.md §6.3 + §7.3。
+  {
+    path: "/workbench/resume/:id",
+    name: "WorkbenchResumeDetail",
+    component: () => import("../views/WorkbenchResumeDetail.vue"),
+    meta: {
+      title: "简历完整详情 · AI 面试官",
+      description: "查看完整 AI 简历画像：18+ 原文 chunks、5 大评估面板与详细追问列表。",
+      requiresAuth: true,
+    },
+  },
   {
     path: "/workbench/bank",
     name: "WorkbenchBank",
