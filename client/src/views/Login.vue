@@ -149,6 +149,11 @@ async function handleSubmit() {
 .auth-card {
   width: 100%;
   max-width: 400px;
+  /* position: relative 是 .auth-card-ring（absolute inset:0）的定位锚；
+     未加时 ring 找不到 positioned 祖先会 fallback 到 viewport 在左上「游离」
+     （e2e 报告 #3 / plan §4 Task 5）。不加 overflow:hidden 以保留 ring 的
+     drop-shadow(0 0 6px) 渗出 ~6px 外发光（设计意图，参见 .auth-card-ring 注释）。 */
+  position: relative;
   /* 与 Home .step-card 同款双层渐变面板（padding-box 哑光金属底 + border-box
      高光描边），加三层 inset/外阴影构成亚克力质感。 */
   background:
@@ -195,8 +200,8 @@ async function handleSubmit() {
 }
 
 /* 双向扩散闭环叙事动画 SVG 宽度：
-   - 定位 absolute inset:0、position .auth-card 是 relative（已默认为静态，需补）。
-   - filter blur(2px) 让 stroke 边缘柔化不生硬。
+   - 定位 absolute inset:0、定位锚 .auth-card 已 position:relative（plan §4 Task 5 / e2e #3 已补）。
+   - filter drop-shadow 让 stroke 自带柔和光晕，取代 blur（blur 会把 stroke 混色到外发光）。
    - z-index/DOM 顺序：SVG 在 .auth-card children 首位为背景层，后面的 h2/form 在它之上。 */
 .auth-card-ring {
   position: absolute;

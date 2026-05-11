@@ -175,6 +175,11 @@ async function handleSubmit() {
 .auth-card {
   width: 100%;
   max-width: 400px;
+  /* position: relative 是 .auth-card-ring（absolute inset:0）的定位锚；
+     未加时 ring 找不到 positioned 祖先会 fallback 到 viewport 在左上「游离」
+     （e2e 报告 #3 / plan §4 Task 5）。与 Login.vue 对称修复，不加 overflow:hidden
+     以保留 ring 的 drop-shadow(0 0 6px) 渗出 ~6px 外发光（设计意图）。 */
+  position: relative;
   /* 与 Home .step-card 同款双层渐变面板（padding-box 哑光金属底 + border-box
      高光描边），加三层 inset/外阴影构成亚克力质感。 */
   background:
