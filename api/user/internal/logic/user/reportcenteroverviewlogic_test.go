@@ -98,6 +98,32 @@ func TestBuildReportCenterOverview(t *testing.T) {
 	}
 }
 
+func TestBuildReportCenterSessionKeepsCompletedAt(t *testing.T) {
+	now := time.Date(2026, 5, 11, 9, 30, 0, 0, time.UTC)
+	row := reportCenterOverviewRow{
+		SessionId:    "sess-completed-draft",
+		Title:        "completed draft",
+		Mode:         "Interview",
+		CreatedAt:    now.Add(-30 * time.Minute),
+		UpdatedAt:    now,
+		CompletedAt:  sql.NullTime{Time: now, Valid: true},
+		MessageCount: 4,
+		IsActive:     true,
+		Status:       sql.NullString{},
+	}
+
+	report := buildReportCenterRecentReport(row)
+	if report.Status != "draft" {
+		t.Fatalf("report.Status = %q, want draft", report.Status)
+	}
+	if report.Session.CompletedAt == "" {
+		t.Fatal("report.Session.CompletedAt is empty, want completed timestamp")
+	}
+	if report.Session.IsActive {
+		t.Fatal("report.Session.IsActive = true, want false for completed session")
+	}
+}
+
 func TestDecodeFirstSuggestion(t *testing.T) {
 	if got := decodeFirstSuggestion([]byte(`["first","second"]`)); got != "first" {
 		t.Fatalf("decodeFirstSuggestion valid = %q, want %q", got, "first")

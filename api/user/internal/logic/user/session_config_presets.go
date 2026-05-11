@@ -136,7 +136,7 @@ func buildSessionCreateConfig(req *types.CreateSessionReq) (model.SessionCreateC
 	}
 
 	if len(req.FocusKeys) > 0 {
-		focusAreas, err := buildFocusAreaSelections(req.FocusKeys)
+		focusAreas, err := buildFocusAreaSelectionsForDirection(req.FocusKeys, config.DirectionKey)
 		if err != nil {
 			return model.SessionCreateConfig{}, types.SessionConfigSnapshot{}, err
 		}
@@ -181,6 +181,27 @@ func buildFocusAreaSelections(keys []string) ([]types.FocusAreaSelection, error)
 		return nil, statuserr.New(http.StatusBadRequest, "考察侧重不能为空")
 	}
 	return focusAreas, nil
+}
+
+func buildFocusAreaSelectionsForDirection(keys []string, directionKey string) ([]types.FocusAreaSelection, error) {
+	direction, ok := findDirectionPreset(directionKey)
+	if !ok {
+		return nil, statuserr.New(http.StatusBadRequest, "不支持的面试方向")
+	}
+	allowed := make(map[string]struct{}, len(direction.FocusKeys))
+	for _, key := range direction.FocusKeys {
+		allowed[key] = struct{}{}
+	}
+	for _, rawKey := range keys {
+		key := strings.TrimSpace(rawKey)
+		if key == "" {
+			continue
+		}
+		if _, ok := allowed[key]; !ok {
+			return nil, statuserr.New(http.StatusBadRequest, "考察侧重不属于当前面试方向")
+		}
+	}
+	return buildFocusAreaSelections(keys)
 }
 
 func defaultFocusAreasForDirection(directionKey string) []types.FocusAreaSelection {

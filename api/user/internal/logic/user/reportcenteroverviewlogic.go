@@ -29,6 +29,7 @@ type reportCenterOverviewRow struct {
 	CreatedAt       time.Time       `db:"created_at"`
 	UpdatedAt       time.Time       `db:"updated_at"`
 	LastMessageAt   sql.NullTime    `db:"last_message_at"`
+	CompletedAt     sql.NullTime    `db:"completed_at"`
 	MessageCount    int64           `db:"message_count"`
 	IsActive        bool            `db:"is_active"`
 	Status          sql.NullString  `db:"status"`
@@ -95,6 +96,7 @@ func fetchReportCenterOverviewRows(ctx context.Context, svcCtx *svc.ServiceConte
     s.created_at,
     s.updated_at,
     s.last_message_at,
+    s.completed_at,
     s.message_count,
     s.is_active,
     e.status,
@@ -339,6 +341,7 @@ func buildReportCenterSession(row reportCenterOverviewRow) types.SessionItem {
 		CreatedAt:     row.CreatedAt,
 		UpdatedAt:     row.UpdatedAt,
 		LastMessageAt: row.LastMessageAt,
+		CompletedAt:   row.CompletedAt,
 		MessageCount:  row.MessageCount,
 		IsActive:      row.IsActive,
 	}
@@ -365,6 +368,9 @@ func resolveReportCenterActivity(row reportCenterOverviewRow) time.Time {
 	candidates := []time.Time{row.CreatedAt, row.UpdatedAt}
 	if row.LastMessageAt.Valid {
 		candidates = append(candidates, row.LastMessageAt.Time)
+	}
+	if row.CompletedAt.Valid {
+		candidates = append(candidates, row.CompletedAt.Time)
 	}
 	if row.GeneratedAt.Valid {
 		candidates = append(candidates, row.GeneratedAt.Time)

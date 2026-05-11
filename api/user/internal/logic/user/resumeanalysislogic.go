@@ -267,11 +267,19 @@ func buildResumeSuggestedQuestionConfig(directionKey string, matches []types.Res
 	if _, ok := findDirectionPreset(normalizedDirection); !ok {
 		return types.SessionConfigSnapshot{}, statuserr.New(http.StatusBadRequest, "不支持的面试方向")
 	}
+	direction, _ := findDirectionPreset(normalizedDirection)
+	allowedFocus := make(map[string]struct{}, len(direction.FocusKeys))
+	for _, key := range direction.FocusKeys {
+		allowedFocus[key] = struct{}{}
+	}
 
 	focusKeys := make([]string, 0, 3)
 	for _, match := range matches {
 		if len(focusKeys) >= 3 {
 			break
+		}
+		if _, ok := allowedFocus[match.Key]; !ok {
+			continue
 		}
 		focusKeys = append(focusKeys, match.Key)
 	}
