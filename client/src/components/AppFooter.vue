@@ -4,7 +4,10 @@
       <div class="footer-bottom-content">
         <div class="copyright">
           <span class="copyright-symbol">©</span>
-          {{ currentYear }} AI 面试官 - 让每一次面试都成为成长的机会
+          {{ currentYear }} AI 面试官
+        </div>
+        <div v-if="isDev" class="footer-build-tag" title="开发环境构建、仅 dev 可见">
+          dev build
         </div>
       </div>
     </div>
@@ -16,6 +19,14 @@ import { computed } from "vue";
 
 // 计算当前年份
 const currentYear = computed(() => new Date().getFullYear());
+
+/**
+ * 视觉打磨 Phase 1 包 3（2026-05-11）：dev build 标签。
+ * import.meta.env.MODE 是 Vite 内置环境标识（'development' / 'production' / 'test'），
+ * 仅在 dev server 下为 true。产环境不显示该标签，用户看到只是单一 © 版权。
+ * 避免显示「假版本号」「假部署时间」等与 AGENTS 原则 5 冲突的信息。
+ */
+const isDev = import.meta.env.MODE === "development";
 </script>
 
 <style scoped>
@@ -36,14 +47,16 @@ const currentYear = computed(() => new Date().getFullYear());
 }
 
 /* inner：与 .site-header-inner 同构：max-width 1320 + margin auto +
-   padding 0 + height 80 + flex 居中。 */
+   padding 0 + height 80 + flex space-between（左 © / 右 dev tag 对称）。
+   视觉打磨 Phase 1 包 3（2026-05-11）：justify-content center → space-between，
+   与顶部 SiteHeader「logo + actions」两端布局镜像对称。 */
 .footer-bottom-content {
   max-width: 1320px;
   margin: 0 auto;
   padding: 0;
   height: 80px;
   display: flex;
-  justify-content: center;
+  justify-content: space-between;
   align-items: center;
 }
 
@@ -54,13 +67,26 @@ const currentYear = computed(() => new Date().getFullYear());
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  text-align: center;
+  text-align: left;
 }
 
 /* 版权符号用暖琥珀色，与 Home step-num 和 metrics 中的点缀琥珀色呼应 */
 .copyright-symbol {
   font-weight: 600;
   color: rgba(220, 155, 90, 0.9);
+}
+
+/* 视觉打磨 Phase 1 包 3（2026-05-11）：dev build 标签。
+   微迷你风 monospace + 35% 白文字 + 8% 白边框 + 12px 字号，
+   存在感低但提醒 dev 环境。产环境 v-if="false" 不渲染。 */
+.footer-build-tag {
+  font: 12px/1.4 var(--mono, ui-monospace, "SF Mono", Monaco, Consolas, monospace);
+  color: rgba(255, 255, 255, 0.4);
+  letter-spacing: 0.06em;
+  padding: 3px 8px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+  user-select: none;
 }
 
 @media (max-width: 768px) {
@@ -74,6 +100,11 @@ const currentYear = computed(() => new Date().getFullYear());
 
   .copyright {
     font-size: 0.85rem;
+  }
+
+  .footer-build-tag {
+    font-size: 11px;
+    padding: 2px 6px;
   }
 }
 </style>
