@@ -17,6 +17,8 @@ DROP TABLE IF EXISTS "public"."interview_question_sources";
 DROP TABLE IF EXISTS "public"."interview_questions";
 DROP TABLE IF EXISTS "public"."session_evaluation_items";
 DROP TABLE IF EXISTS "public"."session_evaluations";
+DROP TABLE IF EXISTS "public"."resume_evaluations";
+DROP TABLE IF EXISTS "public"."resume_documents";
 DROP TABLE IF EXISTS "public"."chat_sessions";
 DROP TABLE IF EXISTS "public"."vector_store";
 DROP TABLE IF EXISTS "public"."knowledge_base";
@@ -187,6 +189,37 @@ CREATE TABLE "public"."resume_documents" (
 
 CREATE INDEX idx_resume_documents_user_current ON resume_documents (user_id, is_current, updated_at DESC);
 CREATE INDEX idx_resume_documents_session_current ON resume_documents (session_id, user_id, is_current);
+
+CREATE TABLE "public"."resume_evaluations" (
+                                                "id" BIGSERIAL PRIMARY KEY,
+                                                "artifact_id" VARCHAR(64) NOT NULL REFERENCES "public"."chat_sessions"("session_id") ON DELETE CASCADE,
+                                                "user_id" BIGINT NOT NULL REFERENCES "public"."users"("id") ON DELETE CASCADE,
+                                                "status" VARCHAR(32) NOT NULL DEFAULT 'missing',
+                                                "summary" TEXT NOT NULL DEFAULT '',
+                                                "overall_score" DOUBLE PRECISION NOT NULL DEFAULT 0,
+                                                "level" VARCHAR(32) NOT NULL DEFAULT '',
+                                                "rubric_version" VARCHAR(32) NOT NULL DEFAULT 'resume-rubric-v1',
+                                                "score_source" VARCHAR(32) NOT NULL DEFAULT 'heuristic',
+                                                "direction_key" VARCHAR(64) NOT NULL DEFAULT '',
+                                                "dimensions" JSONB NOT NULL DEFAULT '[]'::jsonb,
+                                                "strengths" JSONB NOT NULL DEFAULT '[]'::jsonb,
+                                                "risks" JSONB NOT NULL DEFAULT '[]'::jsonb,
+                                                "suggestions" JSONB NOT NULL DEFAULT '[]'::jsonb,
+                                                "focus_matches" JSONB NOT NULL DEFAULT '[]'::jsonb,
+                                                "suggested_questions" JSONB NOT NULL DEFAULT '[]'::jsonb,
+                                                "evidence" JSONB NOT NULL DEFAULT '[]'::jsonb,
+                                                "source_resume_version" BIGINT NOT NULL DEFAULT 0,
+                                                "source_chunk_count" BIGINT NOT NULL DEFAULT 0,
+                                                "source_updated_at" TIMESTAMPTZ,
+                                                "first_generated_at" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                                                "generated_at" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                                                "updated_at" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                                                UNIQUE ("artifact_id", "user_id")
+);
+
+CREATE INDEX idx_resume_evaluations_user_id ON resume_evaluations (user_id);
+CREATE INDEX idx_resume_evaluations_artifact_id ON resume_evaluations (artifact_id);
+CREATE INDEX idx_resume_evaluations_user_status ON resume_evaluations (user_id, status);
 
 CREATE TABLE "public"."session_evaluations" (
                                                 "id" BIGSERIAL PRIMARY KEY,

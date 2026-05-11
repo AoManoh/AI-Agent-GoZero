@@ -721,6 +721,12 @@ type (
 		DirectionKey string `form:"directionKey,optional"`
 		Limit        int64  `form:"limit,optional"`
 	}
+	ResumeArtifactAnalysisPrepareReq {
+		Id           string `path:"id"`
+		DirectionKey string `json:"directionKey,optional"`
+		Force        bool   `json:"force,optional"`
+		Limit        int64  `json:"limit,optional"`
+	}
 	ResumeArtifactItem {
 		ArtifactId       string `json:"artifactId"`
 		Title            string `json:"title"`
@@ -761,6 +767,15 @@ type (
 		Evidence        []string `json:"evidence"`
 		PlannedQuestion int64    `json:"plannedQuestion"`
 	}
+	ResumeEvaluationMeta {
+		SchemaVersion    string `json:"schemaVersion"`
+		Available        bool   `json:"available"`
+		RubricVersion    string `json:"rubricVersion,optional"`
+		ScoreSource      string `json:"scoreSource,optional"`
+		GeneratedAt      string `json:"generatedAt,optional"`
+		FirstGeneratedAt string `json:"firstGeneratedAt,optional"`
+		LastRefreshedAt  string `json:"lastRefreshedAt,optional"`
+	}
 	ResumeArtifactsResp {
 		Artifacts []ResumeArtifactItem `json:"artifacts"`
 		Total     int64                `json:"total"`
@@ -772,13 +787,21 @@ type (
 	}
 	ResumeArtifactAnalysisResp {
 		Artifact           ResumeArtifactItem       `json:"artifact"`
+		EvaluationStatus   string                   `json:"evaluationStatus"`
+		OverallScore       float64                  `json:"overallScore"`
+		Level              string                   `json:"level"`
 		Summary            string                   `json:"summary"`
+		Dimensions         []EvaluationDimension    `json:"dimensions"`
 		Skills             []ResumeSkillSignal      `json:"skills"`
 		Projects           []ResumeProjectHighlight `json:"projects"`
 		Risks              []ResumeRiskSignal       `json:"risks"`
+		Strengths          []string                 `json:"strengths"`
+		Suggestions        []string                 `json:"suggestions"`
+		Evidence           []EvaluationEvidence     `json:"evidence"`
 		FocusMatches       []ResumeFocusMatch       `json:"focusMatches"`
 		SuggestedQuestions []InterviewPlanQuestion  `json:"suggestedQuestions"`
 		AnalysisMeta       ReportMeta               `json:"analysisMeta"`
+		EvaluationMeta     ResumeEvaluationMeta     `json:"evaluationMeta"`
 	}
 )
 
@@ -947,5 +970,9 @@ service user-api {
 	@doc "分析当前用户指定简历资料，返回技能、亮点、风险和建议追问题"
 	@handler ResumeArtifactAnalysisHandler
 	get /resume/artifacts/:id/analysis (ResumeArtifactAnalysisReq) returns (ResumeArtifactAnalysisResp)
+
+	@doc "触发或刷新当前用户指定简历资料的持久化 LLM 评估"
+	@handler ResumeArtifactAnalysisPrepareHandler
+	post /resume/artifacts/:id/analysis/prepare (ResumeArtifactAnalysisPrepareReq) returns (ResumeArtifactAnalysisResp)
 }
 

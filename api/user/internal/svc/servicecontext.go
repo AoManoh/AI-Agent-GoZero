@@ -17,17 +17,19 @@ import (
 )
 
 type ServiceContext struct {
-	Config                  config.Config
-	DB                      sqlx.SqlConn
-	UsersModel              model.UsersModel
-	ChatSessionsModel       model.ChatSessionsModel
-	InterviewQuestionsModel model.InterviewQuestionsModel
-	SessionEvaluationsModel model.SessionEvaluationsModel
-	EvaluationGenerator     *EvaluationGenerator
-	ResumeStore             *ResumeStore
-	PdfClient               *PdfClient
-	RedisClient             *redis.Client
-	RefreshTokenTTL         time.Duration
+	Config                    config.Config
+	DB                        sqlx.SqlConn
+	UsersModel                model.UsersModel
+	ChatSessionsModel         model.ChatSessionsModel
+	InterviewQuestionsModel   model.InterviewQuestionsModel
+	SessionEvaluationsModel   model.SessionEvaluationsModel
+	ResumeEvaluationsModel    model.ResumeEvaluationsModel
+	EvaluationGenerator       *EvaluationGenerator
+	ResumeEvaluationGenerator *ResumeEvaluationGenerator
+	ResumeStore               *ResumeStore
+	PdfClient                 *PdfClient
+	RedisClient               *redis.Client
+	RefreshTokenTTL           time.Duration
 }
 
 func NewServiceContext(c config.Config) *ServiceContext {
@@ -58,17 +60,19 @@ func NewServiceContext(c config.Config) *ServiceContext {
 	}
 
 	return &ServiceContext{
-		Config:                  c,
-		DB:                      sqlConn,
-		UsersModel:              model.NewUsersModel(sqlConn),
-		ChatSessionsModel:       model.NewChatSessionsModel(sqlConn),
-		InterviewQuestionsModel: model.NewInterviewQuestionsModel(sqlConn),
-		SessionEvaluationsModel: model.NewSessionEvaluationsModel(sqlConn),
-		EvaluationGenerator:     NewEvaluationGenerator(evaluationClient, c),
-		ResumeStore:             NewResumeStore(sqlConn, embeddingClient, c.EmbeddingModel()),
-		PdfClient:               NewPdfClient(c.MCP.Endpoint, c.MCP.AuthToken, c.MCPMaxUploadBytes()),
-		RedisClient:             redisClient,
-		RefreshTokenTTL:         c.RefreshTokenTTL(),
+		Config:                    c,
+		DB:                        sqlConn,
+		UsersModel:                model.NewUsersModel(sqlConn),
+		ChatSessionsModel:         model.NewChatSessionsModel(sqlConn),
+		InterviewQuestionsModel:   model.NewInterviewQuestionsModel(sqlConn),
+		SessionEvaluationsModel:   model.NewSessionEvaluationsModel(sqlConn),
+		ResumeEvaluationsModel:    model.NewResumeEvaluationsModel(sqlConn),
+		EvaluationGenerator:       NewEvaluationGenerator(evaluationClient, c),
+		ResumeEvaluationGenerator: NewResumeEvaluationGenerator(evaluationClient, c),
+		ResumeStore:               NewResumeStore(sqlConn, embeddingClient, c.EmbeddingModel()),
+		PdfClient:                 NewPdfClient(c.MCP.Endpoint, c.MCP.AuthToken, c.MCPMaxUploadBytes()),
+		RedisClient:               redisClient,
+		RefreshTokenTTL:           c.RefreshTokenTTL(),
 	}
 }
 

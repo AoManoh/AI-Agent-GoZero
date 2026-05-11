@@ -480,6 +480,13 @@ type ReportSnapshot struct {
 	NextAction string `json:"nextAction,optional"`
 }
 
+type ResumeArtifactAnalysisPrepareReq struct {
+	Id           string `path:"id"`
+	DirectionKey string `json:"directionKey,optional"`
+	Force        bool   `json:"force,optional"`
+	Limit        int64  `json:"limit,optional"`
+}
+
 type ResumeArtifactAnalysisReq struct {
 	Id           string `path:"id"`
 	DirectionKey string `form:"directionKey,optional"`
@@ -488,13 +495,21 @@ type ResumeArtifactAnalysisReq struct {
 
 type ResumeArtifactAnalysisResp struct {
 	Artifact           ResumeArtifactItem       `json:"artifact"`
+	EvaluationStatus   string                   `json:"evaluationStatus"`
+	OverallScore       float64                  `json:"overallScore"`
+	Level              string                   `json:"level"`
 	Summary            string                   `json:"summary"`
+	Dimensions         []EvaluationDimension    `json:"dimensions"`
 	Skills             []ResumeSkillSignal      `json:"skills"`
 	Projects           []ResumeProjectHighlight `json:"projects"`
 	Risks              []ResumeRiskSignal       `json:"risks"`
+	Strengths          []string                 `json:"strengths"`
+	Suggestions        []string                 `json:"suggestions"`
+	Evidence           []EvaluationEvidence     `json:"evidence"`
 	FocusMatches       []ResumeFocusMatch       `json:"focusMatches"`
 	SuggestedQuestions []InterviewPlanQuestion  `json:"suggestedQuestions"`
 	AnalysisMeta       ReportMeta               `json:"analysisMeta"`
+	EvaluationMeta     ResumeEvaluationMeta     `json:"evaluationMeta"`
 }
 
 type ResumeArtifactChunk struct {
@@ -531,6 +546,16 @@ type ResumeArtifactsReq struct {
 type ResumeArtifactsResp struct {
 	Artifacts []ResumeArtifactItem `json:"artifacts"`
 	Total     int64                `json:"total"`
+}
+
+type ResumeEvaluationMeta struct {
+	SchemaVersion    string `json:"schemaVersion"`
+	Available        bool   `json:"available"`
+	RubricVersion    string `json:"rubricVersion,optional"`
+	ScoreSource      string `json:"scoreSource,optional"`
+	GeneratedAt      string `json:"generatedAt,optional"`
+	FirstGeneratedAt string `json:"firstGeneratedAt,optional"`
+	LastRefreshedAt  string `json:"lastRefreshedAt,optional"`
 }
 
 type ResumeFocusMatch struct {

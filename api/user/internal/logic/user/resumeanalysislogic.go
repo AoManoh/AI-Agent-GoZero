@@ -8,8 +8,10 @@ import (
 	"sort"
 	"strings"
 
+	"GoZero-AI/api/user/internal/resumeevaluation"
 	"GoZero-AI/api/user/internal/svc"
 	"GoZero-AI/api/user/internal/types"
+	"GoZero-AI/api/user/model"
 	"GoZero-AI/internal/statuserr"
 
 	"github.com/zeromicro/go-zero/core/logx"
@@ -68,24 +70,30 @@ func (l *ResumeArtifactAnalysisLogic) ResumeArtifactAnalysis(req *types.ResumeAr
 		return nil, err
 	}
 
-	artifact, err := loadResumeArtifactItem(l.ctx, l.svcCtx.DB, userID, req.Id)
+	artifact, rows, err := l.loadResumeAnalysisSource(userID, req.Id)
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) || errors.Is(err, sqlx.ErrNotFound) {
-			return nil, statuserr.NotFound("简历资料不存在或已删除")
-		}
-		return nil, statuserr.ServiceUnavailable("简历资料暂不可用，请稍后重试")
-	}
-
-	rows, err := loadResumeArtifactChunks(l.ctx, l.svcCtx.DB, userID, req.Id)
-	if err != nil {
-		return nil, statuserr.ServiceUnavailable("简历分块暂不可用，请稍后重试")
+		return nil, err
 	}
 
 	resp, err := buildResumeArtifactAnalysis(artifact, rows, req.DirectionKey, req.Limit)
 	if err != nil {
 		return nil, err
 	}
-	return &resp, nil
+	if l.svcCtx.ResumeEvaluationsModel == nil {
+		return &resp, nil
+	}
+	record, err := l.svcCtx.ResumeEvaluationsModel.FindOneByArtifactID(l.ctx, userID, artifact.ArtifactId)
+	if err != nil {
+		if errors.Is(err, model.ErrNotFound) {
+			return &resp, nil
+		}
+		return nil, statuserr.ServiceUnavailable("简历评估暂不可用，请稍后重试")
+	}
+	directionKey, err := resolveResumeEvaluationDirection(req.DirectionKey, resp.FocusMatches)
+	if err != nil {
+		return nil, err
+	}
+	return buildResumeAnalysisResponseFromRecord(resp, record, resumeEvaluationRecordStale(record, artifact, directionKey)), nil
 }
 
 func loadResumeArtifactChunks(ctx context.Context, db sqlx.SqlConn, userID int64, artifactID string) ([]resumeArtifactChunkRow, error) {
@@ -104,11 +112,19 @@ func buildResumeArtifactAnalysis(artifact types.ResumeArtifactItem, chunks []res
 	contents := resumeChunkContents(chunks)
 	if len(contents) == 0 {
 		return types.ResumeArtifactAnalysisResp{
-			Artifact: artifact,
-			Summary:  "当前简历暂无可分析分块，请重新上传可解析的文本型 PDF。",
+			Artifact:         artifact,
+			EvaluationStatus: resumeEvaluationStatusNoData,
+			Level:            "high_risk",
+			Summary:          "当前简历暂无可分析分块，请重新上传可解析的文本型 PDF。",
 			AnalysisMeta: types.ReportMeta{
-				SchemaVersion: "resume-analysis-v1",
+				SchemaVersion: resumeAnalysisSchemaVersion,
 				Available:     false,
+			},
+			EvaluationMeta: types.ResumeEvaluationMeta{
+				SchemaVersion: resumeEvaluationSchemaVersion,
+				Available:     false,
+				RubricVersion: resumeevaluation.RubricVersion,
+				ScoreSource:   resumeEvaluationScoreHeuristic,
 			},
 		}, nil
 	}
@@ -125,6 +141,7 @@ func buildResumeArtifactAnalysis(artifact types.ResumeArtifactItem, chunks []res
 
 	return types.ResumeArtifactAnalysisResp{
 		Artifact:           artifact,
+		EvaluationStatus:   resumeEvaluationStatusMissing,
 		Summary:            buildResumeAnalysisSummary(artifact, skills, projects, risks),
 		Skills:             skills,
 		Projects:           projects,
@@ -132,8 +149,14 @@ func buildResumeArtifactAnalysis(artifact types.ResumeArtifactItem, chunks []res
 		FocusMatches:       focusMatches,
 		SuggestedQuestions: questions,
 		AnalysisMeta: types.ReportMeta{
-			SchemaVersion: "resume-analysis-v1",
+			SchemaVersion: resumeAnalysisSchemaVersion,
 			Available:     true,
+		},
+		EvaluationMeta: types.ResumeEvaluationMeta{
+			SchemaVersion: resumeEvaluationSchemaVersion,
+			Available:     false,
+			RubricVersion: resumeevaluation.RubricVersion,
+			ScoreSource:   resumeEvaluationScoreHeuristic,
 		},
 	}, nil
 }
