@@ -556,7 +556,9 @@ const heroSubtitle = computed(() => {
 // 4 metric 数据条：替代旧 3 联统计，所有字段都有 0/— 兜底
 // 数据来源：stats（完成场次、平均分）+ recentSessions 聚合 + bootstrapData 周锚（如有）
 const metricsRow = computed(() => {
-  // 总练习时长：基于 recentSessions duration 求和（分钟），再按需切到 h
+  // 总练习时长：当前后端 SessionItem 不返回 duration 字段，求和恒为 0 → durLabel = "—"。
+  // 待 SessionItem 补 duration（或 bootstrap.stats.totalDurationMinutes）后接入；
+  // 不在前端伪造每场 30m 假时长（原 mock 兜底已在 toRecentSessionRow 移除）。
   const totalMin = recentSessions.value.reduce((acc, s) => acc + (s.duration || 0), 0);
   const durLabel =
     totalMin <= 0
@@ -768,16 +770,12 @@ const formatRelativeTime = (timestamp) => {
   return new Date(ts).toLocaleDateString("zh-CN");
 };
 
-const inferDifficultyLevel = (label) => {
-  const text = String(label || "").toLowerCase();
-  if (text.includes("资深") || text.includes("senior") || text.includes("expert")) return "high";
-  if (text.includes("初") || text.includes("junior")) return "low";
-  return "mid";
-};
-
-// === 异步加载真实数据（带 mock 回退） ===
-// 设计原则：网络失败 / 后端未部署 / 401 任意场景下 UI 都正常呈现 mock，
-// 不让登录页或工作台陷入"白屏 + console 错误"。
+// === 异步加载真实数据 ===
+// 设计原则（与原则 5 对齐）：网络失败 / 401 时静默降级到空态，不预填 mock。
+// 让 UI 真实反映「是否拿到数据」，避免造「已有内容」的假象。
+// （删除了 inferDifficultyLevel helper：唯一调用方 toRecentSessionRow 已不再传入 difficulty
+//  字段，因为后端 SessionItem 不返回 difficulty/difficultyLabel，inferDifficultyLevel
+//  永远基于 undefined 返回 "mid"，是死代码。）
 const loadProfile = async () => {
   try {
     const profile = await apiService.user.profile();
@@ -792,16 +790,21 @@ const loadProfile = async () => {
 };
 
 // 将后端 SessionItem 转换为表格行数据。
+// 后端 SessionItem 当前只返回 10 个字段（sessionId/title/mode/modeKey/messageCount/
+// isActive/createdAt/updatedAt/lastMessageAt/completedAt），不返回 direction/difficulty/
+// score/duration。原则 5：不造 hardcode mock 兜底（原 "未指定"/"中级"/30m 已删除），
+// 空字段让模板侧 v-if 决定显示与否，待独立 UX 任务做模板列重构（6 列 → 5 列对齐契约）。
+// 过渡期允许「破列」呈现：方向空、难度空 span、分 0、时长 0m，比 mock 假数据诚实。
 const toRecentSessionRow = (s, i) => {
   const id = s.sessionId || s.id || `s-${i}`;
   return {
     id,
     title: s.title || s.topic || "未命名会话",
-    direction: s.direction || s.directionLabel || "未指定",
-    difficulty: s.difficulty || s.difficultyLabel || "中级",
-    difficultyLevel: inferDifficultyLevel(s.difficulty || s.difficultyLabel),
+    direction: s.direction || s.directionLabel || "",
+    difficulty: s.difficulty || s.difficultyLabel || "",
+    difficultyLevel: "",
     score: typeof s.score === "number" ? s.score : 0,
-    duration: typeof s.duration === "number" ? s.duration : (s.durationMinutes || 30),
+    duration: typeof s.duration === "number" ? s.duration : (s.durationMinutes || 0),
     time: formatRelativeTime(s.updatedAt || s.createdAt || s.lastMessageAt || s.lastActiveAt),
     link: `/chat?sessionId=${encodeURIComponent(id)}`,
   };
@@ -819,13 +822,10 @@ const loadSessions = async () => {
     // 原则 5：不再「列表为空时保留 mock」，模板 wb-empty 会接手呈现「还没有面试记录」。
     recentSessions.value = list.slice(0, 5).map(toRecentSessionRow);
 
-    // 聚合统计（list 为空时 completed=0，avgScore 保留默认 "—"，lastAt 保留 "暂无"）
+    // 仅用 list.length 更新 completed；avgScore 完全交给 bootstrap.stats.averageScore，
+    // 不做基于 row.score 的前端二次计算（删除原 scoredList.reduce 死代码：后端 SessionItem
+    // 不返回 score 字段，row.score 永远为 0，scoredList 永远为空，二次计算永远不执行）。
     stats.value.completed = list.length;
-    const scoredList = recentSessions.value.filter((r) => r.score > 0);
-    if (scoredList.length > 0) {
-      const sum = scoredList.reduce((acc, r) => acc + r.score, 0);
-      stats.value.avgScore = Math.round(sum / scoredList.length);
-    }
     if (recentSessions.value[0]) {
       stats.value.lastAt = recentSessions.value[0].time;
     }
