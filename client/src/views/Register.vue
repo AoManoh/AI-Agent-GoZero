@@ -12,20 +12,28 @@
 
     <div class="auth-wrapper">
       <div class="auth-card">
-        <!-- 叙事动画：左上接触点（16,2）出发，两条独立路径同时延伸到右下（384,468）汇合。
-             ring-tr: 顺顶边 → 右边 路径
-             ring-lb: 顺左边 → 底边 路径
-             同起点 同终点 同时延伸 → 在右下汇合 → 整体消散。 -->
+        <!-- 叙事动画：两条路径同起点 (2,16)（左边接触点），同时延伸到右下（384,468）汇合。与 Login.vue 严谨对称。
+             ring-tr: 从左边接触点 → 左上圆角弧 → 顶边 → 右上圆角弧 → 右边 → 右下圆角弧到终点
+             ring-lb: 从左边接触点 → 左边 → 左下圆角弧 → 底边到终点
+             同起点 同终点 同时延伸 → 在右下汇合 → 整体消散。
+
+             视觉迭代 #2.1（2026-05-11） 补左上圆角弧「空缺」修复：
+             - 迭代 #2 把 path 起点从圆角中心 (8,8) 改为接触点 (16,2)/(2,16)，
+               消除了圆角内 V 字游离段，但同时使「左上圆角弧 (2,16)→(16,2)」
+               没有被任何 path 描绘（两条 path 起点不同且不含该弧），
+               视觉上卡片左上角呈现 14×14 黑洞（e2e验收驳回）。
+             - 本迭代 ring-tr 起点改回 (2,16) 且首段加 A 弧 → 左上圆角被 ring-tr 描绘，
+               ring-lb 从 (2,16) 直接 V，两条 path 严谨同起点 同终点，
+               四个圆角弧都被息一条 path 描，与 Login.vue 一起修。 -->
         <svg class="auth-card-ring" viewBox="0 0 400 470" preserveAspectRatio="none" aria-hidden="true">
-          <!-- 两条 path 都从卡片左上圆角中心 (8,8) 出发，先 L 到圆角末端，再沿两条边延伸到右下。
-               stroke-width 2 让流光更细。 -->
+          <!-- stroke-width 2 让流光更细。vector-effect non-scaling-stroke 保证 stroke 宽度不被 SVG 缩放。 -->
           <path class="ring-tr"
-                d="M 8 8 L 16 2 H 384 A 14 14 0 0 1 398 16 V 454 A 14 14 0 0 1 384 468"
+                d="M 2 16 A 14 14 0 0 1 16 2 H 384 A 14 14 0 0 1 398 16 V 454 A 14 14 0 0 1 384 468"
                 fill="none" stroke="rgba(220,155,90,1)" stroke-width="2"
                 vector-effect="non-scaling-stroke"
                 pathLength="100" />
           <path class="ring-lb"
-                d="M 8 8 L 2 16 V 454 A 14 14 0 0 0 16 468 H 384"
+                d="M 2 16 V 454 A 14 14 0 0 0 16 468 H 384"
                 fill="none" stroke="rgba(220,155,90,1)" stroke-width="2"
                 vector-effect="non-scaling-stroke"
                 pathLength="100" />
@@ -237,7 +245,8 @@ async function handleSubmit() {
   overflow: visible;
 }
 
-/* ring-tr 和 ring-lb 同起点、同终点、同动画节奏。 */
+/* ring-tr 和 ring-lb 同起点 (2,16)（左边接触点）、同终点 (384,468)、同动画节奏。
+   ring-tr 首段含左上圆角弧，避免「左上圆角空缺」黑洞。与 Login.vue 严谨对称。 */
 .ring-tr,
 .ring-lb {
   stroke-dasharray: 0 100;

@@ -1074,35 +1074,39 @@ onMounted(async () => {
      1. background-clip: text 把渐变剪成字形，作为流光填充层
      2. -webkit-text-stroke 1px amber 描边，让字符外圈有暖琥珀立体感
      3. drop-shadow filter 给字体一圈温暖光晕（halo），从字体本身发散
-     4. linear-gradient amber→暖白→amber→暖白（200% 宽）+ 8s 循环动画 = 横向流光
+     4. linear-gradient amber→暖白→amber→暖白（200% 宽）+ 6s 循环动画 = 45° 斜光
 
      性能注：filter drop-shadow 在 Chrome/Firefox/Safari 都 GPU 加速，60fps 无负担。
-     8s 周期偏长不打扰但能感知，避免成为干扰主视觉的"卡通效果"。 */
+     6s 周期偏短让斜光擦过节奏明显但不刺眼，避免成为干扰主视觉的"卡通效果"。
+
+     视觉迭代 #2（2026-05-11）：旧 100deg 等色线呈 10° 斜线（接近垂直），
+     background-position 水平滑动视觉成「百叶窗横向滑动」而非斜光擦过；
+     改 135deg 让等色线呈 45° 明显斜线，对应「斜光擦过琥珀玉」叙事。 */
   position: relative;
   font-weight: 800;
-  /* 流光填充：高光段从 1.0 降到 0.85，使「光斜过」更为动得头床、不刮眼，
-     与页面其他低饱和 amber 语言肤调一致 */
+  /* 流光填充：高光段 alpha 从 0.85/0.92 拉到 1.0/0.98 让斜光带在暖琥珀底色上更突出，
+     与 .wb-metric:first-child 的 amber gradient text 形成同一色彩节奏。 */
   background: linear-gradient(
-    100deg,
+    135deg,
     rgba(220, 155, 90, 0.95) 0%,
-    rgba(255, 230, 200, 0.85) 18%,
-    rgba(240, 180, 60, 0.92) 35%,
-    rgba(255, 230, 200, 0.85) 52%,
+    rgba(255, 240, 220, 1.0) 18%,
+    rgba(240, 180, 60, 0.98) 35%,
+    rgba(255, 240, 220, 1.0) 52%,
     rgba(220, 155, 90, 0.95) 70%,
-    rgba(240, 180, 60, 0.92) 100%
+    rgba(240, 180, 60, 0.98) 100%
   );
   background-size: 200% 100%;
   background-clip: text;
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   color: transparent;
-  /* amber 描边：降为 0.28 opacity，从“金属雕刻”调到“软描边”，避免物质打压其他元素 */
+  /* amber 描边：降为 0.28 opacity，从"金属雕刻"调到"软描边"，避免物质打压其他元素 */
   -webkit-text-stroke: 1px rgba(240, 180, 60, 0.28);
   /* drop-shadow halo 降一档：从双层 (6+14px) 收为单层 8px，opacity 0.22，
-     halo 仍在但不再「四溢”。但仃是个背景上可辨识的暖点。 */
+     halo 仍在但不再「四溢"。但仃是个背景上可辨识的暖点。 */
   filter: drop-shadow(0 0 8px rgba(240, 180, 60, 0.22));
-  /* 横向流光循环：8s linear 让光"从右往左"扫过 */
-  animation: wb-name-shimmer 8s linear infinite;
+  /* 斜光循环：6s linear 让 45° 斜光带"从右上扫向左下" */
+  animation: wb-name-shimmer 6s linear infinite;
 }
 
 /* prefers-reduced-motion: 关闭流光动画，保留静态 amber 渐变填充以维持视觉品质 */
