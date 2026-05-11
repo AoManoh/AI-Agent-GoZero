@@ -43,6 +43,7 @@ func TestChatSSEPromptResponsePersistenceAndStateFlow(t *testing.T) {
 	openAIClient := openai.NewClientWithConfig(openAIConfig)
 
 	fakePool := newChatFlowFakePool()
+	fakePool.sessionConfig.ResumeArtifactID = "resume-artifact-e2e"
 	ctx, cancel := context.WithTimeout(chatAuth.WithUserID(context.Background(), fakePool.userID), 3*time.Second)
 	defer cancel()
 
@@ -121,6 +122,9 @@ func TestChatSSEPromptResponsePersistenceAndStateFlow(t *testing.T) {
 	}
 	if strings.Contains(capturedPrompt, "Go goroutine、channel") {
 		t.Fatalf("formal interview prompt leaked public knowledge:\n%s", capturedPrompt)
+	}
+	if got := fakePool.lastResumeQueryID(); got != "resume-artifact-e2e" {
+		t.Fatalf("resume query id = %q, want bound artifact id", got)
 	}
 
 	messages := fakePool.savedMessages()
@@ -726,6 +730,8 @@ type chatFlowFakePool struct {
 
 	mu       sync.Mutex
 	messages []types2.VectorMessage
+
+	lastResumeID string
 }
 
 func newChatFlowFakePool() *chatFlowFakePool {
@@ -740,6 +746,7 @@ func newChatFlowFakePool() *chatFlowFakePool {
 			FocusAreas:       []byte(`[{"key":"database","label":"数据库"},{"key":"engineering","label":"工程实践"}]`),
 			FollowUpDepth:    "N+7",
 			EstimatedMinutes: 45,
+			ResumeArtifactID: "",
 		},
 		knowledgeRows: [][]any{
 			{int64(1), "公共 Go 知识", "Go goroutine、channel、context 取消和 GMP 调度。", float64(0.01)},
@@ -785,6 +792,13 @@ func (p *chatFlowFakePool) Query(_ context.Context, sql string, args ...any) (pg
 	case strings.Contains(sql, "FROM knowledge_base"):
 		return &chatFlowFakeRows{rows: p.knowledgeRows}, nil
 	case strings.Contains(sql, "doc_type = 'resume'"):
+		if len(args) >= 3 {
+			if resumeID, ok := args[2].(string); ok {
+				p.mu.Lock()
+				p.lastResumeID = resumeID
+				p.mu.Unlock()
+			}
+		}
 		return &chatFlowFakeRows{rows: p.resumeRows}, nil
 	default:
 		return &chatFlowFakeRows{}, nil
@@ -793,6 +807,8 @@ func (p *chatFlowFakePool) Query(_ context.Context, sql string, args ...any) (pg
 
 func (p *chatFlowFakePool) QueryRow(_ context.Context, sql string, args ...any) pgx.Row {
 	switch {
+	case strings.Contains(sql, "SELECT resume_artifact_id"):
+		return chatFlowFakeRow{values: []any{p.sessionConfig.ResumeArtifactID}}
 	case strings.Contains(sql, "SELECT mode FROM chat_sessions"):
 		return chatFlowFakeRow{values: []any{sessionmode.KeyInterview}}
 	case strings.Contains(sql, "SELECT user_id, is_active, completed_at IS NOT NULL"):
@@ -810,6 +826,7 @@ func (p *chatFlowFakePool) QueryRow(_ context.Context, sql string, args ...any) 
 			cfg.FollowUpDepth,
 			cfg.EstimatedMinutes,
 			cfg.ProgressPercent,
+			cfg.ResumeArtifactID,
 		}}
 	case strings.Contains(sql, "FROM session_question_events"):
 		if p.practiceContext == nil {
@@ -823,6 +840,12 @@ func (p *chatFlowFakePool) QueryRow(_ context.Context, sql string, args ...any) 
 	default:
 		return chatFlowFakeRow{err: pgx.ErrNoRows}
 	}
+}
+
+func (p *chatFlowFakePool) lastResumeQueryID() string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.lastResumeID
 }
 
 type chatFlowFakeTx struct {
