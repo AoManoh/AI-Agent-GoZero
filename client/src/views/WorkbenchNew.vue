@@ -44,7 +44,7 @@
               type="button"
               class="wb-dir"
               :class="{ 'wb-dir-active': form.direction === dir.key }"
-              @click="form.direction = dir.key"
+              @click="selectDirection(dir)"
             >
               <span class="wb-dir-dot" :style="{ background: dir.color }" aria-hidden="true"></span>
               <span class="wb-dir-name">{{ dir.label }}</span>
@@ -207,22 +207,56 @@ const currentStep = computed(() => {
 // 未命中时退中性灰，与 WorkbenchKnowledge 色点调色板同源。
 const DIRECTION_COLOR_MAP = {
   "go-backend": "#4cd6a8",
+  go_backend: "#4cd6a8",
+  java_backend: "#f59f68",
   frontend: "#6eb6ff",
+  frontend_vue: "#6eb6ff",
   fullstack: "#b599ff",
   devops: "#ffd770",
   data: "#ff9966",
   system: "rgba(255, 255, 255, 0.55)",
+  system_design: "#b599ff",
+  algorithm: "#ff9966",
 };
 const pickDirectionColor = (key) => DIRECTION_COLOR_MAP[key] || "rgba(255, 255, 255, 0.55)";
 
 // === 方向选项（mock first，onMounted 异步接入 interviewPresets 覆盖）===
 const directions = ref([
-  { key: "go-backend", label: "Go 后端", color: "#4cd6a8", tags: ["微服务", "并发", "RPC"] },
-  { key: "frontend", label: "前端", color: "#6eb6ff", tags: ["Vue", "React", "TypeScript"] },
-  { key: "fullstack", label: "全栈", color: "#b599ff", tags: ["前后端", "DevOps"] },
-  { key: "devops", label: "运维 / 平台", color: "#ffd770", tags: ["K8s", "监控", "稳定性"] },
-  { key: "data", label: "数据 / 算法", color: "#ff9966", tags: ["大数据", "ML", "推荐"] },
-  { key: "system", label: "系统底层", color: "rgba(255, 255, 255, 0.55)", tags: ["Linux", "网络", "存储"] },
+  {
+    key: "go_backend",
+    label: "Go 后端",
+    color: "#4cd6a8",
+    tags: ["concurrency", "database", "system_design"],
+    focusKeys: ["concurrency", "database", "system_design", "engineering"],
+  },
+  {
+    key: "java_backend",
+    label: "Java 后端",
+    color: "#f59f68",
+    tags: ["system_design", "database", "network"],
+    focusKeys: ["system_design", "database", "network", "engineering"],
+  },
+  {
+    key: "frontend_vue",
+    label: "前端 Vue",
+    color: "#6eb6ff",
+    tags: ["frontend_arch", "performance", "engineering"],
+    focusKeys: ["frontend_arch", "performance", "engineering"],
+  },
+  {
+    key: "system_design",
+    label: "系统设计",
+    color: "#b599ff",
+    tags: ["system_design", "database", "network"],
+    focusKeys: ["system_design", "database", "network", "observability"],
+  },
+  {
+    key: "algorithm",
+    label: "算法基础",
+    color: "#ff9966",
+    tags: ["algorithm", "communication"],
+    focusKeys: ["algorithm", "communication"],
+  },
 ]);
 
 const selectedDirectionLabel = computed(() => {
@@ -282,6 +316,16 @@ const toggleFocus = (key) => {
   } else {
     form.value.focus.push(key);
   }
+};
+
+const defaultFocusForDirection = (dir) => {
+  return Array.isArray(dir?.focusKeys) ? dir.focusKeys.slice(0, 3) : [];
+};
+
+const selectDirection = (dir) => {
+  if (!dir?.key) return;
+  form.value.direction = dir.key;
+  form.value.focus = defaultFocusForDirection(dir);
 };
 
 // === 表单状态 ===
@@ -355,7 +399,8 @@ const loadPresets = async () => {
         key: d.key,
         label: d.label,
         color: pickDirectionColor(d.key),
-        // 后端 focusKeys 是该方向的重点 chip。用作 tags 显示；限高3 项避免溢出。
+        focusKeys: Array.isArray(d.focusKeys) ? [...d.focusKeys] : [],
+        // 后端 focusKeys 是该方向的重点 chip。用作 tags 显示；限高 3 项避免溢出。
         tags: Array.isArray(d.focusKeys) ? d.focusKeys.slice(0, 3) : [],
       }));
     }
@@ -391,7 +436,12 @@ const loadPresets = async () => {
     const dc = res.defaultConfig;
     if (dc) {
       if (!form.value.direction && dc.directionKey) {
-        form.value.direction = dc.directionKey;
+        selectDirection(
+          directions.value.find((d) => d.key === dc.directionKey) || {
+            key: dc.directionKey,
+            focusKeys: [],
+          },
+        );
       }
       if (form.value.difficultyIdx === null && typeof dc.difficultyLevel === "number") {
         const idx = difficulties.value.findIndex(

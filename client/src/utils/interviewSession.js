@@ -46,7 +46,8 @@ const unique = (items) => [...new Set(items)];
 
 export const normalizeDirectionKey = (value) => {
   const key = String(value || "").trim();
-  return DIRECTION_KEY_ALIASES[key] || "go_backend";
+  if (!key) return "";
+  return DIRECTION_KEY_ALIASES[key] || key;
 };
 
 export const normalizeDifficultyLevel = (value) => {
@@ -70,7 +71,11 @@ export const normalizeFocusKeys = (value) => {
 
   return unique(
     raw
-      .map((key) => FOCUS_KEY_ALIASES[String(key || "").trim()])
+      .map((key) => {
+        const normalized = String(key || "").trim();
+        if (!normalized) return "";
+        return FOCUS_KEY_ALIASES[normalized] || normalized;
+      })
       .filter(Boolean)
   );
 };
