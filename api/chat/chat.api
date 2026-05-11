@@ -55,19 +55,25 @@ type KnowledgeManagerMeta {
 }
 
 // KnowledgeDocumentItem 知识库文档聚合项
+// 2026-05-12 Q8=B 决策：暴露 sizeBytes/embeddingDimension/embeddingModel 三个免费元信息字段，
+// 用于前端卡片底部 chip 排版（"1536d · text-embedding-3-small · 12.3 KB · 12 chunks"）。
+// 拒绝产品图的 "1024d"（设计稿示意，与真实 vector(1536) 不符）和 "召回 87 次"（DB 无 query_hits 列，挪到 v0.3+ 可观察性升级）。
 type KnowledgeDocumentItem {
-	DocumentId int64  `json:"documentId"`
-	Title      string `json:"title"`
-	Scope      string `json:"scope"`
-	Source     string `json:"source,optional"`
-	Visibility string `json:"visibility"`
-	Status     string `json:"status"`
-	Version    int64  `json:"version"`
-	OwnerId    int64  `json:"ownerId"`
-	ChunkCount int64  `json:"chunkCount"`
-	Preview    string `json:"preview"`
-	CreatedAt  string `json:"createdAt"`
-	UpdatedAt  string `json:"updatedAt"`
+	DocumentId         int64  `json:"documentId"`
+	Title              string `json:"title"`
+	Scope              string `json:"scope"`
+	Source             string `json:"source,optional"`
+	Visibility         string `json:"visibility"`
+	Status             string `json:"status"`
+	Version            int64  `json:"version"`
+	OwnerId            int64  `json:"ownerId"`
+	ChunkCount         int64  `json:"chunkCount"`
+	SizeBytes          int64  `json:"sizeBytes"` // 文档所有 chunk content 字节数求和（PG 端 SUM(LENGTH(content))）
+	EmbeddingDimension int    `json:"embeddingDimension"` // 当前向量维度（与 DDL vector(1536) 对齐）
+	EmbeddingModel     string `json:"embeddingModel"` // 当前 embedding 模型名（来自 svcCtx.Config.EmbeddingModel()）
+	Preview            string `json:"preview"`
+	CreatedAt          string `json:"createdAt"`
+	UpdatedAt          string `json:"updatedAt"`
 }
 
 // KnowledgeDocumentsResp 知识库文档列表响应

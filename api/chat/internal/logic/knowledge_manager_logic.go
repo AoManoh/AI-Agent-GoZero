@@ -16,7 +16,16 @@ import (
 	"GoZero-AI/internal/statuserr"
 )
 
+// 知识库相关常量
 const chatTimeLayout = "2006-01-02T15:04:05Z07:00"
+
+// knowledgeEmbeddingDimension 是知识库向量维度的快照常量。
+//
+// 与 db/user.sql 中 knowledge_base.embedding 列的 vector(1536) 类型严格对齐；
+// 切到不同维度的 embedding 模型时需要同步迁移 DDL + reindex 全部历史数据，
+// 不在本次范围（v0.3+ 可观察性升级或独立的 RAG 模型升级 task）。
+// 2026-05-12 Q8=B 决策：暴露给前端卡片元信息展示，拒绝产品图的 "1024d" 设计稿示意。
+const knowledgeEmbeddingDimension = 1536
 
 type KnowledgeDocumentsLogic struct {
 	logx.Logger
@@ -69,9 +78,10 @@ func (l *KnowledgeDocumentsLogic) KnowledgeDocuments(req *types.KnowledgeDocumen
 		return nil, statuserr.ServiceUnavailable("知识库文档暂不可用，请稍后重试")
 	}
 
+	embeddingModel := l.svcCtx.Config.EmbeddingModel()
 	items := make([]types.KnowledgeDocumentItem, 0, len(documents))
 	for _, doc := range documents {
-		items = append(items, buildKnowledgeDocumentItem(doc))
+		items = append(items, buildKnowledgeDocumentItem(doc, embeddingModel))
 	}
 
 	return &types.KnowledgeDocumentsResp{
@@ -107,7 +117,7 @@ func (l *KnowledgeDocumentChunksLogic) KnowledgeDocumentChunks(req *types.Knowle
 	}
 
 	return &types.KnowledgeDocumentChunksResp{
-		Document: buildKnowledgeDocumentItem(document),
+		Document: buildKnowledgeDocumentItem(document, l.svcCtx.Config.EmbeddingModel()),
 		Chunks:   items,
 		Meta:     buildKnowledgeManagerMeta(userID),
 	}, nil
@@ -165,7 +175,13 @@ func buildKnowledgeManagerMeta(userID *int64) types.KnowledgeManagerMeta {
 	}
 }
 
-func buildKnowledgeDocumentItem(document svc.KnowledgeDocument) types.KnowledgeDocumentItem {
+// buildKnowledgeDocumentItem 把后端 svc 层的 KnowledgeDocument 聚合数据转换为 types 层 API 响应项。
+//
+// 2026-05-12 Q8=B 派生：
+//   - SizeBytes 来自 svc 层 SUM(LENGTH(content)) 聚合
+//   - EmbeddingDimension 使用 knowledgeEmbeddingDimension 常量（与 DDL vector(1536) 对齐）
+//   - EmbeddingModel 由调用方从 svcCtx.Config.EmbeddingModel() 取出后传入，避免本函数对 svcCtx 形成耦合
+func buildKnowledgeDocumentItem(document svc.KnowledgeDocument, embeddingModel string) types.KnowledgeDocumentItem {
 	scope := document.Visibility
 	if scope == "" && document.OwnerID == 1 {
 		scope = "public"
@@ -175,18 +191,21 @@ func buildKnowledgeDocumentItem(document svc.KnowledgeDocument) types.KnowledgeD
 	}
 
 	return types.KnowledgeDocumentItem{
-		DocumentId: document.DocumentID,
-		Title:      document.Title,
-		Scope:      scope,
-		Source:     document.Source,
-		Visibility: document.Visibility,
-		Status:     document.Status,
-		Version:    document.Version,
-		OwnerId:    document.OwnerID,
-		ChunkCount: document.ChunkCount,
-		Preview:    truncateKnowledgeContent(document.Preview, 180),
-		CreatedAt:  document.CreatedAt.Format(chatTimeLayout),
-		UpdatedAt:  document.UpdatedAt.Format(chatTimeLayout),
+		DocumentId:         document.DocumentID,
+		Title:              document.Title,
+		Scope:              scope,
+		Source:             document.Source,
+		Visibility:         document.Visibility,
+		Status:             document.Status,
+		Version:            document.Version,
+		OwnerId:            document.OwnerID,
+		ChunkCount:         document.ChunkCount,
+		SizeBytes:          document.SizeBytes,
+		EmbeddingDimension: knowledgeEmbeddingDimension,
+		EmbeddingModel:     embeddingModel,
+		Preview:            truncateKnowledgeContent(document.Preview, 180),
+		CreatedAt:          document.CreatedAt.Format(chatTimeLayout),
+		UpdatedAt:          document.UpdatedAt.Format(chatTimeLayout),
 	}
 }
 

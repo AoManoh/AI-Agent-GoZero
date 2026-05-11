@@ -29,18 +29,21 @@ type KnowledgeDocumentChunksResp struct {
 }
 
 type KnowledgeDocumentItem struct {
-	DocumentId int64  `json:"documentId"`
-	Title      string `json:"title"`
-	Scope      string `json:"scope"`
-	Source     string `json:"source,optional"`
-	Visibility string `json:"visibility"`
-	Status     string `json:"status"`
-	Version    int64  `json:"version"`
-	OwnerId    int64  `json:"ownerId"`
-	ChunkCount int64  `json:"chunkCount"`
-	Preview    string `json:"preview"`
-	CreatedAt  string `json:"createdAt"`
-	UpdatedAt  string `json:"updatedAt"`
+	DocumentId         int64  `json:"documentId"`
+	Title              string `json:"title"`
+	Scope              string `json:"scope"`
+	Source             string `json:"source,optional"`
+	Visibility         string `json:"visibility"`
+	Status             string `json:"status"`
+	Version            int64  `json:"version"`
+	OwnerId            int64  `json:"ownerId"`
+	ChunkCount         int64  `json:"chunkCount"`
+	SizeBytes          int64  `json:"sizeBytes"`          // 文档所有 chunk content 字节数求和（PG 端 SUM(LENGTH(content))）
+	EmbeddingDimension int    `json:"embeddingDimension"` // 当前向量维度（与 DDL vector(1536) 对齐）
+	EmbeddingModel     string `json:"embeddingModel"`     // 当前 embedding 模型名（来自 svcCtx.Config.EmbeddingModel()）
+	Preview            string `json:"preview"`
+	CreatedAt          string `json:"createdAt"`
+	UpdatedAt          string `json:"updatedAt"`
 }
 
 type KnowledgeDocumentsReq struct {

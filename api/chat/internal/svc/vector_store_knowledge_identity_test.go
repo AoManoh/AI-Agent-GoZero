@@ -233,10 +233,12 @@ func (p *knowledgeIdentityPool) Query(_ context.Context, sql string, args ...any
 			p.t.Fatalf("document list query should include archived versions, got SQL: %s", compactSQL)
 		}
 		assertKnowledgeArgs(p.t, args, int64(7), 10)
+		// 2026-05-12 Q8=B：ListKnowledgeDocuments SQL 加了 size_bytes 聚合列，位置在 chunk_count 与 created_at 之间（第 9 列）。
+		// mock 值不被本测试所验证（TestKnowledgeDocumentIdentitySeparatesRepeatedUploads 只关注 version/status/title），任意 int64 均可。
 		return &knowledgeRows{
 			rows: [][]any{
-				{int64(201), int64(7), "Go 面试题", "manual", "private", "ready", int64(2), int64(2), p.now.Add(time.Minute), p.now.Add(2 * time.Minute), "v2 第一块"},
-				{int64(101), int64(7), "Go 面试题", "manual", "private", "archived", int64(1), int64(2), p.now.Add(-time.Hour), p.now, "v1 第一块"},
+				{int64(201), int64(7), "Go 面试题", "manual", "private", "ready", int64(2), int64(2), int64(40), p.now.Add(time.Minute), p.now.Add(2 * time.Minute), "v2 第一块"},
+				{int64(101), int64(7), "Go 面试题", "manual", "private", "archived", int64(1), int64(2), int64(20), p.now.Add(-time.Hour), p.now, "v1 第一块"},
 			},
 		}, nil
 	case strings.Contains(compactSQL, "SELECT id, title, content, created_at FROM knowledge_base"):
@@ -267,8 +269,9 @@ func (p *knowledgeIdentityPool) QueryRow(_ context.Context, sql string, args ...
 		return knowledgeRow{values: []any{int64(7), "Go 面试题", "manual", int64(2)}}
 	case strings.Contains(compactSQL, "FROM knowledge_base WHERE user_id = $1 AND title = $2 AND source = $3 AND version = $4"):
 		assertKnowledgeArgs(p.t, args, int64(7), "Go 面试题", "manual", int64(2))
+		// 2026-05-12 Q8=B：LoadKnowledgeDocumentChunks SQL 同样加了 size_bytes 聚合列（第 9 列）。
 		return knowledgeRow{values: []any{
-			int64(201), int64(7), "Go 面试题", "manual", "private", "ready", int64(2), int64(2),
+			int64(201), int64(7), "Go 面试题", "manual", "private", "ready", int64(2), int64(2), int64(40),
 			p.now.Add(time.Minute), p.now.Add(2 * time.Minute), "v2 第一块",
 		}}
 	default:

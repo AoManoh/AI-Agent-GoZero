@@ -43,6 +43,7 @@ import (
 	"GoZero-AI/api/chat/internal/types"
 	"GoZero-AI/internal/sessionmode"
 	"GoZero-AI/internal/statuserr"
+
 	// pgvector-go 是一个 Go 语言库，用于将 Go 语言中的数据类型转换为 PostgreSQL 的 pgvector 扩展所需的格式
 	"github.com/pgvector/pgvector-go"
 )
@@ -74,6 +75,7 @@ type SessionInterviewConfig struct {
 	FollowUpDepth         string
 	EstimatedMinutes      int64
 	ProgressPercent       int64
+	ResumeArtifactID      string
 }
 
 type SessionPracticeContext struct {
@@ -92,6 +94,7 @@ type KnowledgeDocument struct {
 	Version    int64
 	Preview    string
 	ChunkCount int64
+	SizeBytes  int64 // 2026-05-12 Q8=B：所有 chunk content 字节数求和（SUM(LENGTH(content))），用于前端卡片元信息展示
 	CreatedAt  time.Time
 	UpdatedAt  time.Time
 }
@@ -453,7 +456,13 @@ func (vs *VectorStore) RetrieveKnowledgeScopedContext(ctx context.Context, query
 }
 
 func (vs *VectorStore) RetrievePrivateSessionKnowledgeScopedContext(ctx context.Context, query string, topK int, userID *int64, chatID string) ([]types.KnowledgeChunk, error) {
-	return vs.retrieveKnowledgeScopedContext(ctx, query, topK, userID, chatID, false)
+	resumeScopeID := strings.TrimSpace(chatID)
+	if userID != nil && resumeScopeID != "" {
+		if artifactID, ok := vs.loadSessionResumeArtifactID(ctx, *userID, resumeScopeID); ok {
+			resumeScopeID = artifactID
+		}
+	}
+	return vs.retrieveKnowledgeScopedContext(ctx, query, topK, userID, resumeScopeID, false)
 }
 
 func (vs *VectorStore) retrieveKnowledgeScopedContext(ctx context.Context, query string, topK int, userID *int64, chatID string, includePublic bool) ([]types.KnowledgeChunk, error) {
@@ -514,6 +523,7 @@ func (vs *VectorStore) ListKnowledgeDocuments(ctx context.Context, userID *int64
 	}
 
 	whereSQL, args := knowledgeDocumentAccessWhere(userID, 1)
+	// 2026-05-12 Q8=B：聚合每个文档的总字节数（sum(length(content))），暴露给前端卡片元信息
 	query := fmt.Sprintf(`SELECT
 min(id) AS document_id,
 user_id,
@@ -523,6 +533,7 @@ coalesce(max(visibility), case when user_id = %d then 'public' else 'private' en
 coalesce(max(status), 'ready') AS status,
 coalesce(max(version), 1) AS version,
 count(*) AS chunk_count,
+coalesce(sum(length(content)), 0) AS size_bytes,
 min(created_at) AS created_at,
 coalesce(max(updated_at), max(created_at)) AS updated_at,
 left(coalesce((array_agg(content ORDER BY created_at ASC, id ASC))[1], ''), 240) AS preview
@@ -542,7 +553,7 @@ LIMIT $%d`, publicKnowledgeOwnerID, whereSQL, len(args)+1)
 	documents := make([]KnowledgeDocument, 0)
 	for rows.Next() {
 		var doc KnowledgeDocument
-		if err := rows.Scan(&doc.DocumentID, &doc.OwnerID, &doc.Title, &doc.Source, &doc.Visibility, &doc.Status, &doc.Version, &doc.ChunkCount, &doc.CreatedAt, &doc.UpdatedAt, &doc.Preview); err != nil {
+		if err := rows.Scan(&doc.DocumentID, &doc.OwnerID, &doc.Title, &doc.Source, &doc.Visibility, &doc.Status, &doc.Version, &doc.ChunkCount, &doc.SizeBytes, &doc.CreatedAt, &doc.UpdatedAt, &doc.Preview); err != nil {
 			return nil, err
 		}
 		documents = append(documents, doc)
@@ -580,6 +591,7 @@ LIMIT 1`, whereSQL), args...)
 	}
 
 	var document KnowledgeDocument
+	// 2026-05-12 Q8=B：聚合每个文档的总字节数（sum(length(content))），与 ListKnowledgeDocuments 保持一致
 	if err := vs.Pool.QueryRow(ctx, `SELECT
 min(id) AS document_id,
 user_id,
@@ -589,6 +601,7 @@ coalesce(max(visibility), case when user_id = $1 then 'public' else 'private' en
 coalesce(max(status), 'ready') AS status,
 coalesce(max(version), 1) AS version,
 count(*) AS chunk_count,
+coalesce(sum(length(content)), 0) AS size_bytes,
 min(created_at) AS created_at,
 coalesce(max(updated_at), max(created_at)) AS updated_at,
 left(coalesce((array_agg(content ORDER BY created_at ASC, id ASC))[1], ''), 240) AS preview
@@ -603,6 +616,7 @@ GROUP BY user_id, title, source, version`, ownerID, title, source, version).Scan
 		&document.Status,
 		&document.Version,
 		&document.ChunkCount,
+		&document.SizeBytes,
 		&document.CreatedAt,
 		&document.UpdatedAt,
 		&document.Preview,
@@ -738,7 +752,8 @@ interviewer_style_label,
 focus_areas,
 follow_up_depth,
 estimated_minutes,
-progress_percent
+progress_percent,
+resume_artifact_id
 FROM chat_sessions
 WHERE session_id = $1 AND user_id = $2 AND is_active = true
 LIMIT 1`, chatId, *userID)
@@ -753,6 +768,7 @@ LIMIT 1`, chatId, *userID)
 		&config.FollowUpDepth,
 		&config.EstimatedMinutes,
 		&config.ProgressPercent,
+		&config.ResumeArtifactID,
 	); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return SessionInterviewConfig{}, false, nil
@@ -760,6 +776,25 @@ LIMIT 1`, chatId, *userID)
 		return SessionInterviewConfig{}, false, err
 	}
 	return config, true, nil
+}
+
+func (vs *VectorStore) loadSessionResumeArtifactID(ctx context.Context, userID int64, chatID string) (string, bool) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	var artifactID string
+	row := vs.Pool.QueryRow(ctx, `SELECT resume_artifact_id
+FROM chat_sessions
+WHERE session_id = $1 AND user_id = $2 AND is_active = true
+LIMIT 1`, chatID, userID)
+	if err := row.Scan(&artifactID); err != nil {
+		return "", false
+	}
+	artifactID = strings.TrimSpace(artifactID)
+	if artifactID == "" {
+		return "", false
+	}
+	return artifactID, true
 }
 
 func (vs *VectorStore) LoadSessionPracticeContext(ctx context.Context, chatId string, userID *int64) (SessionPracticeContext, bool, error) {
