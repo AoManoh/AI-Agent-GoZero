@@ -509,18 +509,28 @@ const formatScore = (score) => {
 
 <style scoped>
 /* ============ Layout ============ */
+/* 主框架：响应式宽度，避免硬限 1440px。max-width 1680 防大屏拉伸过分；
+   padding 用 clamp(20, 4vw, 56) 跟视口缩放，小屏上 20px、中屏按 4vw、大屏封顶 56px。 */
 .wb-resume-content {
-  max-width: 1440px;
+  width: 100%;
+  max-width: 1680px;
   margin: 0 auto;
-  padding: 0 44px 80px;
+  padding: 0 clamp(20px, 4vw, 56px) 80px;
 }
 
 /* ============ 三栏 Shell（C2 commit）============ */
-/* 详见 docs/requirements/2026-05-12-workbench-resume-redesign.md §6.1 整体网格 */
+/* 详见 docs/requirements/2026-05-12-workbench-resume-redesign.md §6.1 整体网格。
+   C2.1 修订：从固定 px + 多 breakpoint 跳变改为百分比 + minmax 响应式。
+   三栏比例 22% / 1fr / 28%：中栏主导，左右栏对称感。
+   minmax 保护：左栏 ≥ 200px（6 维进度条可读下限）、右栏 ≥ 260px（追问卡不振压下限）。
+   gap 也用 clamp 随视口缩放（16 至 28）。超小屏（< 900px）才堆叠。 */
 .wb-resume-shell {
   display: grid;
-  grid-template-columns: 280px minmax(0, 1fr) 360px;
-  gap: 24px;
+  grid-template-columns:
+    minmax(200px, 22%)
+    minmax(0, 1fr)
+    minmax(260px, 28%);
+  gap: clamp(16px, 1.6vw, 28px);
   align-items: start;
   margin-top: 8px;
 }
@@ -536,21 +546,22 @@ const formatScore = (score) => {
   min-width: 0;
 }
 
-/* 占位样式。C3-C6 commit 逐步替换为真实内容 */
+/* 占位样式。C3-C6 commit 逐步替换为真实内容。
+   C2.1：min-height 280 → 180，padding 48 24 → 32 20，避免空状态视觉空洞。 */
 .wb-resume-placeholder {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 14px;
-  padding: 48px 24px;
+  gap: 12px;
+  padding: 32px 20px;
   border: 1px dashed rgba(255, 255, 255, 0.10);
   border-radius: var(--radius-lg);
   text-align: center;
   font: 13px/1.7 var(--sans);
   color: var(--t3);
   background: rgba(255, 255, 255, 0.018);
-  min-height: 280px;
+  min-height: 180px;
 }
 
 .wb-resume-placeholder p {
@@ -581,30 +592,30 @@ const formatScore = (score) => {
   opacity: 0.55;
 }
 
-/* S0 未上传 中栏 dropzone 居中容器 */
+/* S0 未上传 中栏 dropzone 居中容器。C2.1：dropzone 铺满中栏宽度（不再 max-width 580），
+   中屏中栏是三栏中能跳主导位置的核心区域，不该被 max-width 压缩。 */
 .wb-resume-mid-empty {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  min-height: 520px;
-  padding: 32px 0;
+  min-height: 480px;
+  padding: 24px 0;
 }
 
 .wb-dropzone--centered {
   width: 100%;
-  max-width: 580px;
 }
 
-/* S1/S2/S3 中栏占位，由 C5-C7 commit 接管 */
+/* S1/S2/S3 中栏占位，由 C5-C7 commit 接管。C2.1：min-height 520 → 380，更紧凑。 */
 .wb-resume-mid-placeholder {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 16px;
-  min-height: 520px;
-  padding: 48px 24px;
+  gap: 14px;
+  min-height: 380px;
+  padding: 36px 24px;
   border: 1px dashed rgba(255, 255, 255, 0.10);
   border-radius: var(--radius-lg);
   text-align: center;
@@ -1263,17 +1274,10 @@ const formatScore = (score) => {
   }
 }
 
-/* ============ 响应式 fallback（D-R5）============ */
-/* < 1280px：三栏缩窄 240 / flex / 320 */
-@media (max-width: 1279px) {
-  .wb-resume-shell {
-    grid-template-columns: 240px minmax(0, 1fr) 320px;
-    gap: 18px;
-  }
-}
-
-/* < 1024px：三栏堆叠垂直滚动（桌面优先，移动端只保证可达） */
-@media (max-width: 1023px) {
+/* ============ 响应式 fallback（D-R5修订）============ */
+/* C2.1：取消 1279/1023 两个 breakpoint 跳变，minmax + clamp 已代替连续响应。
+   仅保留超小屏堆叠逻辑：当三栏总小宽（200 + 260 + 中栏最少 ~280） > viewport 时堆叠。 */
+@media (max-width: 899px) {
   .wb-resume-shell {
     grid-template-columns: 1fr;
     gap: 16px;
@@ -1284,23 +1288,17 @@ const formatScore = (score) => {
   }
   .wb-resume-placeholder,
   .wb-resume-mid-placeholder {
-    min-height: 160px;
+    min-height: 140px;
     padding: 24px;
   }
   .wb-resume-mid-empty {
-    min-height: 360px;
+    min-height: 320px;
   }
 }
 
 @media (max-width: 768px) {
-  .wb-resume-content {
-    padding: 0 20px 60px;
-  }
   .wb-dropzone {
     padding: 36px 20px;
-  }
-  .wb-dropzone--centered {
-    max-width: 100%;
   }
 }
 </style>
