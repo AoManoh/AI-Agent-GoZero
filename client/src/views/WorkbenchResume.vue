@@ -2,9 +2,8 @@
   <!--
     WorkbenchResume：简历管理。
     布局：顶部 hero + 上传 dropzone + 已上传简历卡片列表 + 选中简历的解析详情面板。
-    后端契约：上传走 /users/resume/upload (multipart/form-data)；后续解析项目后展示在 detail。
-    本轮：上传逻辑接入 apiService.user.resumeUpload，但解析结果展示用 mock，
-         真实解析字段待后端契约固化后接入。
+    后端契约：上传走 /users/resume/upload (multipart/form-data)；
+    上传成功后自动触发 /users/resume/artifacts/:id/analysis/prepare 生成持久化评估。
   -->
   <WorkbenchLayout>
     <div class="wb-resume-content">
@@ -125,8 +124,44 @@
       <section v-if="selectedResume" class="wb-resume-detail">
         <header class="wb-block-head">
           <h3 class="wb-block-title">解析详情 · {{ selectedResume.name }}</h3>
-          <button type="button" class="wb-block-close" @click="selectedId = ''" aria-label="关闭详情">×</button>
+          <div class="wb-detail-actions">
+            <button
+              type="button"
+              class="wb-refresh-btn"
+              :disabled="selectedResume.evaluationLoading"
+              @click="prepareResumeEvaluation(selectedResume.id, { force: true })"
+            >
+              {{ selectedResume.evaluationLoading ? '评估中' : '刷新评估' }}
+            </button>
+            <button type="button" class="wb-block-close" @click="selectedId = ''" aria-label="关闭详情">×</button>
+          </div>
         </header>
+
+        <div class="wb-eval-overview">
+          <div class="wb-eval-score">
+            <span class="wb-eval-score-num">{{ formatScore(selectedResume.overallScore) }}</span>
+            <span class="wb-eval-score-label">面试准备度</span>
+          </div>
+          <div class="wb-eval-summary">
+            <div class="wb-eval-status" :class="`wb-eval-${selectedResume.evaluationStatus}`">
+              {{ getEvaluationStatusLabel(selectedResume.evaluationStatus) }}
+            </div>
+            <p>{{ selectedResume.summary || '已完成基础解析，等待生成简历评估。' }}</p>
+          </div>
+        </div>
+
+        <div v-if="selectedResume.dimensions.length" class="wb-dimensions">
+          <div v-for="dimension in selectedResume.dimensions" :key="dimension.key" class="wb-dimension">
+            <div class="wb-dimension-head">
+              <span>{{ dimension.label }}</span>
+              <strong>{{ dimension.score }}</strong>
+            </div>
+            <div class="wb-dimension-bar" aria-hidden="true">
+              <span :style="{ width: `${Math.min(100, Math.max(0, dimension.score || 0))}%` }"></span>
+            </div>
+            <p>{{ dimension.summary }}</p>
+          </div>
+        </div>
 
         <div class="wb-detail-grid">
           <div class="wb-detail-col">
@@ -143,6 +178,29 @@
                 <div class="wb-project-stack">{{ proj.stack }}</div>
               </li>
             </ol>
+          </div>
+        </div>
+
+        <div class="wb-eval-lists">
+          <div class="wb-eval-list">
+            <div class="wb-detail-label">优势</div>
+            <ul>
+              <li v-for="item in selectedResume.strengths" :key="item">{{ item }}</li>
+            </ul>
+          </div>
+          <div class="wb-eval-list">
+            <div class="wb-detail-label">建议</div>
+            <ul>
+              <li v-for="item in selectedResume.suggestions" :key="item">{{ item }}</li>
+            </ul>
+          </div>
+          <div class="wb-eval-list">
+            <div class="wb-detail-label">风险</div>
+            <ul>
+              <li v-for="risk in selectedResume.risks" :key="risk.key || risk.label">
+                {{ risk.label }}：{{ risk.suggestion }}
+              </li>
+            </ul>
           </div>
         </div>
       </section>
@@ -243,12 +301,10 @@ const uploadFile = async (file) => {
 
     // 成功后立即拉列表，让后端返回的 artifactId / status 为准。
     await loadResumes();
-    const newId = res?.artifactId;
-    if (newId) {
-      selectedId.value = newId;
-    } else if (resumes.value[0]?.id) {
-      // 后端未返回 id 时退而选中列表首项
-      selectedId.value = resumes.value[0].id;
+    const targetId = res?.artifactId || resumes.value[0]?.id || "";
+    if (targetId) {
+      selectedId.value = targetId;
+      void prepareResumeEvaluation(targetId, { force: true });
     }
   } catch (error) {
     uploadError.value = error?.message || "上传失败，请稍后再试";
@@ -269,6 +325,20 @@ const formatBytes = (bytes) => {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 };
 
+const createEmptyEvaluationState = () => ({
+  evaluationStatus: "missing",
+  evaluationLoading: false,
+  evaluationLoaded: false,
+  overallScore: null,
+  level: "",
+  summary: "",
+  dimensions: [],
+  strengths: [],
+  risks: [],
+  suggestions: [],
+  evidence: [],
+});
+
 // === 简历列表（mock first，onMounted 异步接入 resumeArtifacts 覆盖） ===
 const resumes = ref([
   {
@@ -286,6 +356,13 @@ const resumes = ref([
       { name: "微服务订单系统", stack: "Go · Kafka · MySQL" },
       { name: "实时协作白板", stack: "WebSocket · CRDT · Redis" },
     ],
+    ...createEmptyEvaluationState(),
+    evaluationStatus: "ready",
+    overallScore: 82,
+    summary: "项目素材完整，适合围绕微服务、RAG 和工程实践展开追问。",
+    strengths: ["技术栈清晰", "项目素材丰富"],
+    suggestions: ["补充核心项目的量化指标。"],
+    risks: [],
   },
   {
     id: "r-v2",
@@ -301,6 +378,13 @@ const resumes = ref([
       { name: "面试系统 v1", stack: "Go · MySQL · Vue" },
       { name: "blog 后端", stack: "Go · MongoDB" },
     ],
+    ...createEmptyEvaluationState(),
+    evaluationStatus: "ready",
+    overallScore: 74,
+    summary: "已有基础项目线索，仍需补充职责边界和结果证据。",
+    strengths: ["方向明确"],
+    suggestions: ["补充项目职责和优化结果。"],
+    risks: [],
   },
 ]);
 
@@ -354,12 +438,52 @@ const loadResumes = async () => {
       primary: i === 0,
       skills: [],
       projects: [],
-      // 预留：analysisLoaded 避免重复拉 analysis
-      analysisLoaded: false,
+      ...createEmptyEvaluationState(),
     }));
   } catch (error) {
     // 静默降级；mock 列表已可用
   }
+};
+
+const updateResume = (id, patch) => {
+  const idx = resumes.value.findIndex((r) => r.id === id);
+  if (idx < 0) return;
+  resumes.value[idx] = {
+    ...resumes.value[idx],
+    ...patch,
+  };
+};
+
+const applyResumeAnalysis = (id, res) => {
+  const idx = resumes.value.findIndex((r) => r.id === id);
+  if (idx < 0 || !res) return;
+  const target = resumes.value[idx];
+
+  const skills = Array.isArray(res.skills) ? res.skills.map((s) => s.label).filter(Boolean) : [];
+  const projects = Array.isArray(res.projects)
+    ? res.projects.map((p) => ({
+      name: p.title || "未命名项目",
+      stack: p.summary || (Array.isArray(p.evidence) ? p.evidence.slice(0, 2).join(" · ") : ""),
+    }))
+    : [];
+
+  resumes.value[idx] = {
+    ...target,
+    skills,
+    projects,
+    skillCount: skills.length,
+    projectCount: projects.length,
+    evaluationStatus: res.evaluationStatus || target.evaluationStatus || "missing",
+    overallScore: typeof res.overallScore === "number" ? res.overallScore : target.overallScore,
+    level: res.level || target.level || "",
+    summary: res.summary || target.summary || "",
+    dimensions: Array.isArray(res.dimensions) ? res.dimensions : [],
+    strengths: Array.isArray(res.strengths) ? res.strengths : [],
+    risks: Array.isArray(res.risks) ? res.risks : [],
+    suggestions: Array.isArray(res.suggestions) ? res.suggestions : [],
+    evidence: Array.isArray(res.evidence) ? res.evidence : [],
+    evaluationLoaded: true,
+  };
 };
 
 // 选中某份简历后 lazy 拉 analysis 覆盖 skills/projects。
@@ -368,31 +492,38 @@ const loadResumeAnalysis = async (id) => {
   const idx = resumes.value.findIndex((r) => r.id === id);
   if (idx < 0) return;
   const target = resumes.value[idx];
-  if (target.analysisLoaded) return; // 已拉过不重复
+  if (target.evaluationLoaded) return; // 已拉过不重复
 
   try {
     const res = await apiService.user.resumeArtifactAnalysis(id, { limit: 6 });
-    if (!res) return;
-
-    const skills = Array.isArray(res.skills) ? res.skills.map((s) => s.label).filter(Boolean) : [];
-    const projects = Array.isArray(res.projects)
-      ? res.projects.map((p) => ({
-        name: p.title || "未命名项目",
-        stack: p.summary || (Array.isArray(p.evidence) ? p.evidence.slice(0, 2).join(" · ") : ""),
-      }))
-      : [];
-
-    // 不覆写原引用，避免 watch 重入。不可变更新。
-    resumes.value[idx] = {
-      ...target,
-      skills,
-      projects,
-      skillCount: skills.length,
-      projectCount: projects.length,
-      analysisLoaded: true,
-    };
+    applyResumeAnalysis(id, res);
   } catch (error) {
     // 静默降级；mock 字段保留
+  }
+};
+
+const prepareResumeEvaluation = async (id, options = {}) => {
+  if (!id) return;
+  updateResume(id, {
+    evaluationLoading: true,
+    evaluationStatus: "evaluating",
+  });
+  try {
+    const res = await apiService.user.resumeArtifactAnalysisPrepare(id, {
+      force: Boolean(options.force),
+      limit: 6,
+    });
+    applyResumeAnalysis(id, res);
+  } catch (error) {
+    updateResume(id, {
+      evaluationStatus: "failed",
+      suggestions: [error?.message || "评估失败，请稍后重试"],
+    });
+  } finally {
+    updateResume(id, {
+      evaluationLoading: false,
+      evaluationLoaded: true,
+    });
   }
 };
 
@@ -416,6 +547,30 @@ const getStatusLabel = (status) => {
     default:
       return "待处理";
   }
+};
+
+const getEvaluationStatusLabel = (status) => {
+  switch (status) {
+    case "ready":
+      return "评估完成";
+    case "stale":
+      return "需刷新";
+    case "evaluating":
+      return "评估中";
+    case "insufficient_data":
+      return "资料不足";
+    case "failed":
+      return "评估失败";
+    case "missing":
+      return "待评估";
+    default:
+      return "待评估";
+  }
+};
+
+const formatScore = (score) => {
+  if (typeof score !== "number" || Number.isNaN(score)) return "—";
+  return Math.round(score);
 };
 </script>
 
@@ -818,6 +973,147 @@ const getStatusLabel = (status) => {
   isolation: isolate;
 }
 
+.wb-detail-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.wb-refresh-btn {
+  height: 30px;
+  padding: 0 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(220, 155, 90, 0.35);
+  background: rgba(220, 155, 90, 0.10);
+  color: rgba(255, 224, 190, 0.95);
+  font: 600 12px var(--sans);
+  cursor: pointer;
+}
+
+.wb-refresh-btn:disabled {
+  cursor: wait;
+  opacity: .62;
+}
+
+.wb-eval-overview {
+  display: grid;
+  grid-template-columns: 150px minmax(0, 1fr);
+  gap: 22px;
+  align-items: stretch;
+  margin-top: 20px;
+  padding: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.025);
+  border-radius: var(--radius-sm);
+}
+
+.wb-eval-score {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-height: 92px;
+}
+
+.wb-eval-score-num {
+  font: 700 42px/1 var(--sans);
+  color: var(--t);
+  letter-spacing: 0;
+}
+
+.wb-eval-score-label {
+  margin-top: 8px;
+  font: 12px var(--mono);
+  color: var(--t3);
+}
+
+.wb-eval-summary {
+  min-width: 0;
+}
+
+.wb-eval-summary p {
+  margin: 10px 0 0;
+  color: var(--t2);
+  font: 14px/1.7 var(--sans);
+}
+
+.wb-eval-status {
+  display: inline-flex;
+  align-items: center;
+  height: 24px;
+  padding: 0 9px;
+  border-radius: var(--radius-pill);
+  font: 600 12px var(--sans);
+  color: rgba(255, 255, 255, 0.88);
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.wb-eval-ready {
+  background: rgba(76, 214, 168, 0.12);
+  color: rgba(155, 242, 213, 0.95);
+}
+
+.wb-eval-stale,
+.wb-eval-missing,
+.wb-eval-evaluating {
+  background: rgba(255, 215, 112, 0.12);
+  color: rgba(255, 230, 160, 0.95);
+}
+
+.wb-eval-failed,
+.wb-eval-insufficient_data {
+  background: rgba(255, 120, 120, 0.12);
+  color: rgba(255, 185, 185, 0.95);
+}
+
+.wb-dimensions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 18px;
+}
+
+.wb-dimension {
+  min-width: 0;
+  padding: 14px;
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: var(--radius-sm);
+}
+
+.wb-dimension-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font: 600 13px var(--sans);
+  color: var(--t);
+}
+
+.wb-dimension-head strong {
+  font: 700 13px var(--mono);
+  color: rgba(220, 155, 90, 0.95);
+}
+
+.wb-dimension-bar {
+  height: 5px;
+  margin-top: 10px;
+  overflow: hidden;
+  border-radius: var(--radius-pill);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.wb-dimension-bar span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, rgba(76, 214, 168, 0.9), rgba(220, 155, 90, 0.95));
+}
+
+.wb-dimension p {
+  margin: 9px 0 0;
+  color: var(--t3);
+  font: 12px/1.6 var(--sans);
+}
+
 .wb-detail-grid {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr);
@@ -880,10 +1176,40 @@ const getStatusLabel = (status) => {
   letter-spacing: .03em;
 }
 
+.wb-eval-lists {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 18px;
+  margin-top: 24px;
+}
+
+.wb-eval-list ul {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.wb-eval-list li {
+  color: var(--t2);
+  font: 13px/1.6 var(--sans);
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.022);
+}
+
 @media (max-width: 1024px) {
   .wb-detail-grid {
     grid-template-columns: 1fr;
     gap: 24px;
+  }
+
+  .wb-dimensions,
+  .wb-eval-lists {
+    grid-template-columns: 1fr;
   }
 }
 
@@ -895,6 +1221,10 @@ const getStatusLabel = (status) => {
     padding: 36px 20px;
   }
   .wb-resumes-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .wb-eval-overview {
     grid-template-columns: 1fr;
   }
 }

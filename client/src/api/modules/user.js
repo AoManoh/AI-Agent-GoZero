@@ -155,6 +155,17 @@ export const userEndpoints = {
     };
   },
 
+  // 触发或刷新单份简历的持久化 LLM 评估
+  resumeArtifactAnalysisPrepare(id, data = {}) {
+    return {
+      service: "user",
+      method: "post",
+      url: `/users/resume/artifacts/${encodeURIComponent(id)}/analysis/prepare`,
+      data,
+      timeout: 120000,
+    };
+  },
+
   // ============ Report Center（报告中心，对接 /api/users/report-center/*） ============
   // 后端 5 个端点都已交付（详见 api/user/user.api 的 service user-api 第 2 段）。
   // 报告中心完整 SFC 由独立需求阶段实现；当前 WorkbenchReports.vue 占位 SFC 也消费 bootstrap，
