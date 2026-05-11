@@ -178,13 +178,14 @@
 
 <script setup>
 import { computed, onMounted, ref } from "vue";
-import { useRouter } from "vue-router";
+import { useRoute, useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
 import WorkbenchLayout from "../components/dashboard/WorkbenchLayout.vue";
 import { apiService } from "../composables/useApi";
 import { buildSessionCreatePayload } from "../utils/interviewSession";
 
 const router = useRouter();
+const route = useRoute();
 
 // === 步骤定义（视觉性 stepper，仅展示进度，不强制顺序） ===
 const steps = [
@@ -331,7 +332,7 @@ const selectDirection = (dir) => {
 // === 表单状态 ===
 const form = ref({
   direction: "",
-  resumeId: "",
+  resumeId: String(route.query.resumeArtifactId || route.query.resumeId || ""),
   difficultyIdx: null,
   focus: [],
 });
@@ -354,6 +355,7 @@ const startInterview = async () => {
         directionKey: form.value.direction,
         difficulty: difficulty?.key || "mid",
         focusKeys: form.value.focus,
+        resumeArtifactId: form.value.resumeId,
       })
     );
     const sessionId = response?.session?.sessionId;

@@ -89,6 +89,7 @@ export const buildSessionCreatePayload = ({
   interviewerStyle = "senior",
   estimatedMinutes = 30,
   questionKey = "",
+  resumeArtifactId = "",
 } = {}) => {
   const payload = {
     mode,
@@ -111,6 +112,11 @@ export const buildSessionCreatePayload = ({
   const normalizedQuestionKey = String(questionKey || "").trim();
   if (normalizedQuestionKey) {
     payload.questionKey = normalizedQuestionKey;
+  }
+
+  const normalizedResumeArtifactId = String(resumeArtifactId || "").trim();
+  if (normalizedResumeArtifactId) {
+    payload.resumeArtifactId = normalizedResumeArtifactId;
   }
 
   return payload;
