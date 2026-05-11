@@ -4,14 +4,13 @@
       <div class="site-header-inner">
         <slot name="left">
           <router-link class="nav-brand" to="/" aria-label="AI 面试官 首页">
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="false" role="img">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="false" role="img">
               <title>AI 面试官 logo</title>
-              <rect width="24" height="24" rx="5" fill="rgba(255,255,255,.08)" stroke="rgba(255,255,255,.12)" stroke-width="1"/>
-              <circle cx="12" cy="12" r="7" stroke="rgba(255,255,255,.45)" stroke-width="1"/>
-              <line x1="7" y1="10" x2="13" y2="10" stroke="rgba(255,255,255,.9)" stroke-width="1.5" stroke-linecap="round"/>
-              <line x1="11" y1="14" x2="17" y2="14" stroke="rgba(255,255,255,.9)" stroke-width="1.5" stroke-linecap="round"/>
+              <rect x="0.5" y="3" width="23" height="18" rx="3.5" fill="rgba(220, 155, 90, 0.15)" stroke="rgba(220, 155, 90, 0.45)" stroke-width="1"/>
+              <text x="3.5" y="17" font-family="'DM Sans', system-ui, sans-serif" font-size="13" font-weight="800" fill="rgba(255,255,255,0.95)">A</text>
+              <text x="13" y="17" font-family="'DM Sans', system-ui, sans-serif" font-size="13" font-weight="800" fill="rgba(220, 155, 90, 0.95)">I</text>
             </svg>
-            <span>AI 面试官</span>
+            <span>面试官</span>
           </router-link>
         </slot>
 
