@@ -66,7 +66,10 @@
         </form>
         <p class="switch-auth">
           还没有账户？
-          <router-link to="/register" class="switch-auth-link">立即注册</router-link>
+          <router-link
+            :to="{ path: '/register', query: route.query.redirect ? { redirect: route.query.redirect } : {} }"
+            class="switch-auth-link"
+          >立即注册</router-link>
         </p>
       </div>
     </div>

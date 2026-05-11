@@ -81,7 +81,10 @@
         </form>
         <p class="switch-auth">
           已有账户？
-          <router-link to="/login" class="switch-auth-link">立即登录</router-link>
+          <router-link
+            :to="{ path: '/login', query: route.query.redirect ? { redirect: route.query.redirect } : {} }"
+            class="switch-auth-link"
+          >立即登录</router-link>
         </p>
       </div>
     </div>
@@ -92,7 +95,7 @@
 
 <script setup>
 import { computed, ref } from "vue";
-import { useRouter } from "vue-router";
+import { useRoute, useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
 import SiteHeader from "../components/SiteHeader.vue";
 import ThemeToggle from "../components/ThemeToggle.vue";
@@ -101,6 +104,7 @@ import { useTheme } from "../composables/useTheme";
 import { useAuth } from "../composables/useAuth";
 
 const router = useRouter();
+const route = useRoute();
 const { theme, toggleTheme } = useTheme();
 const { register } = useAuth();
 
@@ -132,7 +136,13 @@ async function handleSubmit() {
       confirmPassword: confirmPassword.value,
     });
     ElMessage.success("注册成功，请登录");
-    router.push({ name: "Login" });
+    // 透传 redirect query：保证 Home → /login?redirect=/workbench/new → /register?redirect=... → 注册成功
+    // → /login?redirect=/workbench/new → /workbench/new 全链不丢落地页意图（plan §4 Task 4 / e2e 报告 #2）。
+    // 安全性交给 Login.vue 的 resolveRedirectPath 白名单（不以 //、/login 开头），此处只透传。
+    router.push({
+      path: "/login",
+      query: route.query.redirect ? { redirect: route.query.redirect } : {},
+    });
   } catch (error) {
     ElMessage.error(error?.message || "注册失败，请稍后再试");
   } finally {
