@@ -211,6 +211,69 @@ func TestBuildPromptIncludesQuestionPracticeTeachingMode(t *testing.T) {
 	}
 }
 
+func TestBuildPromptIncludesFormalInterviewStuckGuidance(t *testing.T) {
+	prompt := BuildPrompt(BuildInput{
+		ChatID: "formal-stuck-session",
+		State:  "follow_up",
+		Session: &SessionConfig{
+			DirectionKey:     "java_backend",
+			DifficultyLevel:  4,
+			InterviewerStyle: "senior",
+		},
+		Scenario: &ScenarioConfig{
+			Type:            ScenarioFormalInterview,
+			StuckCount:      3,
+			HelpOffered:     true,
+			CandidateSignal: CandidateSignalStuck,
+		},
+	})
+
+	for _, want := range []string{
+		"当前场景: 正式模拟面试",
+		"第 1 次卡住",
+		"第 2 次连续卡住",
+		"第 3 次连续卡住",
+		"正式面试状态: stuck_count=3",
+		"candidate_signal=candidate_stuck",
+		"只问是否需要有限讲解",
+		"不要讲完整答案",
+	} {
+		if !strings.Contains(prompt.SystemMessage, want) {
+			t.Fatalf("prompt missing formal stuck marker %q:\n%s", want, prompt.SystemMessage)
+		}
+	}
+}
+
+func TestBuildPromptIncludesFormalInterviewLimitedTeachingMode(t *testing.T) {
+	prompt := BuildPrompt(BuildInput{
+		ChatID: "formal-teaching-session",
+		State:  "follow_up",
+		Session: &SessionConfig{
+			DirectionKey:     "frontend_vue",
+			DifficultyLevel:  3,
+			InterviewerStyle: "mentor",
+		},
+		Scenario: &ScenarioConfig{
+			Type:            ScenarioFormalInterview,
+			TeachingMode:    true,
+			CandidateSignal: CandidateSignalTeachingRequested,
+		},
+	})
+
+	for _, want := range []string{
+		"teaching_mode=true",
+		"candidate_signal=teaching_requested",
+		"每轮只讲一个概念或一个决策点",
+		"候选人已同意有限讲解",
+		"总长度控制在 420 字以内",
+		"结尾只问一个检查问题",
+	} {
+		if !strings.Contains(prompt.SystemMessage, want) {
+			t.Fatalf("prompt missing formal teaching marker %q:\n%s", want, prompt.SystemMessage)
+		}
+	}
+}
+
 func TestBuildPromptIncludesFrontendVueQualityCues(t *testing.T) {
 	prompt := BuildPrompt(BuildInput{
 		ChatID: "frontend-session",

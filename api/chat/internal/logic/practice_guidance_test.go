@@ -124,3 +124,59 @@ func TestPracticeGuidanceSubstantiveAnswerResetsStuckCountBeforeTeaching(t *test
 		t.Fatalf("reset guidance = %#v, want stuck_count=0 substantive signal", reset)
 	}
 }
+
+func TestFormalInterviewGuidanceStateTransitions(t *testing.T) {
+	redisServer, err := miniredis.Run()
+	if err != nil {
+		t.Fatalf("miniredis.Run() error = %v", err)
+	}
+	defer redisServer.Close()
+
+	svcCtx := &svc.ServiceContext{
+		RedisClient: redisClientForTest(redisServer.Addr()),
+	}
+	defer svcCtx.RedisClient.Close()
+
+	userID := int64(77)
+	scope := ConversationScope{
+		ChatID: "sess-formal-guidance",
+		UserID: &userID,
+		Mode:   sessionmode.KeyInterview,
+	}
+	sm := NewStateManager(context.Background(), svcCtx)
+
+	first, err := sm.UpdateFormalInterviewGuidance(scope, "不知道")
+	if err != nil {
+		t.Fatalf("UpdateFormalInterviewGuidance(first) error = %v", err)
+	}
+	if first.Scenario != interviewer.ScenarioFormalInterview ||
+		first.StuckCount != 1 ||
+		first.LastSignal != interviewer.CandidateSignalStuck ||
+		first.TeachingMode {
+		t.Fatalf("first guidance = %#v, want formal stuck_count=1 stuck signal teaching=false", first)
+	}
+
+	second, err := sm.UpdateFormalInterviewGuidance(scope, "还是不会")
+	if err != nil {
+		t.Fatalf("UpdateFormalInterviewGuidance(second) error = %v", err)
+	}
+	if second.StuckCount != 2 || second.HelpOffered || second.TeachingMode {
+		t.Fatalf("second guidance = %#v, want stuck_count=2 help_offered=false teaching=false", second)
+	}
+
+	third, err := sm.UpdateFormalInterviewGuidance(scope, "完全没思路")
+	if err != nil {
+		t.Fatalf("UpdateFormalInterviewGuidance(third) error = %v", err)
+	}
+	if third.StuckCount != 3 || !third.HelpOffered || third.TeachingMode {
+		t.Fatalf("third guidance = %#v, want stuck_count=3 help_offered=true teaching=false", third)
+	}
+
+	teaching, err := sm.UpdateFormalInterviewGuidance(scope, "可以，讲一下")
+	if err != nil {
+		t.Fatalf("UpdateFormalInterviewGuidance(teaching) error = %v", err)
+	}
+	if !teaching.TeachingMode || teaching.LastSignal != interviewer.CandidateSignalTeachingRequested {
+		t.Fatalf("teaching guidance = %#v, want teaching mode with teaching_requested signal", teaching)
+	}
+}

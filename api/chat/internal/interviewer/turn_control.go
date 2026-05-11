@@ -61,7 +61,15 @@ func buildTurnControl(state string, domain DomainProfile, difficulty difficultyP
 }
 
 func applyScenarioTurnControl(control *turnControl, scenario ScenarioConfig) {
-	if control == nil || scenario.Type != ScenarioQuestionPractice {
+	if control == nil {
+		return
+	}
+
+	if scenario.Type == ScenarioFormalInterview {
+		applyFormalInterviewTurnControl(control, scenario)
+		return
+	}
+	if scenario.Type != ScenarioQuestionPractice {
 		return
 	}
 
@@ -96,6 +104,40 @@ func applyScenarioTurnControl(control *turnControl, scenario ScenarioConfig) {
 	default:
 		control.Objective = "候选人刚表示没有思路，先降低问题粒度。"
 		control.EvidenceTarget = "让候选人先说出第一步判断，而不是完整方案。"
+		control.QuestionBudget = "本轮一句短安抚后，只问一个更小的问题；不要给答案。"
+	}
+}
+
+func applyFormalInterviewTurnControl(control *turnControl, scenario ScenarioConfig) {
+	control.ForbiddenMoves = append(control.ForbiddenMoves,
+		"不要直接进入长篇教学或给完整标准答案。",
+		"候选人同意有限讲解前，不要输出完整概念清单、步骤清单或参考答案。",
+	)
+	control.SelfCheck += " 如果候选人卡住，额外检查是否按第 1/2/3 次卡住策略处理，是否没有把正式面试变成授课。"
+
+	if scenario.TeachingMode {
+		control.Objective = "候选人已同意有限讲解，用极短讲解补一个概念后继续检查理解。"
+		control.EvidenceTarget = "本轮只讲清一个关键点，再用一个检查问题确认候选人是否能复述或迁移。"
+		control.QuestionBudget = "本轮最多解释一个小概念或一个决策点；总长度控制在 420 字以内；结尾只问一个检查问题。"
+		return
+	}
+
+	if scenario.CandidateSignal != CandidateSignalStuck {
+		return
+	}
+
+	switch {
+	case scenario.StuckCount >= 3:
+		control.Objective = "候选人已连续三次卡住，停止追问技术细节，先确认是否需要有限讲解。"
+		control.EvidenceTarget = "只获取候选人是否同意有限讲解的明确反馈。"
+		control.QuestionBudget = "本轮只问是否需要有限讲解；不要讲完整答案，不要继续加压。"
+	case scenario.StuckCount == 2:
+		control.Objective = "候选人第二次卡住，给一个很小提示后把问题继续拆小。"
+		control.EvidenceTarget = "只引导候选人说出一个起步判断或一个可验证线索。"
+		control.QuestionBudget = "本轮先给一个小提示，再问一个更小的问题；总长度控制在 120 字以内。"
+	default:
+		control.Objective = "候选人第一次表示没有思路，先降低问题粒度。"
+		control.EvidenceTarget = "让候选人先回答一个最小判断点，而不是完整方案。"
 		control.QuestionBudget = "本轮一句短安抚后，只问一个更小的问题；不要给答案。"
 	}
 }

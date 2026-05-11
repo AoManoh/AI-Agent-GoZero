@@ -53,7 +53,7 @@ OpenAI:
   # 模型参数配置
   # ==========================================
   # 生成文本的最大token数量限制，控制输出长度和成本
-  MaxCompletionTokens: 2048           # 最大token数，注意，原 MaxTokens 已废弃
+  MaxCompletionTokens: 768            # 最大token数，注意，原 MaxTokens 已废弃；正式面试由流式预算守卫进一步限制可见内容
   # 模型创造性参数，gpt-5.4 等 beta 模型要求 temperature=1
   Temperature: 1.0          # 温度参数
 

@@ -449,6 +449,14 @@ func (vs *VectorStore) RetrieveKnowledgeScoped(query string, topK int, userID *i
 }
 
 func (vs *VectorStore) RetrieveKnowledgeScopedContext(ctx context.Context, query string, topK int, userID *int64, chatID string) ([]types.KnowledgeChunk, error) {
+	return vs.retrieveKnowledgeScopedContext(ctx, query, topK, userID, chatID, true)
+}
+
+func (vs *VectorStore) RetrievePrivateSessionKnowledgeScopedContext(ctx context.Context, query string, topK int, userID *int64, chatID string) ([]types.KnowledgeChunk, error) {
+	return vs.retrieveKnowledgeScopedContext(ctx, query, topK, userID, chatID, false)
+}
+
+func (vs *VectorStore) retrieveKnowledgeScopedContext(ctx context.Context, query string, topK int, userID *int64, chatID string, includePublic bool) ([]types.KnowledgeChunk, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -462,15 +470,17 @@ func (vs *VectorStore) RetrieveKnowledgeScopedContext(ctx context.Context, query
 
 	var results []scoredKnowledgeChunk
 
-	publicResults, err := vs.fetchPublicKnowledge(ctx, queryEmbeddingVector, topK, userID)
-	if err != nil {
-		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-			return nil, err
+	if includePublic {
+		publicResults, err := vs.fetchPublicKnowledge(ctx, queryEmbeddingVector, topK, userID)
+		if err != nil {
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				return nil, err
+			}
+			// 当前环境可能仍保留 jsonb/旧维度知识库；这里降级到私有简历与消息链路，避免整条对话失败。
+			fmt.Printf("skip public knowledge retrieval due to schema/runtime mismatch: %v\n", err)
+		} else {
+			results = append(results, publicResults...)
 		}
-		// 当前环境可能仍保留 jsonb/旧维度知识库；这里降级到私有简历与消息链路，避免整条对话失败。
-		fmt.Printf("skip public knowledge retrieval due to schema/runtime mismatch: %v\n", err)
-	} else {
-		results = append(results, publicResults...)
 	}
 
 	if userID != nil && chatID != "" {

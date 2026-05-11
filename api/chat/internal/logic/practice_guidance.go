@@ -13,7 +13,10 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-const practiceGuidanceKeyPrefix = "chat_practice_guidance:v1:"
+const (
+	practiceGuidanceKeyPrefix        = "chat_practice_guidance:v1:"
+	formalInterviewGuidanceKeyPrefix = "chat_formal_interview_guidance:v1:"
+)
 
 type practiceGuidanceSnapshot struct {
 	Scenario      string `json:"scenario"`
@@ -25,18 +28,26 @@ type practiceGuidanceSnapshot struct {
 }
 
 func (sm *StateManager) UpdatePracticeGuidance(scope ConversationScope, message string) (practiceGuidanceSnapshot, error) {
-	snapshot := defaultPracticeGuidanceSnapshot()
+	return sm.updateCandidateGuidance(scope, message, interviewer.ScenarioQuestionPractice, practiceGuidanceRedisKey)
+}
+
+func (sm *StateManager) UpdateFormalInterviewGuidance(scope ConversationScope, message string) (practiceGuidanceSnapshot, error) {
+	return sm.updateCandidateGuidance(scope, message, interviewer.ScenarioFormalInterview, formalInterviewGuidanceRedisKey)
+}
+
+func (sm *StateManager) updateCandidateGuidance(scope ConversationScope, message, scenario string, keyFunc func(ConversationScope) string) (practiceGuidanceSnapshot, error) {
+	snapshot := defaultCandidateGuidanceSnapshot(scenario)
 	if sm == nil || sm.svcCtx == nil || sm.svcCtx.RedisClient == nil {
 		return snapshot, nil
 	}
 
-	loaded, err := sm.loadPracticeGuidance(scope)
+	loaded, err := sm.loadCandidateGuidance(scope, keyFunc, scenario)
 	if err != nil {
 		return snapshot, err
 	}
 	snapshot = loaded
 
-	signal := classifyPracticeCandidateSignal(message, snapshot.HelpOffered)
+	signal := classifyCandidateSignal(message, snapshot.HelpOffered)
 	switch signal {
 	case interviewer.CandidateSignalTeachingRequested:
 		snapshot.TeachingMode = true
@@ -61,18 +72,22 @@ func (sm *StateManager) UpdatePracticeGuidance(scope ConversationScope, message 
 	if err != nil {
 		return snapshot, err
 	}
-	if err := sm.svcCtx.RedisClient.Set(sm.context(), practiceGuidanceRedisKey(scope), payload, chatflow.StateTTL).Err(); err != nil {
+	if err := sm.svcCtx.RedisClient.Set(sm.context(), keyFunc(scope), payload, chatflow.StateTTL).Err(); err != nil {
 		return snapshot, err
 	}
 	return snapshot, nil
 }
 
 func (sm *StateManager) loadPracticeGuidance(scope ConversationScope) (practiceGuidanceSnapshot, error) {
-	snapshot := defaultPracticeGuidanceSnapshot()
+	return sm.loadCandidateGuidance(scope, practiceGuidanceRedisKey, interviewer.ScenarioQuestionPractice)
+}
+
+func (sm *StateManager) loadCandidateGuidance(scope ConversationScope, keyFunc func(ConversationScope) string, scenario string) (practiceGuidanceSnapshot, error) {
+	snapshot := defaultCandidateGuidanceSnapshot(scenario)
 	if sm == nil || sm.svcCtx == nil || sm.svcCtx.RedisClient == nil {
 		return snapshot, nil
 	}
-	raw, err := sm.svcCtx.RedisClient.Get(sm.context(), practiceGuidanceRedisKey(scope)).Result()
+	raw, err := sm.svcCtx.RedisClient.Get(sm.context(), keyFunc(scope)).Result()
 	if err != nil {
 		if err == redis.Nil {
 			return snapshot, nil
@@ -80,10 +95,10 @@ func (sm *StateManager) loadPracticeGuidance(scope ConversationScope) (practiceG
 		return snapshot, err
 	}
 	if err := json.Unmarshal([]byte(raw), &snapshot); err != nil {
-		return defaultPracticeGuidanceSnapshot(), err
+		return defaultCandidateGuidanceSnapshot(scenario), err
 	}
 	if snapshot.Scenario == "" {
-		snapshot.Scenario = interviewer.ScenarioQuestionPractice
+		snapshot.Scenario = scenario
 	}
 	if snapshot.LastSignal == "" {
 		snapshot.LastSignal = interviewer.CandidateSignalNone
@@ -95,8 +110,15 @@ func (sm *StateManager) loadPracticeGuidance(scope ConversationScope) (practiceG
 }
 
 func defaultPracticeGuidanceSnapshot() practiceGuidanceSnapshot {
+	return defaultCandidateGuidanceSnapshot(interviewer.ScenarioQuestionPractice)
+}
+
+func defaultCandidateGuidanceSnapshot(scenario string) practiceGuidanceSnapshot {
+	if strings.TrimSpace(scenario) == "" {
+		scenario = interviewer.ScenarioFormalInterview
+	}
 	return practiceGuidanceSnapshot{
-		Scenario:   interviewer.ScenarioQuestionPractice,
+		Scenario:   scenario,
 		LastSignal: interviewer.CandidateSignalNone,
 	}
 }
@@ -106,7 +128,16 @@ func practiceGuidanceRedisKey(scope ConversationScope) string {
 	return fmt.Sprintf("%s%s:%s:%s", practiceGuidanceKeyPrefix, key.OwnerScope, key.Lane, key.SessionID)
 }
 
+func formalInterviewGuidanceRedisKey(scope ConversationScope) string {
+	key := chatflow.BuildContextKey(scope.ChatID, scope.UserID, scope.Mode)
+	return fmt.Sprintf("%s%s:%s:%s", formalInterviewGuidanceKeyPrefix, key.OwnerScope, key.Lane, key.SessionID)
+}
+
 func classifyPracticeCandidateSignal(message string, helpOffered bool) string {
+	return classifyCandidateSignal(message, helpOffered)
+}
+
+func classifyCandidateSignal(message string, helpOffered bool) string {
 	compact := normalizeIntentText(message)
 	if compact == "" {
 		return interviewer.CandidateSignalNone
@@ -114,7 +145,7 @@ func classifyPracticeCandidateSignal(message string, helpOffered bool) string {
 	if looksLikeTeachingRequest(compact, helpOffered) {
 		return interviewer.CandidateSignalTeachingRequested
 	}
-	if looksLikePracticeStuck(compact) {
+	if looksLikeCandidateStuck(compact) {
 		return interviewer.CandidateSignalStuck
 	}
 	if len([]rune(compact)) >= 8 {
@@ -152,7 +183,7 @@ func looksLikeTeachingRequest(compact string, helpOffered bool) bool {
 	})
 }
 
-func looksLikePracticeStuck(compact string) bool {
+func looksLikeCandidateStuck(compact string) bool {
 	if containsAny(compact, []string{
 		"不是不知道",
 		"并不是不知道",
@@ -183,8 +214,19 @@ func looksLikePracticeStuck(compact string) bool {
 		"不清楚",
 		"不确定",
 		"完全不会",
+		"完全没思路",
 		"想不出来",
 	})
+}
+
+func formalInterviewScenarioConfig(guidance practiceGuidanceSnapshot) interviewer.ScenarioConfig {
+	return interviewer.ScenarioConfig{
+		Type:            interviewer.ScenarioFormalInterview,
+		StuckCount:      guidance.StuckCount,
+		HelpOffered:     guidance.HelpOffered,
+		TeachingMode:    guidance.TeachingMode,
+		CandidateSignal: guidance.LastSignal,
+	}
 }
 
 func practiceScenarioConfig(context svc.SessionPracticeContext, guidance practiceGuidanceSnapshot) interviewer.ScenarioConfig {

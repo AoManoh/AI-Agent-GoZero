@@ -26,7 +26,7 @@ OpenAI:
   # BaseURL: "https://your-api-endpoint/v1"
   # Model: "your-model-name"
 
-  MaxCompletionTokens: 2048           # 最大token数，注意，原 MaxTokens 已废弃
+  MaxCompletionTokens: 768            # 最大token数，注意，原 MaxTokens 已废弃；正式面试由流式预算守卫进一步限制可见内容
   Temperature: 1.0          # gpt-5.4 等 beta 模型要求 temperature=1
 
 StateTransition:

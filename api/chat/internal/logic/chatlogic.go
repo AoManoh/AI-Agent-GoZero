@@ -45,6 +45,7 @@ import (
 
 	chatAuth "GoZero-AI/api/chat/internal/auth"
 	"GoZero-AI/internal/chatflow"
+	"GoZero-AI/internal/statuserr"
 
 	"github.com/sashabaranov/go-openai"
 	"github.com/zeromicro/go-zero/core/logx"
@@ -166,11 +167,18 @@ func (l *ChatLogic) Chat(req *types2.InterviewAppChatReq) (<-chan *types2.ChatRe
 		UserID: scopedUserID,
 		Mode:   effectiveMode,
 	}
+	stateManager := NewStateManager(l.ctx, l.svcCtx)
+	initialSnapshot, err := stateManager.GetFlowState(scope)
+	if err != nil {
+		return nil, err
+	}
+	if requiresSessionRecovery(*initialSnapshot) {
+		return nil, statuserr.Conflict("session_recovery_required")
+	}
 	if err := l.svcCtx.VectorStore.ValidateSessionWrite(l.ctx, req.ChatId, scopedUserID); err != nil {
 		return nil, err
 	}
 
-	stateManager := NewStateManager(l.ctx, l.svcCtx)
 	releaseExecutionLock, err := stateManager.TryAcquireExecutionLock(scope)
 	if err != nil {
 		return nil, err
@@ -225,25 +233,10 @@ func (l *ChatLogic) Chat(req *types2.InterviewAppChatReq) (<-chan *types2.ChatRe
 			return
 		}
 
-		// 2.2 获取当前状态
-		currentState, err := stateManager.GetCurrentState(scope)
-		if err != nil {
-			l.Logger.Errorf("获取状态失败: %v", err)
+		// 2.2 获取当前状态和会话配置。配置必须先于知识检索加载，避免公共知识污染正式面试方向。
+		currentState := initialSnapshot.InterviewState
+		if currentState == "" {
 			currentState = types2.StateStart
-		}
-
-		// 2.2 新增：知识检索（RAG）
-		// 从向量数据库中检索与用户消息最相关的知识片段
-		knowledgeChunks, err := l.svcCtx.VectorStore.RetrieveKnowledgeScopedContext(l.ctx, req.Message, l.svcCtx.Config.VectorDB.Knowledge.TopK, scopedUserID, req.ChatId)
-		if err != nil {
-			l.Logger.Errorf("知识检索失败: %v", err)
-			knowledgeChunks = []types2.KnowledgeChunk{} // 确保不为nil
-		}
-
-		// 2.3 构建消息
-		ch <- &types2.ChatRes{Event: "phase", Content: chatflow.ExecutionGenerating}
-		if _, err := stateManager.UpdateExecutionState(scope, chatflow.ExecutionGenerating, "model_stream_start"); err != nil {
-			l.Logger.Errorf("更新 flow 执行状态失败: %v", err)
 		}
 		var sessionConfig *svc.SessionInterviewConfig
 		if loadedConfig, found, err := l.svcCtx.VectorStore.LoadSessionInterviewConfig(l.ctx, req.ChatId, scopedUserID); err == nil && found {
@@ -262,6 +255,28 @@ func (l *ChatLogic) Chat(req *types2.InterviewAppChatReq) (<-chan *types2.ChatRe
 			scenarioConfig = &scenario
 		} else if err != nil {
 			l.Logger.Errorf("读取题库练习上下文失败: %v", err)
+		}
+		if scenarioConfig == nil {
+			guidance, err := stateManager.UpdateFormalInterviewGuidance(scope, req.Message)
+			if err != nil {
+				l.Logger.Errorf("更新正式面试引导状态失败: %v", err)
+				guidance = defaultCandidateGuidanceSnapshot(interviewer.ScenarioFormalInterview)
+			}
+			scenario := formalInterviewScenarioConfig(guidance)
+			scenarioConfig = &scenario
+		}
+
+		// 2.3 知识检索（RAG）：正式面试只注入当前 session 私有资料，题库练习保留原检索能力。
+		knowledgeChunks, err := l.retrieveInterviewKnowledge(req.Message, scopedUserID, req.ChatId, scenarioConfig)
+		if err != nil {
+			l.Logger.Errorf("知识检索失败: %v", err)
+			knowledgeChunks = []types2.KnowledgeChunk{}
+		}
+
+		// 2.4 构建消息
+		ch <- &types2.ChatRes{Event: "phase", Content: chatflow.ExecutionGenerating}
+		if _, err := stateManager.UpdateExecutionState(scope, chatflow.ExecutionGenerating, "model_stream_start"); err != nil {
+			l.Logger.Errorf("更新 flow 执行状态失败: %v", err)
 		}
 
 		openSession, err := l.buildMessagesWithState(req.ChatId, currentState, knowledgeChunks, scopedUserID, sessionConfig, scenarioConfig)
@@ -300,6 +315,33 @@ func (l *ChatLogic) Chat(req *types2.InterviewAppChatReq) (<-chan *types2.ChatRe
 
 		// 2.6 处理流式响应
 		var fullResponse strings.Builder
+		responseGuard := newResponseBudgetGuard(currentState, scenarioConfig)
+		persistAssistantResponse := func(finalRes string) {
+			ch <- &types2.ChatRes{Event: "phase", Content: chatflow.ExecutionPersisting}
+			if _, markErr := stateManager.UpdateExecutionState(scope, chatflow.ExecutionPersisting, "assistant_message_persist"); markErr != nil {
+				l.Logger.Errorf("更新 flow 执行状态失败: %v", markErr)
+			}
+			if finalRes != "" {
+				if saveErr := l.saveConversationMessage(req.ChatId, openai.ChatMessageRoleAssistant, finalRes, scopedUserID, effectiveMode); saveErr != nil {
+					l.Errorf("保存助手消息失败: %v", saveErr)
+					_, _ = stateManager.UpdateExecutionState(scope, chatflow.ExecutionFailed, "assistant_message_persist_failed")
+					ch <- &types2.ChatRes{IsLatest: true}
+					return
+				} else if err := stateManager.RecordTurn(scope, openai.ChatMessageRoleAssistant, "assistant_message_persisted"); err != nil {
+					l.Logger.Errorf("记录助手 turn 失败: %v", err)
+				}
+			}
+
+			snapshot, err := stateManager.EvaluateAndUpdateState(scope, finalRes)
+			if err != nil {
+				l.Logger.Errorf("更新状态失败: %v", err)
+			} else {
+				l.Logger.Infof("状态更新: %s -> %s", currentState, snapshot.InterviewState)
+			}
+
+			ch <- &types2.ChatRes{Event: "phase", Content: chatflow.ExecutionIdle}
+			ch <- &types2.ChatRes{IsLatest: true}
+		}
 		for {
 			select {
 			case <-l.ctx.Done(): // 如果客户端断开连接，就取消上下文退出
@@ -307,38 +349,15 @@ func (l *ChatLogic) Chat(req *types2.InterviewAppChatReq) (<-chan *types2.ChatRe
 				if errors.Is(l.ctx.Err(), context.DeadlineExceeded) {
 					reason = "request_timeout"
 				}
+				if fullResponse.Len() > 0 {
+					reason = "partial_assistant_stream_failed"
+				}
 				_, _ = stateManager.UpdateExecutionState(scope, chatflow.ExecutionFailed, reason)
 				return
 			default:
 				res, err := stream.Recv()
 				if errors.Is(err, io.EOF) { // 如果流式响应结束，就退出
-					// 退出前先保存助手回复
-					// 流结束后处理状态更新
-					finalRes := fullResponse.String()
-					ch <- &types2.ChatRes{Event: "phase", Content: chatflow.ExecutionPersisting}
-					if _, markErr := stateManager.UpdateExecutionState(scope, chatflow.ExecutionPersisting, "assistant_message_persist"); markErr != nil {
-						l.Logger.Errorf("更新 flow 执行状态失败: %v", markErr)
-					}
-					if fullResponse.String() != "" {
-						if saveErr := l.saveConversationMessage(req.ChatId, openai.ChatMessageRoleAssistant, finalRes, scopedUserID, effectiveMode); saveErr != nil {
-							l.Errorf("保存助手消息失败: %v", saveErr)
-							_, _ = stateManager.UpdateExecutionState(scope, chatflow.ExecutionFailed, "assistant_message_persist_failed")
-							ch <- &types2.ChatRes{IsLatest: true}
-							return
-						} else if err := stateManager.RecordTurn(scope, openai.ChatMessageRoleAssistant, "assistant_message_persisted"); err != nil {
-							l.Logger.Errorf("记录助手 turn 失败: %v", err)
-						}
-					}
-
-					snapshot, err := stateManager.EvaluateAndUpdateState(scope, finalRes)
-					if err != nil {
-						l.Logger.Errorf("更新状态失败: %v", err)
-					} else {
-						l.Logger.Infof("状态更新: %s -> %s", currentState, snapshot.InterviewState)
-					}
-
-					ch <- &types2.ChatRes{Event: "phase", Content: chatflow.ExecutionIdle}
-					ch <- &types2.ChatRes{IsLatest: true} // 流结束，发送结束标记
+					persistAssistantResponse(fullResponse.String())
 					return
 				}
 				if err != nil {
@@ -347,6 +366,9 @@ func (l *ChatLogic) Chat(req *types2.InterviewAppChatReq) (<-chan *types2.ChatRe
 						reason = "request_canceled"
 					} else if errors.Is(err, context.DeadlineExceeded) {
 						reason = "request_timeout"
+					}
+					if fullResponse.Len() > 0 {
+						reason = "partial_assistant_stream_failed"
 					}
 					l.Logger.Errorf("接受流式响应失败: %v", err)
 					_, _ = stateManager.UpdateExecutionState(scope, chatflow.ExecutionFailed, reason)
@@ -363,10 +385,17 @@ func (l *ChatLogic) Chat(req *types2.InterviewAppChatReq) (<-chan *types2.ChatRe
 				// 处理有效响应数据
 				if len(res.Choices) > 0 && res.Choices[0].Delta.Content != "" {
 					content := res.Choices[0].Delta.Content
-					fullResponse.WriteString(content)
-					ch <- &types2.ChatRes{
-						Content:  content,
-						IsLatest: false,
+					visibleContent, stopped := responseGuard.Filter(fullResponse.String(), content)
+					if visibleContent != "" {
+						fullResponse.WriteString(visibleContent)
+						ch <- &types2.ChatRes{
+							Content:  visibleContent,
+							IsLatest: false,
+						}
+					}
+					if stopped {
+						persistAssistantResponse(fullResponse.String())
+						return
 					}
 				}
 			}
@@ -390,6 +419,26 @@ func (l *ChatLogic) saveConversationMessage(chatID, role, content string, userID
 		}
 	}()
 	return nil
+}
+
+func (l *ChatLogic) retrieveInterviewKnowledge(message string, userID *int64, chatID string, scenario *interviewer.ScenarioConfig) ([]types2.KnowledgeChunk, error) {
+	topK := l.svcCtx.Config.VectorDB.Knowledge.TopK
+	if scenario != nil && scenario.Type == interviewer.ScenarioFormalInterview {
+		return l.svcCtx.VectorStore.RetrievePrivateSessionKnowledgeScopedContext(l.ctx, message, topK, userID, chatID)
+	}
+	return l.svcCtx.VectorStore.RetrieveKnowledgeScopedContext(l.ctx, message, topK, userID, chatID)
+}
+
+func requiresSessionRecovery(snapshot chatflow.Snapshot) bool {
+	if snapshot.ExecutionState != chatflow.ExecutionFailed && snapshot.LifecycleState != chatflow.LifecycleErrored {
+		return false
+	}
+	switch snapshot.LastReason {
+	case "assistant_message_persist_failed", "candidate_end_reply_persist_failed", "partial_assistant_stream_failed":
+		return true
+	default:
+		return false
+	}
 }
 
 // getSessionHistory 构建AI对话的完整上下文历史

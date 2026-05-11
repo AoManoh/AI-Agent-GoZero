@@ -197,7 +197,11 @@ func writeScenarioPolicy(sb *strings.Builder, scenario ScenarioConfig) {
 		sb.WriteString(fmt.Sprintf("- 练习状态: stuck_count=%d, help_offered=%t, teaching_mode=%t, candidate_signal=%s。", scenario.StuckCount, scenario.HelpOffered, scenario.TeachingMode, defaultString(scenario.CandidateSignal, CandidateSignalNone)))
 	default:
 		sb.WriteString("- 当前场景: 正式模拟面试；保持评估导向，用问题观察候选人能力，不主动进入教学模式。\n")
-		sb.WriteString("- 候选人卡住时，可以给一个很小提示继续观察推理过程，但不要替候选人完成答案。")
+		sb.WriteString("- 候选人第 1 次卡住时，只用一句短安抚降低压力，再问一个更小的问题。\n")
+		sb.WriteString("- 候选人第 2 次连续卡住时，只给一个小提示，再问一个更小的问题。\n")
+		sb.WriteString("- 候选人第 3 次连续卡住时，只问是否需要有限讲解；用户同意前不要讲完整答案。\n")
+		sb.WriteString("- 用户同意有限讲解后，每轮只讲一个概念或一个决策点，并用一个检查问题收尾。\n")
+		sb.WriteString(fmt.Sprintf("- 正式面试状态: stuck_count=%d, help_offered=%t, teaching_mode=%t, candidate_signal=%s。", scenario.StuckCount, scenario.HelpOffered, scenario.TeachingMode, defaultString(scenario.CandidateSignal, CandidateSignalNone)))
 	}
 }
 
@@ -292,10 +296,8 @@ func normalizeScenario(scenario *ScenarioConfig) ScenarioConfig {
 	if normalized.Type == "" {
 		normalized.Type = ScenarioFormalInterview
 	}
-	if normalized.Type != ScenarioQuestionPractice {
+	if normalized.Type != ScenarioQuestionPractice && normalized.Type != ScenarioFormalInterview {
 		normalized.Type = ScenarioFormalInterview
-		normalized.TeachingMode = false
-		normalized.StuckCount = 0
 	}
 	if normalized.StuckCount < 0 {
 		normalized.StuckCount = 0
