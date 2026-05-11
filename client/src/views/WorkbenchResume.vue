@@ -16,194 +16,108 @@
         <p class="wb-resume-sub">上传简历后，AI 会基于项目细节做深度追问，模拟真实面试节奏。</p>
       </section>
 
-      <!-- 上传区 -->
-      <section class="wb-upload">
-        <div
-          class="wb-dropzone"
-          :class="{ 'wb-dropzone-dragging': isDragging, 'wb-dropzone-uploading': uploading }"
-          @dragenter.prevent="handleDragEnter"
-          @dragover.prevent
-          @dragleave.prevent="handleDragLeave"
-          @drop.prevent="handleDrop"
-          @click="triggerFileInput"
-        >
-          <input
-            ref="fileInputRef"
-            type="file"
-            accept=".pdf,application/pdf"
-            class="wb-file-input"
-            @change="handleFileChange"
-          />
-          <div class="wb-dropzone-inner">
-            <div class="wb-dropzone-icon" aria-hidden="true">
-              <svg viewBox="0 0 64 64" fill="none">
-                <rect x="14" y="10" width="36" height="44" rx="3" stroke="currentColor" stroke-width="1.5" />
-                <line x1="22" y1="22" x2="42" y2="22" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
-                <line x1="22" y1="30" x2="42" y2="30" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
-                <line x1="22" y1="38" x2="34" y2="38" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
-                <circle cx="48" cy="48" r="10" fill="rgba(220,155,90,0.12)" stroke="rgba(220,155,90,0.85)" stroke-width="1.5" />
-                <line x1="48" y1="44" x2="48" y2="52" stroke="rgba(220,155,90,0.95)" stroke-width="1.5" stroke-linecap="round" />
-                <line x1="44" y1="48" x2="52" y2="48" stroke="rgba(220,155,90,0.95)" stroke-width="1.5" stroke-linecap="round" />
+      <!--
+        三栏 shell（v3 布局：左评估 / 中原文 chunks / 右追问 + CTA）。
+        详见 docs/requirements/2026-05-12-workbench-resume-redesign.md §6.1-6.4。
+        本 commit（C2）仅落 S0 中栏 dropzone + 左右栏占位，后续 commit 填充：
+          - C3 左栏 dropdown selector + 简历列表载入 + ?artifact= query 同步
+          - C4 左栏 5 维评估 + tooltip + 总结/强项/风险/建议 + OverallScore 圆环
+          - C5 中栏 S2 chunks 列表 + S3 失败提示
+          - C6 右栏 AI 追问 + CTA + 降级声明 + chunk 联动
+          - C7 S1 polling + 状态机 + 5 分钟硬超时 + 手动刷新
+      -->
+      <div class="wb-resume-shell" :data-state="resumeState">
+        <!-- 左栏 280px：评估区（C3-C4 填充） -->
+        <aside class="wb-resume-left" aria-label="简历评估">
+          <div class="wb-resume-placeholder wb-resume-placeholder--left">
+            <div class="wb-resume-placeholder-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4">
+                <circle cx="12" cy="12" r="9" />
+                <path d="M12 7v5l3 2" stroke-linecap="round" />
               </svg>
             </div>
-            <div class="wb-dropzone-text">
-              <div class="wb-dropzone-main">{{ uploading ? '正在上传...' : '拖拽简历到此处' }}</div>
-              <div class="wb-dropzone-sub">
-                <span v-if="!uploading">或</span>
-                <span class="wb-dropzone-action" v-if="!uploading">点击选择文件</span>
-                <span class="wb-dropzone-meta">支持 PDF，最大 10 MB</span>
-              </div>
-            </div>
+            <p>上传简历后这里会显示<br><strong>总评分 + 5 维评估</strong></p>
+            <p class="wb-resume-placeholder-meta">由 C3-C4 commit 填充</p>
           </div>
-          <div v-if="uploading" class="wb-upload-progress">
-            <div class="wb-upload-bar" :style="{ width: uploadProgress + '%' }"></div>
-          </div>
-        </div>
-        <p v-if="uploadError" class="wb-upload-error" role="alert">{{ uploadError }}</p>
-      </section>
+        </aside>
 
-      <!-- 已上传简历列表 -->
-      <section class="wb-resumes">
-        <header class="wb-block-head">
-          <h3 class="wb-block-title">我的简历</h3>
-          <span class="wb-block-meta">{{ resumes.length }} 份</span>
-        </header>
-
-        <div v-if="resumes.length > 0" class="wb-resumes-grid">
-          <article
-            v-for="resume in resumes"
-            :key="resume.id"
-            class="wb-resume-card"
-            :class="{ 'wb-resume-card-active': selectedId === resume.id }"
-            @click="selectedId = resume.id"
-          >
-            <div class="wb-resume-card-head">
-              <div class="wb-resume-card-icon" aria-hidden="true">
-                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round">
-                  <path d="M3.5 1.5h6.5L13 4.5v10H3.5z" />
-                  <path d="M10 1.5V4.5h3" />
-                  <line x1="5.5" y1="8" x2="10.5" y2="8" stroke-linecap="round" />
-                  <line x1="5.5" y1="10.5" x2="10.5" y2="10.5" stroke-linecap="round" />
-                </svg>
-              </div>
-              <span v-if="resume.primary" class="wb-resume-card-tag">主用</span>
-            </div>
-            <h4 class="wb-resume-card-name">{{ resume.name }}</h4>
-            <div class="wb-resume-card-meta">
-              <span>{{ resume.size }}</span>
-              <span aria-hidden="true">·</span>
-              <span>{{ resume.uploadedAt }}</span>
-            </div>
-            <div class="wb-resume-card-stats">
-              <div class="wb-resume-stat">
-                <span class="wb-resume-stat-num">{{ resume.projectCount }}</span>
-                <span class="wb-resume-stat-lb">项目</span>
-              </div>
-              <div class="wb-resume-stat">
-                <span class="wb-resume-stat-num">{{ resume.skillCount }}</span>
-                <span class="wb-resume-stat-lb">技能</span>
-              </div>
-            </div>
-            <div class="wb-resume-card-foot">
-              <span class="wb-resume-card-status">
-                <span class="wb-resume-card-dot" :class="`wb-status-${resume.status}`"></span>
-                {{ getStatusLabel(resume.status) }}
-              </span>
-              <span class="wb-resume-card-action">查看 →</span>
-            </div>
-          </article>
-        </div>
-
-        <div v-else class="wb-empty">
-          <div class="wb-empty-title">还没有简历</div>
-          <div class="wb-empty-sub">上传简历后，AI 会基于项目内容深度追问。</div>
-        </div>
-      </section>
-
-      <!-- 选中简历详情 -->
-      <section v-if="selectedResume" class="wb-resume-detail">
-        <header class="wb-block-head">
-          <h3 class="wb-block-title">解析详情 · {{ selectedResume.name }}</h3>
-          <div class="wb-detail-actions">
-            <button
-              type="button"
-              class="wb-refresh-btn"
-              :disabled="selectedResume.evaluationLoading"
-              @click="prepareResumeEvaluation(selectedResume.id, { force: true })"
+        <!-- 中栏 flex 1：根据 resumeState 渲染对应内容 -->
+        <main class="wb-resume-mid" aria-label="简历主内容区">
+          <!-- S0 未上传：dropzone 垂直居中 -->
+          <div v-if="resumeState === 'S0'" class="wb-resume-mid-empty">
+            <div
+              class="wb-dropzone wb-dropzone--centered"
+              :class="{ 'wb-dropzone-dragging': isDragging, 'wb-dropzone-uploading': uploading }"
+              @dragenter.prevent="handleDragEnter"
+              @dragover.prevent
+              @dragleave.prevent="handleDragLeave"
+              @drop.prevent="handleDrop"
+              @click="triggerFileInput"
             >
-              {{ selectedResume.evaluationLoading ? '评估中' : '刷新评估' }}
-            </button>
-            <button type="button" class="wb-block-close" @click="selectedId = ''" aria-label="关闭详情">×</button>
-          </div>
-        </header>
-
-        <div class="wb-eval-overview">
-          <div class="wb-eval-score">
-            <span class="wb-eval-score-num">{{ formatScore(selectedResume.overallScore) }}</span>
-            <span class="wb-eval-score-label">面试准备度</span>
-          </div>
-          <div class="wb-eval-summary">
-            <div class="wb-eval-status" :class="`wb-eval-${selectedResume.evaluationStatus}`">
-              {{ getEvaluationStatusLabel(selectedResume.evaluationStatus) }}
+              <input
+                ref="fileInputRef"
+                type="file"
+                accept=".pdf,application/pdf"
+                class="wb-file-input"
+                @change="handleFileChange"
+              />
+              <div class="wb-dropzone-inner">
+                <div class="wb-dropzone-icon" aria-hidden="true">
+                  <svg viewBox="0 0 64 64" fill="none">
+                    <rect x="14" y="10" width="36" height="44" rx="3" stroke="currentColor" stroke-width="1.5" />
+                    <line x1="22" y1="22" x2="42" y2="22" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+                    <line x1="22" y1="30" x2="42" y2="30" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+                    <line x1="22" y1="38" x2="34" y2="38" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+                    <circle cx="48" cy="48" r="10" fill="rgba(220,155,90,0.12)" stroke="rgba(220,155,90,0.85)" stroke-width="1.5" />
+                    <line x1="48" y1="44" x2="48" y2="52" stroke="rgba(220,155,90,0.95)" stroke-width="1.5" stroke-linecap="round" />
+                    <line x1="44" y1="48" x2="52" y2="48" stroke="rgba(220,155,90,0.95)" stroke-width="1.5" stroke-linecap="round" />
+                  </svg>
+                </div>
+                <div class="wb-dropzone-text">
+                  <div class="wb-dropzone-main">{{ uploading ? '正在上传...' : '上传你的简历' }}</div>
+                  <div class="wb-dropzone-sub">
+                    <span v-if="!uploading">拖拽 PDF 到此处或</span>
+                    <span class="wb-dropzone-action" v-if="!uploading">点击选择文件</span>
+                    <span class="wb-dropzone-meta">支持 PDF · 最大 10 MB · 解析约 30 秒</span>
+                  </div>
+                </div>
+              </div>
+              <div v-if="uploading" class="wb-upload-progress">
+                <div class="wb-upload-bar" :style="{ width: uploadProgress + '%' }"></div>
+              </div>
             </div>
-            <p>{{ selectedResume.summary || '已完成基础解析，等待生成简历评估。' }}</p>
+            <p v-if="uploadError" class="wb-upload-error" role="alert">{{ uploadError }}</p>
           </div>
-        </div>
 
-        <div v-if="selectedResume.dimensions.length" class="wb-dimensions">
-          <div v-for="dimension in selectedResume.dimensions" :key="dimension.key" class="wb-dimension">
-            <div class="wb-dimension-head">
-              <span>{{ dimension.label }}</span>
-              <strong>{{ dimension.score }}</strong>
+          <!-- S1/S2/S3 状态由 C5-C7 commit 填充；本 commit 仅占位 -->
+          <div v-else class="wb-resume-mid-placeholder">
+            <div class="wb-resume-placeholder-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4">
+                <rect x="4" y="3" width="16" height="18" rx="2" />
+                <line x1="8" y1="8" x2="16" y2="8" stroke-linecap="round" />
+                <line x1="8" y1="12" x2="16" y2="12" stroke-linecap="round" />
+                <line x1="8" y1="16" x2="13" y2="16" stroke-linecap="round" />
+              </svg>
             </div>
-            <div class="wb-dimension-bar" aria-hidden="true">
-              <span :style="{ width: `${Math.min(100, Math.max(0, dimension.score || 0))}%` }"></span>
-            </div>
-            <p>{{ dimension.summary }}</p>
+            <p>已选中：<strong>{{ selectedResume?.name }}</strong></p>
+            <p class="wb-resume-placeholder-meta">当前状态 <code>{{ resumeState }}</code>；中栏 chunks 由 C5 commit 填充</p>
           </div>
-        </div>
+        </main>
 
-        <div class="wb-detail-grid">
-          <div class="wb-detail-col">
-            <div class="wb-detail-label">关键技能</div>
-            <div class="wb-tags">
-              <span v-for="tag in selectedResume.skills" :key="tag" class="wb-tag">{{ tag }}</span>
+        <!-- 右栏 360px：AI 追问 + CTA（C6 填充） -->
+        <aside class="wb-resume-right" aria-label="AI 追问与开始面试">
+          <div class="wb-resume-placeholder wb-resume-placeholder--right">
+            <div class="wb-resume-placeholder-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4">
+                <rect x="3" y="5" width="18" height="14" rx="2" />
+                <path d="M5 8l7 5 7-5" stroke-linecap="round" stroke-linejoin="round" />
+              </svg>
             </div>
+            <p>上传简历后这里会出现<br><strong>AI 追问</strong> 和 <strong>开始面试</strong> 入口</p>
+            <p class="wb-resume-placeholder-meta">由 C6 commit 填充</p>
           </div>
-          <div class="wb-detail-col">
-            <div class="wb-detail-label">项目（{{ selectedResume.projects.length }}）</div>
-            <ol class="wb-projects">
-              <li v-for="proj in selectedResume.projects" :key="proj.name" class="wb-project">
-                <div class="wb-project-name">{{ proj.name }}</div>
-                <div class="wb-project-stack">{{ proj.stack }}</div>
-              </li>
-            </ol>
-          </div>
-        </div>
-
-        <div class="wb-eval-lists">
-          <div class="wb-eval-list">
-            <div class="wb-detail-label">优势</div>
-            <ul>
-              <li v-for="item in selectedResume.strengths" :key="item">{{ item }}</li>
-            </ul>
-          </div>
-          <div class="wb-eval-list">
-            <div class="wb-detail-label">建议</div>
-            <ul>
-              <li v-for="item in selectedResume.suggestions" :key="item">{{ item }}</li>
-            </ul>
-          </div>
-          <div class="wb-eval-list">
-            <div class="wb-detail-label">风险</div>
-            <ul>
-              <li v-for="risk in selectedResume.risks" :key="risk.key || risk.label">
-                {{ risk.label }}：{{ risk.suggestion }}
-              </li>
-            </ul>
-          </div>
-        </div>
-      </section>
+        </aside>
+      </div>
     </div>
   </WorkbenchLayout>
 </template>
@@ -394,6 +308,25 @@ const selectedResume = computed(() => {
   return resumes.value.find((r) => r.id === selectedId.value) || null;
 });
 
+// 简历状态机（C2 commit 落静态判定，C7 commit 接入 polling 实时刷新）
+// 详见 docs/requirements/2026-05-12-workbench-resume-redesign.md §7.1
+//   S0 未上传：无简历或未选中
+//   S1 解析中：artifact.status === "parsing"
+//   S2 解析完成：artifact.status === "parsed" && evaluationStatus 有效
+//   S3 解析失败：artifact.status === "failed" 或 evaluationStatus 为 noData/insufficient_data
+const resumeState = computed(() => {
+  const r = selectedResume.value;
+  if (!r) return "S0";
+  if (r.status === "parsing") return "S1";
+  if (r.status === "failed") return "S3";
+  if (r.status === "parsed") {
+    const evalStatus = r.evaluationStatus || "missing";
+    if (evalStatus === "insufficient_data" || evalStatus === "noData") return "S3";
+    return "S2";
+  }
+  return "S0";
+});
+
 // 后端 status (string) → 本地状态表（UI：parsed/parsing/failed）
 const mapArtifactStatus = (raw) => {
   if (!raw) return "parsing";
@@ -577,9 +510,126 @@ const formatScore = (score) => {
 <style scoped>
 /* ============ Layout ============ */
 .wb-resume-content {
-  max-width: 1320px;
+  max-width: 1440px;
   margin: 0 auto;
   padding: 0 44px 80px;
+}
+
+/* ============ 三栏 Shell（C2 commit）============ */
+/* 详见 docs/requirements/2026-05-12-workbench-resume-redesign.md §6.1 整体网格 */
+.wb-resume-shell {
+  display: grid;
+  grid-template-columns: 280px minmax(0, 1fr) 360px;
+  gap: 24px;
+  align-items: start;
+  margin-top: 8px;
+}
+
+.wb-resume-left,
+.wb-resume-right {
+  position: sticky;
+  top: 100px;
+  min-width: 0;
+}
+
+.wb-resume-mid {
+  min-width: 0;
+}
+
+/* 占位样式。C3-C6 commit 逐步替换为真实内容 */
+.wb-resume-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: 48px 24px;
+  border: 1px dashed rgba(255, 255, 255, 0.10);
+  border-radius: var(--radius-lg);
+  text-align: center;
+  font: 13px/1.7 var(--sans);
+  color: var(--t3);
+  background: rgba(255, 255, 255, 0.018);
+  min-height: 280px;
+}
+
+.wb-resume-placeholder p {
+  margin: 0;
+}
+
+.wb-resume-placeholder strong {
+  color: rgba(220, 155, 90, 0.92);
+  font-weight: 600;
+}
+
+.wb-resume-placeholder-icon {
+  width: 36px;
+  height: 36px;
+  color: var(--t3);
+  opacity: 0.5;
+}
+
+.wb-resume-placeholder-icon svg {
+  width: 100%;
+  height: 100%;
+}
+
+.wb-resume-placeholder-meta {
+  font: 11px var(--mono);
+  color: var(--t3);
+  letter-spacing: .04em;
+  opacity: 0.55;
+}
+
+/* S0 未上传 中栏 dropzone 居中容器 */
+.wb-resume-mid-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 520px;
+  padding: 32px 0;
+}
+
+.wb-dropzone--centered {
+  width: 100%;
+  max-width: 580px;
+}
+
+/* S1/S2/S3 中栏占位，由 C5-C7 commit 接管 */
+.wb-resume-mid-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  min-height: 520px;
+  padding: 48px 24px;
+  border: 1px dashed rgba(255, 255, 255, 0.10);
+  border-radius: var(--radius-lg);
+  text-align: center;
+  background: rgba(255, 255, 255, 0.018);
+  font: 14px/1.7 var(--sans);
+  color: var(--t3);
+}
+
+.wb-resume-mid-placeholder p {
+  margin: 0;
+}
+
+.wb-resume-mid-placeholder strong {
+  color: var(--t);
+  font-weight: 600;
+}
+
+.wb-resume-mid-placeholder code {
+  font: 11px var(--mono);
+  padding: 2px 8px;
+  background: rgba(220, 155, 90, 0.10);
+  border: 1px solid rgba(220, 155, 90, 0.25);
+  border-radius: 4px;
+  color: rgba(220, 155, 90, 0.95);
+  letter-spacing: .04em;
 }
 
 .wb-resume-hero {
@@ -1213,6 +1263,35 @@ const formatScore = (score) => {
   }
 }
 
+/* ============ 响应式 fallback（D-R5）============ */
+/* < 1280px：三栏缩窄 240 / flex / 320 */
+@media (max-width: 1279px) {
+  .wb-resume-shell {
+    grid-template-columns: 240px minmax(0, 1fr) 320px;
+    gap: 18px;
+  }
+}
+
+/* < 1024px：三栏堆叠垂直滚动（桌面优先，移动端只保证可达） */
+@media (max-width: 1023px) {
+  .wb-resume-shell {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+  .wb-resume-left,
+  .wb-resume-right {
+    position: static;
+  }
+  .wb-resume-placeholder,
+  .wb-resume-mid-placeholder {
+    min-height: 160px;
+    padding: 24px;
+  }
+  .wb-resume-mid-empty {
+    min-height: 360px;
+  }
+}
+
 @media (max-width: 768px) {
   .wb-resume-content {
     padding: 0 20px 60px;
@@ -1220,12 +1299,8 @@ const formatScore = (score) => {
   .wb-dropzone {
     padding: 36px 20px;
   }
-  .wb-resumes-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .wb-eval-overview {
-    grid-template-columns: 1fr;
+  .wb-dropzone--centered {
+    max-width: 100%;
   }
 }
 </style>
