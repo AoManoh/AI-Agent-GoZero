@@ -808,7 +808,7 @@ func (vs *VectorStore) LoadSessionPracticeContext(ctx context.Context, chatId st
 	var practice SessionPracticeContext
 	row := vs.Pool.QueryRow(ctx, `SELECT question_key, source, question_snapshot
 FROM session_question_events
-WHERE session_id = $1 AND user_id = $2 AND source = 'bank'
+WHERE session_id = $1 AND user_id = $2 AND source IN ('bank', 'generated')
 ORDER BY turn_index ASC
 LIMIT 1`, chatId, *userID)
 	if err := row.Scan(&practice.QuestionKey, &practice.Source, &practice.QuestionSnapshot); err != nil {

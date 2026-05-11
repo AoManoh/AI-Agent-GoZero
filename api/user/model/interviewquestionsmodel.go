@@ -19,6 +19,7 @@ type (
 		Stats(ctx context.Context) (*InterviewQuestionStats, error)
 		DirectionCounts(ctx context.Context) (map[string]int64, error)
 		AttachToSession(ctx context.Context, session sqlx.Session, userID int64, sessionID string, question InterviewQuestion) error
+		AttachGeneratedToSession(ctx context.Context, session sqlx.Session, userID int64, sessionID, questionKey, prompt string) error
 	}
 
 	defaultInterviewQuestionsModel struct {
@@ -240,23 +241,44 @@ group by direction_key`)
 }
 
 func (m *defaultInterviewQuestionsModel) AttachToSession(ctx context.Context, session sqlx.Session, userID int64, sessionID string, question InterviewQuestion) error {
+	if err := attachSessionQuestionSnapshot(ctx, session, userID, sessionID, question.Id, question.QuestionKey, "bank", question.Prompt); err != nil {
+		return err
+	}
+
+	_, err := session.ExecCtx(ctx, `update "public"."interview_questions"
+set usage_count = usage_count + 1,
+    last_used_at = now(),
+    updated_at = now()
+where id = $1`, question.Id)
+	return err
+}
+
+func (m *defaultInterviewQuestionsModel) AttachGeneratedToSession(ctx context.Context, session sqlx.Session, userID int64, sessionID, questionKey, prompt string) error {
+	return attachSessionQuestionSnapshot(ctx, session, userID, sessionID, 0, questionKey, "generated", prompt)
+}
+
+func attachSessionQuestionSnapshot(ctx context.Context, session sqlx.Session, userID int64, sessionID string, questionID int64, questionKey, source, prompt string) error {
 	zeroEmbedding := pgvector.NewVector(make([]float32, embeddingDimension))
 	if _, err := session.ExecCtx(ctx, `insert into "public"."vector_store"
 (chat_id, user_id, role, content, embedding, doc_type, created_at)
 values ($1, $2, 'assistant', $3, $4, 'message', now())`,
-		sessionID, userID, question.Prompt, zeroEmbedding); err != nil {
+		sessionID, userID, prompt, zeroEmbedding); err != nil {
 		return err
 	}
 
+	var questionIDArg any
+	if questionID > 0 {
+		questionIDArg = questionID
+	}
 	if _, err := session.ExecCtx(ctx, `insert into "public"."session_question_events"
 (session_id, user_id, question_id, question_key, turn_index, source, question_snapshot, created_at)
-values ($1, $2, $3, $4, 1, 'bank', $5, now())
+values ($1, $2, $3, $4, 1, $5, $6, now())
 on conflict (session_id, user_id, turn_index) do update set
     question_id = excluded.question_id,
     question_key = excluded.question_key,
     source = excluded.source,
     question_snapshot = excluded.question_snapshot`,
-		sessionID, userID, question.Id, question.QuestionKey, question.Prompt); err != nil {
+		sessionID, userID, questionIDArg, questionKey, source, prompt); err != nil {
 		return err
 	}
 
@@ -272,12 +294,7 @@ where session_id = $1 and user_id = $2`, sessionID, userID); err != nil {
 		return err
 	}
 
-	_, err := session.ExecCtx(ctx, `update "public"."interview_questions"
-set usage_count = usage_count + 1,
-    last_used_at = now(),
-    updated_at = now()
-where id = $1`, question.Id)
-	return err
+	return nil
 }
 
 func (m *defaultInterviewQuestionsModel) findSources(ctx context.Context, questionID int64) ([]InterviewQuestionSource, error) {

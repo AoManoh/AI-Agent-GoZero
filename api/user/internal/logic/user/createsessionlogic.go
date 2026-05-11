@@ -77,6 +77,14 @@ func (l *CreateSessionLogic) CreateSession(req *types.CreateSessionReq) (*types.
 		}
 		selectedQuestion = question
 	}
+	var generatedQuestion *types.InterviewPlanQuestion
+	if selectedQuestion == nil && config.ResumeArtifactId != "" {
+		question, err := l.loadResumeSuggestedQuestion(userID, config.ResumeArtifactId)
+		if err != nil {
+			return nil, err
+		}
+		generatedQuestion = question
+	}
 
 	if title == "新对话" && selectedQuestion != nil {
 		title = selectedQuestion.Title
@@ -86,14 +94,20 @@ func (l *CreateSessionLogic) CreateSession(req *types.CreateSessionReq) (*types.
 
 	sessionID := uuid.NewString()
 	var session *model.ChatSession
-	if selectedQuestion != nil {
+	if selectedQuestion != nil || generatedQuestion != nil {
 		err = l.svcCtx.DB.TransactCtx(l.ctx, func(ctx context.Context, tx sqlx.Session) error {
 			created, err := model.CreateChatSessionWithConfigTx(ctx, tx, userID, sessionID, title, mode, config)
 			if err != nil {
 				return err
 			}
-			if err := l.svcCtx.InterviewQuestionsModel.AttachToSession(ctx, tx, userID, sessionID, *selectedQuestion); err != nil {
-				return err
+			if selectedQuestion != nil {
+				if err := l.svcCtx.InterviewQuestionsModel.AttachToSession(ctx, tx, userID, sessionID, *selectedQuestion); err != nil {
+					return err
+				}
+			} else if generatedQuestion != nil && l.svcCtx.InterviewQuestionsModel != nil {
+				if err := l.svcCtx.InterviewQuestionsModel.AttachGeneratedToSession(ctx, tx, userID, sessionID, generatedQuestion.Key, generatedQuestion.Prompt); err != nil {
+					return err
+				}
 			}
 			session = created
 			return nil
@@ -117,4 +131,42 @@ func (l *CreateSessionLogic) CreateSession(req *types.CreateSessionReq) (*types.
 		Config:        buildSessionConfigSnapshot(*session),
 		ResumeBinding: resumeBinding,
 	}, nil
+}
+
+func (l *CreateSessionLogic) loadResumeSuggestedQuestion(userID int64, artifactID string) (*types.InterviewPlanQuestion, error) {
+	if l.svcCtx.ResumeEvaluationsModel == nil {
+		return nil, nil
+	}
+	record, err := l.svcCtx.ResumeEvaluationsModel.FindOneByArtifactID(l.ctx, userID, artifactID)
+	if err != nil {
+		if errors.Is(err, model.ErrNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	status := strings.TrimSpace(record.Status)
+	if status != resumeEvaluationStatusReady && status != resumeEvaluationStatusStale {
+		return nil, nil
+	}
+	var questions []types.InterviewPlanQuestion
+	unmarshalJSONOrDefault(record.SuggestedQuestions, &questions)
+	for _, question := range questions {
+		question.Prompt = strings.TrimSpace(question.Prompt)
+		question.Title = strings.TrimSpace(question.Title)
+		if question.Prompt == "" {
+			question.Prompt = question.Title
+		}
+		if question.Title == "" {
+			question.Title = question.Prompt
+		}
+		if question.Prompt == "" {
+			continue
+		}
+		question.Key = strings.TrimSpace(question.Key)
+		if question.Key == "" {
+			question.Key = "resume:" + artifactID + ":q1"
+		}
+		return &question, nil
+	}
+	return nil, nil
 }
