@@ -4,11 +4,7 @@
       <div class="auth-blob auth-blob-a"></div>
       <div class="auth-blob auth-blob-b"></div>
     </div>
-    <SiteHeader>
-      <template #actions>
-        <ThemeToggle :theme="theme" @toggle="toggleTheme" />
-      </template>
-    </SiteHeader>
+    <SiteHeader />
 
     <div class="auth-wrapper">
       <div class="auth-card">
@@ -91,14 +87,11 @@ import { ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
 import SiteHeader from "../components/SiteHeader.vue";
-import ThemeToggle from "../components/ThemeToggle.vue";
 import AppFooter from "../components/AppFooter.vue";
-import { useTheme } from "../composables/useTheme";
 import { useAuth } from "../composables/useAuth";
 
 const router = useRouter();
 const route = useRoute();
-const { theme, toggleTheme } = useTheme();
 const { login } = useAuth();
 
 const username = ref("");

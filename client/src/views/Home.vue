@@ -166,14 +166,12 @@
 import { ref, onMounted, onBeforeUnmount } from "vue";
 import { useRouter } from "vue-router";
 import { useApi } from "../composables/useApi";
-import { useTheme } from "../composables/useTheme";
 import { useAuth } from "../composables/useAuth";
 import SiteHeader from "../components/SiteHeader.vue";
 import AppFooter from "../components/AppFooter.vue";
 
 const router = useRouter();
 const api = useApi();
-const { theme, toggleTheme } = useTheme();
 const { isAuthenticated, logout } = useAuth();
 
 const demoMsgsRef = ref(null);
