@@ -75,17 +75,102 @@
             <span>{{ selectedResume.uploadedAt }}</span>
           </div>
 
-          <!-- 评估占位：C4 commit 填充 5 维 + tooltip + 总结 + 强项 + 风险 + 圆环 -->
-          <div class="wb-resume-placeholder wb-resume-placeholder--left">
+          <!-- C4: 评估卡。有评估数据时渲染（圆环 + 总结 + 5 维 + 强项 + 风险 + 建议），
+               否则 fallback 到原占位。 -->
+          <div v-if="hasEvaluation" class="wb-resume-eval-card">
+            <!-- OverallScore 圆环 + Level 徽章 -->
+            <div class="wb-overall-score-wrap">
+              <div class="wb-overall-score">
+                <svg viewBox="0 0 100 100" class="wb-overall-svg" aria-hidden="true">
+                  <circle cx="50" cy="50" r="44" class="wb-overall-track" />
+                  <circle
+                    cx="50" cy="50" r="44"
+                    class="wb-overall-fill"
+                    :class="`wb-overall-fill-${selectedResume.level || 'mid'}`"
+                    :style="overallCircleStyle"
+                  />
+                </svg>
+                <div class="wb-overall-center">
+                  <span class="wb-overall-num">{{ formatScore(selectedResume.overallScore) }}</span>
+                  <span class="wb-overall-meta">/ 100</span>
+                </div>
+              </div>
+              <div
+                class="wb-overall-badge"
+                :class="`wb-overall-badge-${selectedResume.level || 'mid'}`"
+              >{{ levelLabel(selectedResume.level) }}</div>
+            </div>
+
+            <!-- AI 总结 -->
+            <p v-if="selectedResume.summary" class="wb-resume-summary">{{ selectedResume.summary }}</p>
+
+            <!-- 5 维评估（D-U8 删 target_alignment）。hover 显示评分标准 tooltip（D-U9） -->
+            <div v-if="filteredDimensions.length > 0" class="wb-dimensions-list">
+              <div
+                v-for="dim in filteredDimensions"
+                :key="dim.key"
+                class="wb-dim-row"
+                :aria-describedby="`wb-dim-tip-${dim.key}`"
+              >
+                <div class="wb-dim-head">
+                  <span class="wb-dim-label">{{ dim.label }}</span>
+                  <span class="wb-dim-score">{{ dim.score }}</span>
+                </div>
+                <div class="wb-dim-bar" aria-hidden="true">
+                  <span :style="{ width: `${Math.min(100, Math.max(0, dim.score || 0))}%` }"></span>
+                </div>
+                <div
+                  v-if="dim.summary"
+                  :id="`wb-dim-tip-${dim.key}`"
+                  class="wb-dim-tooltip"
+                  role="tooltip"
+                >{{ dim.summary }}</div>
+              </div>
+            </div>
+
+            <!-- 强项 -->
+            <div v-if="selectedResume.strengths?.length > 0" class="wb-eval-section">
+              <div class="wb-eval-section-label">强项</div>
+              <ul class="wb-eval-list">
+                <li v-for="s in selectedResume.strengths" :key="s">{{ s }}</li>
+              </ul>
+            </div>
+
+            <!-- 风险（三色 left border 按 severity） -->
+            <div v-if="selectedResume.risks?.length > 0" class="wb-eval-section">
+              <div class="wb-eval-section-label">风险</div>
+              <ul class="wb-eval-risks">
+                <li
+                  v-for="r in selectedResume.risks"
+                  :key="r.key || r.label"
+                  :class="`wb-risk-${r.severity || 'medium'}`"
+                >
+                  <span class="wb-risk-label">{{ r.label }}</span>
+                  <span v-if="r.suggestion" class="wb-risk-suggest">{{ r.suggestion }}</span>
+                </li>
+              </ul>
+            </div>
+
+            <!-- 建议 -->
+            <div v-if="selectedResume.suggestions?.length > 0" class="wb-eval-section">
+              <div class="wb-eval-section-label">建议</div>
+              <ul class="wb-eval-list">
+                <li v-for="s in selectedResume.suggestions" :key="s">{{ s }}</li>
+              </ul>
+            </div>
+          </div>
+
+          <!-- 评估未就绪时的 fallback 占位卡 -->
+          <div v-else class="wb-resume-placeholder wb-resume-placeholder--left">
             <div class="wb-resume-placeholder-icon" aria-hidden="true">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4">
                 <circle cx="12" cy="12" r="9" />
                 <path d="M12 7v5l3 2" stroke-linecap="round" />
               </svg>
             </div>
-            <p v-if="selectedResume">已选中：<strong>{{ selectedResume.name }}</strong></p>
+            <p v-if="selectedResume?.evaluationLoading">评估生成中…</p>
+            <p v-else-if="selectedResume">评估尚未生成<br><strong>点右栏 重新生成 AI 画像</strong></p>
             <p v-else>上传简历后这里会显示<br><strong>总评分 + 5 维评估</strong></p>
-            <p class="wb-resume-placeholder-meta">由 C4 commit 填充</p>
           </div>
         </aside>
 
@@ -378,6 +463,59 @@ const resumeState = computed(() => {
   }
   return "S0";
 });
+
+// === C4: 评估卡 helpers ===
+// 删除的维度 keys（统一保持前端 5 维展示）：
+// - target_alignment（D-U8）：依赖 DirectionKey 输入，同一简历在不同目标方向下分数
+//   不稳定，且与右栏 FocusMatches chip 语义重复。
+// - interview_readiness：仅在后端 heuristic fallback 模式返回，语义与右栏
+//   SuggestedQuestions 数量重复（"可追问度" ≈ "AI 能问几题"），前端不重复展示。
+//   LLM 模式不返回该维度，过滤是 idempotent。
+const DIMENSION_OMITTED_KEYS = new Set(["target_alignment", "interview_readiness"]);
+
+// 判定评估是否就绪：有 dimensions 或 summary 即可认为有可渲染评估内容。
+const hasEvaluation = computed(() => {
+  const r = selectedResume.value;
+  if (!r) return false;
+  if (r.evaluationStatus !== "ready") return false;
+  return (Array.isArray(r.dimensions) && r.dimensions.length > 0) || !!r.summary;
+});
+
+// 5 维评估（过滤 D-U8 删除的 target_alignment）。
+const filteredDimensions = computed(() => {
+  const dims = selectedResume.value?.dimensions || [];
+  return dims.filter((d) => !DIMENSION_OMITTED_KEYS.has(d.key));
+});
+
+// OverallScore SVG 圆环：stroke-dasharray + dashoffset 实现进度环。
+// circumference = 2 * π * r = 2 * π * 44 ≈ 276.46
+const overallCircleStyle = computed(() => {
+  const score = Number(selectedResume.value?.overallScore) || 0;
+  const clamped = Math.max(0, Math.min(100, score));
+  const circumference = 2 * Math.PI * 44;
+  const dashOffset = circumference * (1 - clamped / 100);
+  return {
+    strokeDasharray: String(circumference),
+    strokeDashoffset: String(dashOffset),
+  };
+});
+
+// Level 中文标签。后端返回 strong/mid/weak 等英文枚举。
+const levelLabel = (level) => {
+  switch ((level || "").toLowerCase()) {
+    case "strong":
+    case "high":
+      return "表现优秀";
+    case "weak":
+    case "low":
+      return "需加强";
+    case "mid":
+    case "medium":
+      return "表现中等";
+    default:
+      return "评估完成";
+  }
+};
 
 // === C3: 简历版本切换 dropdown selector ===
 // 设计要点：
@@ -782,6 +920,267 @@ const formatScore = (score) => {
   letter-spacing: .04em;
   margin: 0 0 14px;
   padding: 0 4px;
+}
+
+/* ============ 左栏评估卡（C4 commit）============ */
+/* 代替原占位卡的真实评估区。使用与 .wb-resume-card 统一的卡片视觉语言，
+   内部从上到下：OverallScore 圆环 + Level 徽章 → AI 总结 → 5 维评估 → 强项 → 风险 → 建议。 */
+.wb-resume-eval-card {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 22px 20px;
+  background:
+    linear-gradient(180deg, rgba(18, 19, 24, 0.85) 0%, rgba(11, 12, 16, 0.85) 100%) padding-box,
+    linear-gradient(160deg, rgba(255, 255, 255, 0.10) 0%, rgba(255, 255, 255, 0.025) 100%) border-box;
+  border: 1px solid transparent;
+  border-radius: var(--radius-lg);
+  isolation: isolate;
+}
+
+/* OverallScore 圆环 + Level 徽章 */
+.wb-overall-score-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+
+.wb-overall-score {
+  position: relative;
+  width: 120px;
+  height: 120px;
+}
+
+.wb-overall-svg {
+  width: 100%;
+  height: 100%;
+  transform: rotate(-90deg);
+}
+
+.wb-overall-track {
+  fill: none;
+  stroke: rgba(255, 255, 255, 0.06);
+  stroke-width: 6;
+}
+
+.wb-overall-fill {
+  fill: none;
+  stroke-width: 6;
+  stroke-linecap: round;
+  transition: stroke-dashoffset .5s ease;
+}
+
+.wb-overall-fill-strong,
+.wb-overall-fill-high { stroke: rgba(220, 155, 90, 0.95); }
+.wb-overall-fill-mid,
+.wb-overall-fill-medium { stroke: rgba(230, 200, 130, 0.90); }
+.wb-overall-fill-weak,
+.wb-overall-fill-low { stroke: rgba(220, 110, 90, 0.85); }
+
+.wb-overall-center {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+}
+
+.wb-overall-num {
+  font: 700 32px/1 var(--display);
+  color: var(--t);
+  letter-spacing: -.02em;
+}
+
+.wb-overall-meta {
+  font: 10px var(--mono);
+  color: var(--t3);
+  letter-spacing: .04em;
+}
+
+.wb-overall-badge {
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 10px;
+  font: 600 11px var(--sans);
+  letter-spacing: .04em;
+  border-radius: var(--radius-pill);
+  border: 1px solid transparent;
+}
+
+.wb-overall-badge-strong,
+.wb-overall-badge-high {
+  color: rgba(255, 224, 190, 0.98);
+  background: rgba(220, 155, 90, 0.14);
+  border-color: rgba(220, 155, 90, 0.40);
+}
+
+.wb-overall-badge-mid,
+.wb-overall-badge-medium {
+  color: rgba(245, 225, 175, 0.95);
+  background: rgba(230, 200, 130, 0.10);
+  border-color: rgba(230, 200, 130, 0.32);
+}
+
+.wb-overall-badge-weak,
+.wb-overall-badge-low {
+  color: rgba(255, 195, 180, 0.95);
+  background: rgba(220, 110, 90, 0.12);
+  border-color: rgba(220, 110, 90, 0.36);
+}
+
+/* AI 总结 */
+.wb-resume-summary {
+  margin: 0;
+  font: 13px/1.7 var(--sans);
+  color: var(--t2);
+  text-align: left;
+}
+
+/* 5 维评估。hover tooltip 显示评分依据。 */
+.wb-dimensions-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.wb-dim-row {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  cursor: help;
+}
+
+.wb-dim-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.wb-dim-label {
+  font: 600 12px var(--sans);
+  color: var(--t);
+}
+
+.wb-dim-score {
+  font: 700 12px var(--mono);
+  color: rgba(220, 155, 90, 0.95);
+  letter-spacing: .04em;
+}
+
+.wb-dim-bar {
+  height: 6px;
+  border-radius: var(--radius-pill);
+  background: rgba(255, 255, 255, 0.06);
+  overflow: hidden;
+}
+
+.wb-dim-bar span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, rgba(76, 214, 168, 0.85), rgba(220, 155, 90, 0.95));
+  transition: width .5s ease;
+}
+
+/* hover tooltip（D-U9）。200ms transition delay 避免鼠标顺势跳动时快闪。 */
+.wb-dim-tooltip {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  width: max-content;
+  max-width: 240px;
+  padding: 8px 12px;
+  background: rgba(0, 0, 0, 0.88);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: var(--radius-sm);
+  color: var(--t);
+  font: 12px/1.5 var(--sans);
+  text-align: center;
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity .2s ease .12s, visibility .2s ease .12s;
+  z-index: 5;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+}
+
+.wb-dim-row:hover .wb-dim-tooltip,
+.wb-dim-row:focus-within .wb-dim-tooltip {
+  opacity: 1;
+  visibility: visible;
+}
+
+/* 强项 / 风险 / 建议 三个叙述 section */
+.wb-eval-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.wb-eval-section-label {
+  font: 600 10px var(--mono);
+  color: var(--t3);
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.wb-eval-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.wb-eval-list li {
+  font: 12px/1.6 var(--sans);
+  color: var(--t2);
+  padding: 7px 10px;
+  background: rgba(255, 255, 255, 0.025);
+  border-radius: var(--radius-sm);
+}
+
+.wb-eval-risks {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.wb-eval-risks li {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 7px 10px;
+  background: rgba(255, 255, 255, 0.025);
+  border-radius: var(--radius-sm);
+  border-left: 3px solid rgba(255, 255, 255, 0.15);
+}
+
+/* 风险三色 left border（D-U9 + 需求文档 §6.2 第 7 项） */
+.wb-risk-high { border-left-color: rgba(220, 100, 80, 0.85); }
+.wb-risk-medium { border-left-color: rgba(230, 165, 100, 0.85); }
+.wb-risk-low { border-left-color: rgba(220, 200, 130, 0.80); }
+
+.wb-risk-label {
+  font: 600 12px var(--sans);
+  color: var(--t);
+}
+
+.wb-risk-suggest {
+  font: 11px/1.55 var(--sans);
+  color: var(--t3);
 }
 
 /* 占位样式：C2.2 卡片化。
