@@ -97,7 +97,7 @@ func (l *KnowledgeDocumentChunksLogic) KnowledgeDocumentChunks(req *types.Knowle
 	}
 
 	userID := optionalKnowledgeUserID(l.ctx)
-	limit := boundedKnowledgeLimit(req.Limit, 50, 200)
+	limit := boundedKnowledgeLimit(req.Limit, 50, 500)
 	document, chunks, err := l.svcCtx.VectorStore.LoadKnowledgeDocumentChunks(l.ctx, req.Id, userID, limit)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
