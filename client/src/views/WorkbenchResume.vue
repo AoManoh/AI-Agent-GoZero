@@ -535,10 +535,11 @@ const formatScore = (score) => {
   margin-top: 8px;
 }
 
+/* C2.2 取消 sticky：原 sticky top:100px 让左右栏“贴顶”、中栏 flex center 让 dropzone “漂浮”，
+   三栏完全错位。现在三栏都从顶端自然对齐。
+   sticky 逻辑推迟到 C5（中栏 chunks 可滚动后不同检讨）。 */
 .wb-resume-left,
 .wb-resume-right {
-  position: sticky;
-  top: 100px;
   min-width: 0;
 }
 
@@ -546,22 +547,28 @@ const formatScore = (score) => {
   min-width: 0;
 }
 
-/* 占位样式。C3-C6 commit 逐步替换为真实内容。
-   C2.1：min-height 280 → 180，padding 48 24 → 32 20，避免空状态视觉空洞。 */
+/* 占位样式：C2.2 卡片化。
+   从 dashed border + 微弱 background 改为与项目现有 .wb-resume-card 一致的
+   实色渐变 background + gradient border-box。这让占位看起来是“等待填充的
+   真实卡片”而不是“空虚线框”，与中栏 dropzone 视觉语言统一。
+   min-height 180 → 360，跟中栏 dropzone 高度接近，三栏顶端从同一行开始平齐展开。 */
 .wb-resume-placeholder {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 12px;
-  padding: 32px 20px;
-  border: 1px dashed rgba(255, 255, 255, 0.10);
+  gap: 14px;
+  padding: 32px 22px;
+  background:
+    linear-gradient(180deg, rgba(18, 19, 24, 0.85) 0%, rgba(11, 12, 16, 0.85) 100%) padding-box,
+    linear-gradient(160deg, rgba(255, 255, 255, 0.10) 0%, rgba(255, 255, 255, 0.025) 100%) border-box;
+  border: 1px solid transparent;
   border-radius: var(--radius-lg);
   text-align: center;
   font: 13px/1.7 var(--sans);
   color: var(--t3);
-  background: rgba(255, 255, 255, 0.018);
-  min-height: 180px;
+  min-height: 360px;
+  isolation: isolate;
 }
 
 .wb-resume-placeholder p {
@@ -592,36 +599,36 @@ const formatScore = (score) => {
   opacity: 0.55;
 }
 
-/* S0 未上传 中栏 dropzone 居中容器。C2.1：dropzone 铺满中栏宽度（不再 max-width 580），
-   中屏中栏是三栏中能跳主导位置的核心区域，不该被 max-width 压缩。 */
+/* S0 未上传 中栏 dropzone 容器。
+   C2.2：取消 flex center + min-height:480，不再让 dropzone 在中栏“垂直居中漂浮”。
+   dropzone 现在直接从中栏顶端开始，与左右栏占位卡顶端平齐。 */
 .wb-resume-mid-empty {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  min-height: 480px;
-  padding: 24px 0;
+  width: 100%;
 }
 
 .wb-dropzone--centered {
   width: 100%;
+  min-height: 360px;
 }
 
-/* S1/S2/S3 中栏占位，由 C5-C7 commit 接管。C2.1：min-height 520 → 380，更紧凑。 */
+/* S1/S2/S3 中栏占位。C2.2 卡片化，与左右栏占位同高。 */
 .wb-resume-mid-placeholder {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   gap: 14px;
-  min-height: 380px;
-  padding: 36px 24px;
-  border: 1px dashed rgba(255, 255, 255, 0.10);
+  min-height: 360px;
+  padding: 32px 24px;
+  background:
+    linear-gradient(180deg, rgba(18, 19, 24, 0.85) 0%, rgba(11, 12, 16, 0.85) 100%) padding-box,
+    linear-gradient(160deg, rgba(255, 255, 255, 0.10) 0%, rgba(255, 255, 255, 0.025) 100%) border-box;
+  border: 1px solid transparent;
   border-radius: var(--radius-lg);
   text-align: center;
-  background: rgba(255, 255, 255, 0.018);
   font: 14px/1.7 var(--sans);
   color: var(--t3);
+  isolation: isolate;
 }
 
 .wb-resume-mid-placeholder p {
@@ -1282,17 +1289,13 @@ const formatScore = (score) => {
     grid-template-columns: 1fr;
     gap: 16px;
   }
-  .wb-resume-left,
-  .wb-resume-right {
-    position: static;
-  }
   .wb-resume-placeholder,
   .wb-resume-mid-placeholder {
-    min-height: 140px;
+    min-height: 200px;
     padding: 24px;
   }
-  .wb-resume-mid-empty {
-    min-height: 320px;
+  .wb-dropzone--centered {
+    min-height: 280px;
   }
 }
 
