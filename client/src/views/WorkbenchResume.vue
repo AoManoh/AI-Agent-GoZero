@@ -222,7 +222,55 @@
             <p v-if="uploadError" class="wb-upload-error" role="alert">{{ uploadError }}</p>
           </div>
 
-          <!-- S1/S2/S3 状态由 C5-C7 commit 填充；本 commit 仅占位 -->
+          <!-- S2 解析完成（C5 commit）：原文 chunks 列表 -->
+          <div v-else-if="resumeState === 'S2'" class="wb-resume-mid-chunks">
+            <!-- chunks 加载中。watch selectedId 会触发 loadResumeChunks，未返回前显示骨架。 -->
+            <div v-if="chunksLoading && !selectedResume?.chunks?.length" class="wb-resume-mid-placeholder">
+              <div class="wb-resume-placeholder-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4">
+                  <circle cx="12" cy="12" r="9" />
+                  <path d="M12 7v5" stroke-linecap="round" />
+                </svg>
+              </div>
+              <p>加载简历原文中…</p>
+            </div>
+
+            <!-- 后端返回空 chunks（朗读不到文本 / 清洗后）。 -->
+            <div v-else-if="!selectedResume?.chunks?.length" class="wb-resume-mid-placeholder">
+              <div class="wb-resume-placeholder-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4">
+                  <rect x="4" y="3" width="16" height="18" rx="2" />
+                  <line x1="8" y1="8" x2="16" y2="8" stroke-linecap="round" />
+                  <line x1="8" y1="12" x2="16" y2="12" stroke-linecap="round" />
+                </svg>
+              </div>
+              <p>暂无可显示的原文片段</p>
+              <p class="wb-resume-placeholder-meta">请文本型 PDF 或联系后端检查解析质量</p>
+            </div>
+
+            <!-- 正常 chunks 列表。按 chunk.index 升序渲染。 -->
+            <ol v-else class="wb-chunks-list">
+              <li
+                v-for="chunk in selectedResume.chunks"
+                :key="chunk.index"
+                class="wb-chunk-card"
+                :data-chunk-index="chunk.index"
+              >
+                <header class="wb-chunk-head">
+                  <!-- TODO(phase2-resume-chunk-pagenum): 后端补 ResumeArtifactChunk.PageNumber 字段后改为 "chunk #N · 第 X 页"。
+                       当前实现：仅显示 chunk 序号 #NN，后端 ResumeArtifactChunk 只有 Index 字段不是页码。
+                       后端状态：未规划（需与后端确认 chunk 切分逻辑是否能映射页码）。
+                       对齐目标：渲染 "chunk #NN · 第 X 页" 格式。
+                       触发条件：@d:\Go-Project\GoZero-AI\api\user\internal\types\types.go 出现 ResumeArtifactChunk.PageNumber 字段。
+                       起草日期：2026-05-12 -->
+                  <span class="wb-chunk-num">chunk #{{ String(chunk.index ?? '?').padStart(2, '0') }}</span>
+                </header>
+                <p class="wb-chunk-content">{{ chunk.content }}</p>
+              </li>
+            </ol>
+          </div>
+
+          <!-- S1 解析中 / S3 解析失败 占位，由 C7 接管状态机后细化进度 / 失败详情 -->
           <div v-else class="wb-resume-mid-placeholder">
             <div class="wb-resume-placeholder-icon" aria-hidden="true">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4">
@@ -232,8 +280,10 @@
                 <line x1="8" y1="16" x2="13" y2="16" stroke-linecap="round" />
               </svg>
             </div>
-            <p>已选中：<strong>{{ selectedResume?.name }}</strong></p>
-            <p class="wb-resume-placeholder-meta">当前状态 <code>{{ resumeState }}</code>；中栏 chunks 由 C5 commit 填充</p>
+            <p v-if="resumeState === 'S1'">解析中…</p>
+            <p v-else-if="resumeState === 'S3'">解析失败</p>
+            <p v-else>已选中：<strong>{{ selectedResume?.name }}</strong></p>
+            <p class="wb-resume-placeholder-meta">当前状态 <code>{{ resumeState }}</code>；C7 commit 接入 polling 后细化</p>
           </div>
         </main>
 
@@ -313,13 +363,6 @@ const validateFile = (file) => {
   return "";
 };
 
-const createResumeChatId = () => {
-  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
-    return `resume-${crypto.randomUUID()}`;
-  }
-  return `resume-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
-};
-
 const uploadFile = async (file) => {
   uploadError.value = "";
   const validationError = validateFile(file);
@@ -343,8 +386,6 @@ const uploadFile = async (file) => {
   try {
     const formData = new FormData();
     formData.append("file", file);
-    // ResumeUploadReq 要求 chatId 必填；每次上传使用唯一绑定 ID，避免不同用户共享 workbench-default。
-    formData.append("chatId", createResumeChatId());
     formData.append("title", file.name);
     formData.append("mode", "Memory");
     const res = await apiService.user.resumeUpload(formData);
@@ -388,6 +429,9 @@ const createEmptyEvaluationState = () => ({
   risks: [],
   suggestions: [],
   evidence: [],
+  // C5: chunks 缓存。选中某份简历后调 resumeArtifactDetail 拉取一次，不重复拉。
+  chunks: [],
+  chunksLoaded: false,
 });
 
 // === 简历列表（mock first，onMounted 异步接入 resumeArtifacts 覆盖） ===
@@ -583,7 +627,7 @@ const formatRelativeTime = (timestamp) => {
   return new Date(ts).toLocaleDateString("zh-CN");
 };
 
-// 列表拉取：后端只返回基础信息（不含 skills/projects），详情在选中时 lazy load。
+// 列表拉取：后端返回资产与评估摘要，详情分块在选中时 lazy load。
 const loadResumes = async () => {
   try {
     const res = await apiService.user.resumeArtifacts();
@@ -595,13 +639,16 @@ const loadResumes = async () => {
       name: it.title || it.filename || `简历 v${it.version}`,
       size: it.chunkCount > 0 ? `${it.chunkCount} 片段` : "—",
       uploadedAt: formatRelativeTime(it.updatedAt || it.uploadedAt),
-      projectCount: 0,
-      skillCount: 0,
+      projectCount: it.projectCount || 0,
+      skillCount: it.skillCount || 0,
       status: mapArtifactStatus(it.status),
       primary: i === 0,
       skills: [],
       projects: [],
       ...createEmptyEvaluationState(),
+      evaluationStatus: it.evaluationStatus || "missing",
+      overallScore: typeof it.overallScore === "number" ? it.overallScore : null,
+      level: it.level || "",
     }));
   } catch (error) {
     // 静默降级；mock 列表已可用
@@ -649,6 +696,36 @@ const applyResumeAnalysis = (id, res) => {
   };
 };
 
+// === C5: 中栏 chunks 拉取 ===
+// resumeArtifactDetail 返回 chunks 列表（index + content）。选中后 lazy load 一次，
+// 缓存在 selectedResume.chunks；后续重选同一份简历不重复拉。
+// chunksLoading 仅在首次拉取时为 true，当前州帝总体加载状态。
+const chunksLoading = ref(false);
+
+const loadResumeChunks = async (id) => {
+  if (!id) return;
+  const idx = resumes.value.findIndex((r) => r.id === id);
+  if (idx < 0) return;
+  const target = resumes.value[idx];
+  if (target.chunksLoaded) return; // 已拉过不重复
+
+  chunksLoading.value = true;
+  try {
+    const res = await apiService.user.resumeArtifactDetail(id);
+    const chunks = Array.isArray(res?.chunks) ? res.chunks : [];
+    resumes.value[idx] = {
+      ...resumes.value[idx],
+      chunks,
+      chunksLoaded: true,
+    };
+  } catch (error) {
+    // 静默降级：拱失败不报错，mid placeholder 会进 "暂无可显示的原文片段" 分支。
+    console.warn('[resume] resumeArtifactDetail failed for', id, error);
+  } finally {
+    chunksLoading.value = false;
+  }
+};
+
 // 选中某份简历后 lazy 拉 analysis 覆盖 skills/projects。
 const loadResumeAnalysis = async (id) => {
   if (!id) return;
@@ -690,9 +767,11 @@ const prepareResumeEvaluation = async (id, options = {}) => {
   }
 };
 
-// 选中变化时拉取详情
+// 选中变化时拉取详情 + chunks（C5 增加 chunks 拉取）
 watch(selectedId, (id) => {
-  if (id) loadResumeAnalysis(id);
+  if (!id) return;
+  loadResumeAnalysis(id);
+  loadResumeChunks(id);
 });
 
 // C3: onMounted 黑 selector 外部点击监听 + 按顺序拉列表 → 选中默认简历 → 同步 URL
@@ -1639,6 +1718,70 @@ const formatScore = (score) => {
 
 .wb-resume-card-active .wb-resume-card-action {
   color: rgba(220, 155, 90, 0.95);
+}
+
+/* ============ 中栏 S2 chunks 列表（C5 commit）============ */
+/* 详见需求文档 §6.3。按 chunk.index 升序渲染。每个 chunk 是卡片，
+   头部 chunk #NN（C8 拓开页码后会加 "· 第 X 页"，见 phase2-resume-chunk-pagenum TODO），
+   底部原文 13/1.7 sans 保护阅读节奏。卡片使用与 .wb-resume-card 同渐变底 + gradient border-box。 */
+.wb-chunks-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.wb-chunk-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 18px;
+  background:
+    linear-gradient(180deg, rgba(18, 19, 24, 0.85) 0%, rgba(11, 12, 16, 0.85) 100%) padding-box,
+    linear-gradient(160deg, rgba(255, 255, 255, 0.08) 0%, rgba(255, 255, 255, 0.025) 100%) border-box;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  isolation: isolate;
+  transition: border-color .2s ease;
+}
+
+.wb-chunk-card:hover {
+  border-color: rgba(220, 155, 90, 0.25);
+}
+
+/* TODO(phase2-resume-chunk-question-link): C6 commit 会接入 "点右栏追问 → 中栏滚动到关联 chunk 高亮黄色".
+   本 commit (C5) 仅加入 .wb-chunk-highlight 状态样式雏形，C6 才绑定 JS 联动逻辑。 */
+.wb-chunk-card.wb-chunk-highlight {
+  border-color: rgba(220, 155, 90, 0.55);
+  box-shadow: 0 0 12px rgba(220, 155, 90, 0.25);
+  animation: wb-chunk-flash 0.6s ease;
+}
+
+@keyframes wb-chunk-flash {
+  0% { background-color: rgba(220, 155, 90, 0.18); }
+  100% { background-color: transparent; }
+}
+
+.wb-chunk-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.wb-chunk-num {
+  font: 600 11px var(--mono);
+  color: rgba(220, 155, 90, 0.95);
+  letter-spacing: .04em;
+}
+
+.wb-chunk-content {
+  margin: 0;
+  font: 13px/1.7 var(--sans);
+  color: var(--t2);
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 /* === Empty === */
