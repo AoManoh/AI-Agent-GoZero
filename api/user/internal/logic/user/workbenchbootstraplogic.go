@@ -159,43 +159,24 @@ func countCompletedSessions(sessions []model.ChatSession) int {
 }
 
 func (l *WorkbenchBootstrapLogic) buildResumeSummary(userID int64) (types.WorkbenchResumeSummary, error) {
-	var aggregate workbenchResumeAggregateRow
-	err := l.svcCtx.DB.QueryRowCtx(l.ctx, &aggregate, `select
-count(distinct chat_id) as total,
-count(*) as chunk_count
-from "public"."vector_store"
-where user_id = $1 and doc_type = 'resume'`, userID)
-	if err != nil && err != sql.ErrNoRows {
+	items, err := loadResumeArtifactItems(l.ctx, l.svcCtx.DB, userID)
+	if err != nil {
 		return types.WorkbenchResumeSummary{}, err
 	}
 
 	summary := types.WorkbenchResumeSummary{
-		Total:      aggregate.Total,
-		ChunkCount: aggregate.ChunkCount,
+		Total: int64(len(items)),
+	}
+	for _, item := range items {
+		summary.ChunkCount += item.ChunkCount
 	}
 
-	var latest workbenchResumeLatestRow
-	err = l.svcCtx.DB.QueryRowCtx(l.ctx, &latest, `select
-v.chat_id as session_id,
-coalesce(s.title, v.chat_id) as title,
-max(v.created_at) as updated_at
-from "public"."vector_store" v
-left join "public"."chat_sessions" s
-  on s.session_id = v.chat_id and s.user_id = v.user_id
-where v.user_id = $1 and v.doc_type = 'resume'
-group by v.chat_id, s.title
-order by max(v.created_at) desc
-limit 1`, userID)
-	if err != nil && err != sqlx.ErrNotFound && err != sql.ErrNoRows {
-		return types.WorkbenchResumeSummary{}, err
-	}
-	if err == nil {
-		summary.LatestSessionId = latest.SessionId
+	if len(items) > 0 {
+		latest := items[0]
+		summary.LatestSessionId = latest.ArtifactId
 		summary.LatestTitle = latest.Title
-		if latest.UpdatedAt.Valid {
-			summary.LatestUpdatedAt = latest.UpdatedAt.Time.Format(timeLayout)
-		}
-		chunks, err := loadResumeArtifactChunks(l.ctx, l.svcCtx.DB, userID, latest.SessionId)
+		summary.LatestUpdatedAt = latest.UpdatedAt
+		chunks, err := loadResumeArtifactChunks(l.ctx, l.svcCtx.DB, userID, latest.ArtifactId)
 		if err != nil {
 			return types.WorkbenchResumeSummary{}, err
 		}

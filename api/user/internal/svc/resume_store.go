@@ -37,12 +37,32 @@ func NewResumeStore(db sqlx.SqlConn, openAIClient *openai.Client, embeddingModel
 	}
 }
 
-func (s *ResumeStore) SaveResume(ctx context.Context, userID int64, chatID, title, filename, mode string, chunks []string) (int64, error) {
+func (s *ResumeStore) SaveResume(ctx context.Context, userID int64, artifactID, sessionID, title, filename, mode string, chunks []string) (int64, error) {
 	if len(chunks) == 0 {
 		return 0, fmt.Errorf("简历内容为空")
 	}
-	if _, _, err := ensureResumeSessionWritable(ctx, s.db, userID, chatID); err != nil {
-		return 0, err
+	artifactID = strings.TrimSpace(artifactID)
+	sessionID = strings.TrimSpace(sessionID)
+	if artifactID == "" {
+		return 0, fmt.Errorf("简历资产ID不能为空")
+	}
+	if sessionID != "" {
+		if _, _, err := ensureResumeSessionWritable(ctx, s.db, userID, sessionID); err != nil {
+			return 0, err
+		}
+	}
+	if strings.TrimSpace(title) == "" {
+		title = filename
+	} else {
+		title = strings.TrimSpace(title)
+	}
+	if strings.TrimSpace(filename) == "" {
+		return 0, fmt.Errorf("简历文件名不能为空")
+	}
+	filename = strings.TrimSpace(filename)
+
+	if mode = strings.TrimSpace(mode); mode == "" {
+		mode = sessionmode.KeyMemory
 	}
 
 	embeddings := make([]pgvector.Vector, 0, len(chunks))
@@ -56,16 +76,17 @@ func (s *ResumeStore) SaveResume(ctx context.Context, userID int64, chatID, titl
 
 	var version int64
 	err := s.db.TransactCtx(ctx, func(ctx context.Context, session sqlx.Session) error {
-		existing, found, err := ensureResumeSessionWritable(ctx, session, userID, chatID)
-		if err != nil {
-			return err
-		}
-		modeKey := resolveResumeSessionMode(existing.Mode, mode)
-		if !found {
-			modeKey = resolveResumeSessionMode("", mode)
-		}
+		if sessionID != "" {
+			existing, found, err := ensureResumeSessionWritable(ctx, session, userID, sessionID)
+			if err != nil {
+				return err
+			}
+			modeKey := resolveResumeSessionMode(existing.Mode, mode)
+			if !found {
+				modeKey = resolveResumeSessionMode("", mode)
+			}
 
-		if _, err := session.ExecCtx(ctx, `INSERT INTO "public"."chat_sessions" (session_id, user_id, title, mode, is_active)
+			if _, err := session.ExecCtx(ctx, `INSERT INTO "public"."chat_sessions" (session_id, user_id, title, mode, is_active)
 	VALUES ($1, $2, $3, $4, true)
 	ON CONFLICT (session_id) DO UPDATE
 	SET user_id = COALESCE("public"."chat_sessions".user_id, EXCLUDED.user_id),
@@ -78,37 +99,38 @@ func (s *ResumeStore) SaveResume(ctx context.Context, userID int64, chatID, titl
 	        ELSE "public"."chat_sessions".mode
 	    END,
 	    updated_at = now()`,
-			chatID, userID, title, modeKey, defaultSessionTitle); err != nil {
-			return err
-		}
-		if _, _, err := ensureResumeSessionWritable(ctx, session, userID, chatID); err != nil {
-			return err
+				sessionID, userID, title, modeKey, defaultSessionTitle); err != nil {
+				return err
+			}
+			if _, _, err := ensureResumeSessionWritable(ctx, session, userID, sessionID); err != nil {
+				return err
+			}
 		}
 
-		if _, err := session.ExecCtx(ctx, `DELETE FROM "public"."vector_store" WHERE user_id = $1 AND chat_id = $2 AND doc_type = 'resume'`, userID, chatID); err != nil {
+		if _, err := session.ExecCtx(ctx, `DELETE FROM "public"."vector_store" WHERE user_id = $1 AND chat_id = $2 AND doc_type = 'resume'`, userID, artifactID); err != nil {
 			return err
 		}
 
 		if err := session.QueryRowCtx(ctx, &version, `select coalesce(max(version), 0) + 1
 from "public"."resume_documents"
-where user_id = $1 and session_id = $2`, userID, chatID); err != nil {
+where user_id = $1 and artifact_id = $2`, userID, artifactID); err != nil {
 			return err
 		}
 		if _, err := session.ExecCtx(ctx, `update "public"."resume_documents"
 set is_current = false, updated_at = now()
-where user_id = $1 and session_id = $2 and is_current = true`, userID, chatID); err != nil {
+where user_id = $1 and artifact_id = $2 and is_current = true`, userID, artifactID); err != nil {
 			return err
 		}
 		if _, err := session.ExecCtx(ctx, `insert into "public"."resume_documents"
-(user_id, session_id, version, title, filename, status, chunk_count, is_current, uploaded_at, updated_at)
-values ($1, $2, $3, $4, $5, 'ready', $6, true, now(), now())`,
-			userID, chatID, version, title, filename, len(chunks)); err != nil {
+(artifact_id, user_id, session_id, version, title, filename, status, parse_stage, parse_progress, processed_chunk_count, failed_chunk_count, parse_error_code, parse_error_message, parse_retryable, chunk_count, is_current, uploaded_at, updated_at)
+values ($1, $2, $3, $4, $5, $6, 'ready', 'ready', 100, $7, 0, '', '', false, $7, true, now(), now())`,
+			artifactID, userID, sessionID, version, title, filename, len(chunks)); err != nil {
 			return err
 		}
 
 		for idx, chunk := range chunks {
 			if _, err := session.ExecCtx(ctx, `INSERT INTO "public"."vector_store" (chat_id, user_id, role, content, embedding, doc_type) VALUES ($1, $2, $3, $4, $5, 'resume')`,
-				chatID, userID, resumeRole, chunk, embeddings[idx]); err != nil {
+				artifactID, userID, resumeRole, chunk, embeddings[idx]); err != nil {
 				return err
 			}
 		}

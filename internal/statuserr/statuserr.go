@@ -6,8 +6,9 @@ import (
 )
 
 type Error struct {
-	code    int
-	message string
+	code      int
+	message   string
+	errorCode string
 }
 
 func (e *Error) Error() string {
@@ -18,10 +19,22 @@ func (e *Error) StatusCode() int {
 	return e.code
 }
 
+func (e *Error) ErrorCode() string {
+	return e.errorCode
+}
+
 func New(code int, message string) error {
 	return &Error{
 		code:    code,
 		message: message,
+	}
+}
+
+func Coded(code int, errorCode, message string) error {
+	return &Error{
+		code:      code,
+		message:   message,
+		errorCode: errorCode,
 	}
 }
 
@@ -40,6 +53,24 @@ func StatusCode(err error) (int, bool) {
 	}
 
 	return 0, false
+}
+
+func ErrorCode(err error) (string, bool) {
+	type errorCoder interface {
+		ErrorCode() string
+	}
+
+	if err == nil {
+		return "", false
+	}
+
+	var coded errorCoder
+	if errors.As(err, &coded) {
+		code := coded.ErrorCode()
+		return code, code != ""
+	}
+
+	return "", false
 }
 
 func NotFound(message string) error {

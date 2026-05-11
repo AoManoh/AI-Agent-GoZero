@@ -44,6 +44,27 @@ func (l *CreateSessionLogic) CreateSession(req *types.CreateSessionReq) (*types.
 	if err != nil {
 		return nil, err
 	}
+	var resumeBinding *types.ResumeBindingSummary
+	resumeArtifactID := strings.TrimSpace(req.ResumeArtifactId)
+	if resumeArtifactID != "" {
+		artifact, err := loadResumeArtifactItem(l.ctx, l.svcCtx.DB, userID, resumeArtifactID)
+		if err != nil {
+			if errors.Is(err, model.ErrNotFound) || errors.Is(err, sqlx.ErrNotFound) {
+				return nil, statuserr.NotFound("简历资料不存在或已删除")
+			}
+			return nil, err
+		}
+		if artifact.Status != "" && artifact.Status != "ready" {
+			return nil, statuserr.Conflict("简历尚未解析完成，请稍后再创建面试")
+		}
+		config.ResumeArtifactId = artifact.ArtifactId
+		resumeBinding = &types.ResumeBindingSummary{
+			ArtifactId: artifact.ArtifactId,
+			Title:      artifact.Title,
+			Version:    artifact.Version,
+			Status:     artifact.Status,
+		}
+	}
 	var selectedQuestion *model.InterviewQuestion
 	questionKey := strings.TrimSpace(req.QuestionKey)
 	if questionKey != "" {
@@ -92,7 +113,8 @@ func (l *CreateSessionLogic) CreateSession(req *types.CreateSessionReq) (*types.
 	}
 
 	return &types.CreateSessionResp{
-		Session: buildSessionItem(*session),
-		Config:  buildSessionConfigSnapshot(*session),
+		Session:       buildSessionItem(*session),
+		Config:        buildSessionConfigSnapshot(*session),
+		ResumeBinding: resumeBinding,
 	}, nil
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"strconv"
 	"time"
 
 	"GoZero-AI/api/user/internal/svc"
@@ -27,15 +28,28 @@ type ResumeArtifactDetailLogic struct {
 }
 
 type resumeArtifactRow struct {
-	ArtifactId       string    `db:"artifact_id"`
-	Title            string    `db:"title"`
-	Version          int64     `db:"version"`
-	Filename         string    `db:"filename"`
-	Status           string    `db:"status"`
-	ChunkCount       int64     `db:"chunk_count"`
-	BoundSessionName string    `db:"bound_session_name"`
-	UploadedAt       time.Time `db:"uploaded_at"`
-	UpdatedAt        time.Time `db:"updated_at"`
+	ArtifactId         string       `db:"artifact_id"`
+	Title              string       `db:"title"`
+	Version            int64        `db:"version"`
+	Filename           string       `db:"filename"`
+	Status             string       `db:"status"`
+	ParseStage         string       `db:"parse_stage"`
+	ParseProgress      int64        `db:"parse_progress"`
+	ProcessedChunks    int64        `db:"processed_chunk_count"`
+	FailedChunks       int64        `db:"failed_chunk_count"`
+	ParseErrorCode     string       `db:"parse_error_code"`
+	ParseErrorMsg      string       `db:"parse_error_message"`
+	ParseRetryable     bool         `db:"parse_retryable"`
+	ChunkCount         int64        `db:"chunk_count"`
+	BoundSessionId     string       `db:"bound_session_id"`
+	BoundSessionName   string       `db:"bound_session_name"`
+	OverallScore       float64      `db:"overall_score"`
+	Level              string       `db:"level"`
+	EvaluationStatus   string       `db:"evaluation_status"`
+	RiskCount          int64        `db:"risk_count"`
+	LatestEvaluationAt sql.NullTime `db:"latest_evaluation_at"`
+	UploadedAt         time.Time    `db:"uploaded_at"`
+	UpdatedAt          time.Time    `db:"updated_at"`
 }
 
 type resumeArtifactChunkRow struct {
@@ -69,6 +83,7 @@ func (l *ResumeArtifactsLogic) ResumeArtifacts(_ *types.ResumeArtifactsReq) (*ty
 	if err != nil {
 		return nil, statuserr.ServiceUnavailable("简历资料暂不可用，请稍后重试")
 	}
+	artifacts = enrichResumeArtifactList(l.ctx, l.svcCtx.DB, userID, artifacts)
 	return &types.ResumeArtifactsResp{
 		Artifacts: artifacts,
 		Total:     int64(len(artifacts)),
@@ -101,8 +116,11 @@ order by created_at asc, id asc`, userID, req.Id)
 	chunks := make([]types.ResumeArtifactChunk, 0, len(rows))
 	for idx, row := range rows {
 		chunks = append(chunks, types.ResumeArtifactChunk{
-			Index:   int64(idx + 1),
-			Content: truncateEvaluationContent(row.Content, 800),
+			Index:        int64(idx + 1),
+			EvidenceId:   buildResumeEvidenceID(req.Id, int64(idx+1)),
+			Content:      truncateEvaluationContent(row.Content, 800),
+			SourceStatus: "text",
+			CreatedAt:    row.CreatedAt.Format(timeLayout),
 		})
 	}
 
@@ -145,18 +163,33 @@ func loadResumeArtifactItems(ctx context.Context, db sqlx.SqlConn, userID int64)
 func loadResumeDocumentItems(ctx context.Context, db sqlx.SqlConn, userID int64) ([]types.ResumeArtifactItem, error) {
 	var rows []resumeArtifactRow
 	err := db.QueryRowsCtx(ctx, &rows, `select
-d.session_id as artifact_id,
+d.artifact_id,
+d.session_id as bound_session_id,
 d.title,
 d.version,
 d.filename,
 d.status,
+d.parse_stage,
+d.parse_progress::bigint as parse_progress,
+d.processed_chunk_count::bigint as processed_chunk_count,
+d.failed_chunk_count::bigint as failed_chunk_count,
+d.parse_error_code,
+d.parse_error_message,
+d.parse_retryable,
 d.chunk_count,
 coalesce(s.title, d.title) as bound_session_name,
+coalesce(e.overall_score, 0)::float8 as overall_score,
+coalesce(e.level, '') as level,
+coalesce(e.status, '') as evaluation_status,
+coalesce(jsonb_array_length(e.risks), 0)::bigint as risk_count,
+e.generated_at as latest_evaluation_at,
 d.uploaded_at,
 d.updated_at
 from "public"."resume_documents" d
 left join "public"."chat_sessions" s
   on s.session_id = d.session_id and s.user_id = d.user_id
+left join "public"."resume_evaluations" e
+  on e.artifact_id = d.artifact_id and e.user_id = d.user_id
 where d.user_id = $1 and d.is_current = true
 order by d.updated_at desc, d.id desc`, userID)
 	if err != nil {
@@ -177,19 +210,34 @@ func loadLegacyResumeArtifactItems(ctx context.Context, db sqlx.SqlConn, userID 
 	var rows []resumeArtifactRow
 	err := db.QueryRowsCtx(ctx, &rows, `select
 v.chat_id as artifact_id,
+v.chat_id as bound_session_id,
 coalesce(s.title, v.chat_id) as title,
 1::bigint as version,
 ''::text as filename,
 'ready'::text as status,
+'ready'::text as parse_stage,
+100::bigint as parse_progress,
+count(*)::bigint as processed_chunk_count,
+0::bigint as failed_chunk_count,
+''::text as parse_error_code,
+''::text as parse_error_message,
+false::boolean as parse_retryable,
 count(*) as chunk_count,
 coalesce(s.title, v.chat_id) as bound_session_name,
+coalesce(e.overall_score, 0)::float8 as overall_score,
+coalesce(e.level, '') as level,
+coalesce(e.status, '') as evaluation_status,
+coalesce(jsonb_array_length(e.risks), 0)::bigint as risk_count,
+e.generated_at as latest_evaluation_at,
 max(v.created_at) as uploaded_at,
 max(v.created_at) as updated_at
 from "public"."vector_store" v
 left join "public"."chat_sessions" s
   on s.session_id = v.chat_id and s.user_id = v.user_id
+left join "public"."resume_evaluations" e
+  on e.artifact_id = v.chat_id and e.user_id = v.user_id
 where v.user_id = $1 and v.doc_type = 'resume'
-group by v.chat_id, s.title
+group by v.chat_id, s.title, e.overall_score, e.level, e.status, e.risks, e.generated_at
 order by max(v.created_at) desc`, userID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) || errors.Is(err, sqlx.ErrNotFound) {
@@ -220,19 +268,34 @@ func loadResumeArtifactItem(ctx context.Context, db sqlx.SqlConn, userID int64, 
 func loadResumeDocumentItem(ctx context.Context, db sqlx.SqlConn, userID int64, artifactID string) (types.ResumeArtifactItem, error) {
 	var row resumeArtifactRow
 	err := db.QueryRowCtx(ctx, &row, `select
-d.session_id as artifact_id,
+d.artifact_id,
+d.session_id as bound_session_id,
 d.title,
 d.version,
 d.filename,
 d.status,
+d.parse_stage,
+d.parse_progress::bigint as parse_progress,
+d.processed_chunk_count::bigint as processed_chunk_count,
+d.failed_chunk_count::bigint as failed_chunk_count,
+d.parse_error_code,
+d.parse_error_message,
+d.parse_retryable,
 d.chunk_count,
 coalesce(s.title, d.title) as bound_session_name,
+coalesce(e.overall_score, 0)::float8 as overall_score,
+coalesce(e.level, '') as level,
+coalesce(e.status, '') as evaluation_status,
+coalesce(jsonb_array_length(e.risks), 0)::bigint as risk_count,
+e.generated_at as latest_evaluation_at,
 d.uploaded_at,
 d.updated_at
 from "public"."resume_documents" d
 left join "public"."chat_sessions" s
   on s.session_id = d.session_id and s.user_id = d.user_id
-where d.user_id = $1 and d.session_id = $2 and d.is_current = true
+left join "public"."resume_evaluations" e
+  on e.artifact_id = d.artifact_id and e.user_id = d.user_id
+where d.user_id = $1 and d.artifact_id = $2 and d.is_current = true
 limit 1`, userID, artifactID)
 	if err != nil {
 		return types.ResumeArtifactItem{}, err
@@ -244,19 +307,34 @@ func loadLegacyResumeArtifactItem(ctx context.Context, db sqlx.SqlConn, userID i
 	var row resumeArtifactRow
 	err := db.QueryRowCtx(ctx, &row, `select
 v.chat_id as artifact_id,
+v.chat_id as bound_session_id,
 coalesce(s.title, v.chat_id) as title,
 1::bigint as version,
 ''::text as filename,
 'ready'::text as status,
+'ready'::text as parse_stage,
+100::bigint as parse_progress,
+count(*)::bigint as processed_chunk_count,
+0::bigint as failed_chunk_count,
+''::text as parse_error_code,
+''::text as parse_error_message,
+false::boolean as parse_retryable,
 count(*) as chunk_count,
 coalesce(s.title, v.chat_id) as bound_session_name,
+coalesce(e.overall_score, 0)::float8 as overall_score,
+coalesce(e.level, '') as level,
+coalesce(e.status, '') as evaluation_status,
+coalesce(jsonb_array_length(e.risks), 0)::bigint as risk_count,
+e.generated_at as latest_evaluation_at,
 max(v.created_at) as uploaded_at,
 max(v.created_at) as updated_at
 from "public"."vector_store" v
 left join "public"."chat_sessions" s
   on s.session_id = v.chat_id and s.user_id = v.user_id
+left join "public"."resume_evaluations" e
+  on e.artifact_id = v.chat_id and e.user_id = v.user_id
 where v.user_id = $1 and v.chat_id = $2 and v.doc_type = 'resume'
-group by v.chat_id, s.title`, userID, artifactID)
+group by v.chat_id, s.title, e.overall_score, e.level, e.status, e.risks, e.generated_at`, userID, artifactID)
 	if err != nil {
 		return types.ResumeArtifactItem{}, err
 	}
@@ -265,15 +343,70 @@ group by v.chat_id, s.title`, userID, artifactID)
 
 func buildResumeArtifactItem(row resumeArtifactRow) types.ResumeArtifactItem {
 	return types.ResumeArtifactItem{
-		ArtifactId:       row.ArtifactId,
-		Title:            row.Title,
-		Version:          row.Version,
-		Filename:         row.Filename,
-		Status:           row.Status,
-		ChunkCount:       row.ChunkCount,
-		BoundSessionId:   row.ArtifactId,
-		BoundSessionName: row.BoundSessionName,
-		UploadedAt:       row.UploadedAt.Format(timeLayout),
-		UpdatedAt:        row.UpdatedAt.Format(timeLayout),
+		ArtifactId:         row.ArtifactId,
+		Title:              row.Title,
+		Version:            row.Version,
+		Filename:           row.Filename,
+		Status:             row.Status,
+		ChunkCount:         row.ChunkCount,
+		BoundSessionId:     row.BoundSessionId,
+		BoundSessionName:   row.BoundSessionName,
+		OverallScore:       row.OverallScore,
+		Level:              row.Level,
+		EvaluationStatus:   row.EvaluationStatus,
+		RiskCount:          row.RiskCount,
+		LatestEvaluationAt: formatOptionalTime(row.LatestEvaluationAt),
+		ParseStatus: types.ResumeParseStatus{
+			Stage:           defaultString(row.ParseStage, row.Status),
+			Progress:        row.ParseProgress,
+			TotalChunks:     row.ChunkCount,
+			ProcessedChunks: row.ProcessedChunks,
+			FailedChunks:    row.FailedChunks,
+			ErrorCode:       row.ParseErrorCode,
+			ErrorMessage:    row.ParseErrorMsg,
+			Retryable:       row.ParseRetryable,
+		},
+		UploadedAt: row.UploadedAt.Format(timeLayout),
+		UpdatedAt:  row.UpdatedAt.Format(timeLayout),
 	}
+}
+
+func enrichResumeArtifactList(ctx context.Context, db sqlx.SqlConn, userID int64, items []types.ResumeArtifactItem) []types.ResumeArtifactItem {
+	for idx := range items {
+		chunks, err := loadResumeArtifactChunks(ctx, db, userID, items[idx].ArtifactId)
+		if err != nil {
+			continue
+		}
+		base, err := buildResumeArtifactAnalysis(items[idx], chunks, "", 6)
+		if err != nil {
+			continue
+		}
+		items[idx].ProjectCount = int64(len(base.Projects))
+		items[idx].SkillCount = int64(len(base.Skills))
+		if items[idx].RiskCount == 0 {
+			items[idx].RiskCount = int64(len(base.Risks))
+		}
+		if items[idx].EvaluationStatus == "" {
+			items[idx].EvaluationStatus = base.EvaluationStatus
+		}
+	}
+	return items
+}
+
+func buildResumeEvidenceID(artifactID string, index int64) string {
+	return artifactID + "#chunk-" + strconv.FormatInt(index, 10)
+}
+
+func formatOptionalTime(value sql.NullTime) string {
+	if !value.Valid {
+		return ""
+	}
+	return value.Time.Format(timeLayout)
+}
+
+func defaultString(value, fallback string) string {
+	if value == "" {
+		return fallback
+	}
+	return value
 }

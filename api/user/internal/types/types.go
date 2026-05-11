@@ -19,11 +19,13 @@ type CreateSessionReq struct {
 	InterviewerStyle string   `json:"interviewerStyle,optional"`
 	EstimatedMinutes int64    `json:"estimatedMinutes,optional"`
 	QuestionKey      string   `json:"questionKey,optional"`
+	ResumeArtifactId string   `json:"resumeArtifactId,optional"`
 }
 
 type CreateSessionResp struct {
-	Session SessionItem           `json:"session"`
-	Config  SessionConfigSnapshot `json:"config"`
+	Session       SessionItem           `json:"session"`
+	Config        SessionConfigSnapshot `json:"config"`
+	ResumeBinding *ResumeBindingSummary `json:"resumeBinding,optional"`
 }
 
 type DeleteSessionReq struct {
@@ -513,8 +515,13 @@ type ResumeArtifactAnalysisResp struct {
 }
 
 type ResumeArtifactChunk struct {
-	Index   int64  `json:"index"`
-	Content string `json:"content"`
+	Index        int64  `json:"index"`
+	EvidenceId   string `json:"evidenceId"`
+	Content      string `json:"content"`
+	Page         int64  `json:"page,optional"`
+	Section      string `json:"section,optional"`
+	SourceStatus string `json:"sourceStatus"`
+	CreatedAt    string `json:"createdAt,optional"`
 }
 
 type ResumeArtifactDetailReq struct {
@@ -528,16 +535,24 @@ type ResumeArtifactDetailResp struct {
 }
 
 type ResumeArtifactItem struct {
-	ArtifactId       string `json:"artifactId"`
-	Title            string `json:"title"`
-	Version          int64  `json:"version"`
-	Filename         string `json:"filename,optional"`
-	Status           string `json:"status"`
-	ChunkCount       int64  `json:"chunkCount"`
-	BoundSessionId   string `json:"boundSessionId"`
-	BoundSessionName string `json:"boundSessionName"`
-	UploadedAt       string `json:"uploadedAt,optional"`
-	UpdatedAt        string `json:"updatedAt"`
+	ArtifactId         string            `json:"artifactId"`
+	Title              string            `json:"title"`
+	Version            int64             `json:"version"`
+	Filename           string            `json:"filename,optional"`
+	Status             string            `json:"status"`
+	ChunkCount         int64             `json:"chunkCount"`
+	BoundSessionId     string            `json:"boundSessionId"`
+	BoundSessionName   string            `json:"boundSessionName"`
+	OverallScore       float64           `json:"overallScore"`
+	Level              string            `json:"level"`
+	EvaluationStatus   string            `json:"evaluationStatus"`
+	ProjectCount       int64             `json:"projectCount"`
+	SkillCount         int64             `json:"skillCount"`
+	RiskCount          int64             `json:"riskCount"`
+	LatestEvaluationAt string            `json:"latestEvaluationAt,optional"`
+	ParseStatus        ResumeParseStatus `json:"parseStatus"`
+	UploadedAt         string            `json:"uploadedAt,optional"`
+	UpdatedAt          string            `json:"updatedAt"`
 }
 
 type ResumeArtifactsReq struct {
@@ -546,6 +561,13 @@ type ResumeArtifactsReq struct {
 type ResumeArtifactsResp struct {
 	Artifacts []ResumeArtifactItem `json:"artifacts"`
 	Total     int64                `json:"total"`
+}
+
+type ResumeBindingSummary struct {
+	ArtifactId string `json:"artifactId"`
+	Title      string `json:"title"`
+	Version    int64  `json:"version"`
+	Status     string `json:"status"`
 }
 
 type ResumeEvaluationMeta struct {
@@ -564,6 +586,17 @@ type ResumeFocusMatch struct {
 	MatchScore      int64    `json:"matchScore"`
 	Evidence        []string `json:"evidence"`
 	PlannedQuestion int64    `json:"plannedQuestion"`
+}
+
+type ResumeParseStatus struct {
+	Stage           string `json:"stage"`
+	Progress        int64  `json:"progress"`
+	TotalChunks     int64  `json:"totalChunks"`
+	ProcessedChunks int64  `json:"processedChunks"`
+	FailedChunks    int64  `json:"failedChunks"`
+	ErrorCode       string `json:"errorCode,optional"`
+	ErrorMessage    string `json:"errorMessage,optional"`
+	Retryable       bool   `json:"retryable"`
 }
 
 type ResumeProjectHighlight struct {
@@ -587,19 +620,22 @@ type ResumeSkillSignal struct {
 }
 
 type ResumeUploadReq struct {
-	ChatId string `form:"chatId"`
+	ChatId string `form:"chatId,optional"`
 	Title  string `form:"title,optional"`
 	Mode   string `form:"mode,optional"`
 }
 
 type ResumeUploadResp struct {
-	Msg        string `json:"msg"`
-	ChatId     string `json:"chatId"`
-	ArtifactId string `json:"artifactId"`
-	Title      string `json:"title"`
-	Filename   string `json:"filename"`
-	Version    int64  `json:"version"`
-	Chunks     int    `json:"chunks"`
+	Msg             string            `json:"msg"`
+	ChatId          string            `json:"chatId,optional"`
+	LegacySessionId string            `json:"legacySessionId,optional"`
+	ArtifactId      string            `json:"artifactId"`
+	Title           string            `json:"title"`
+	Filename        string            `json:"filename"`
+	Version         int64             `json:"version"`
+	Status          string            `json:"status"`
+	Chunks          int               `json:"chunks"`
+	ParseStatus     ResumeParseStatus `json:"parseStatus"`
 }
 
 type SessionBootstrapReq struct {
@@ -625,6 +661,7 @@ type SessionConfigSnapshot struct {
 	FocusAreas            []FocusAreaSelection `json:"focusAreas"`
 	FollowUpDepth         string               `json:"followUpDepth"`
 	EstimatedMinutes      int64                `json:"estimatedMinutes"`
+	ResumeArtifactId      string               `json:"resumeArtifactId,optional"`
 	ProgressPercent       int64                `json:"progressPercent"`
 	DurationSeconds       int64                `json:"durationSeconds"`
 	StartedAt             string               `json:"startedAt,optional"`

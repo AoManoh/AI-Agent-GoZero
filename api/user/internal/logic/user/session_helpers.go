@@ -47,6 +47,7 @@ func buildSessionConfigSnapshot(session model.ChatSession) types.SessionConfigSn
 		FocusAreas:            focusAreas,
 		FollowUpDepth:         defaultStringValue(session.FollowUpDepth, "N+3"),
 		EstimatedMinutes:      defaultInt64Value(session.EstimatedMinutes, 30),
+		ResumeArtifactId:      session.ResumeArtifactId,
 		ProgressPercent:       session.ProgressPercent,
 		DurationSeconds:       session.DurationSeconds,
 	}

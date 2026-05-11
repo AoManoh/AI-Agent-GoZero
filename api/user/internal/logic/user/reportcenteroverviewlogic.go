@@ -115,7 +115,7 @@ left join (
     where doc_type = 'resume'
     group by chat_id, user_id
 ) r
-  on r.chat_id = s.session_id and r.user_id = s.user_id
+  on r.chat_id = coalesce(nullif(s.resume_artifact_id, ''), s.session_id) and r.user_id = s.user_id
 where s.user_id = $1 and s.is_active = true
 order by coalesce(s.last_message_at, s.updated_at, s.created_at) desc, s.id desc`
 

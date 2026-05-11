@@ -2,6 +2,7 @@ package user
 
 import (
 	"context"
+	"database/sql"
 	"testing"
 	"time"
 
@@ -62,12 +63,35 @@ func TestBuildResumeSummaryIncludesLatestProjectsCount(t *testing.T) {
 	defer db.Close()
 
 	now := time.Now()
-	mock.ExpectQuery(`count\(distinct chat_id\) as total`).
+	mock.ExpectQuery(`from "public"\."resume_documents" d`).
 		WithArgs(int64(7)).
-		WillReturnRows(sqlmock.NewRows([]string{"total", "chunk_count"}).AddRow(int64(1), int64(3)))
-	mock.ExpectQuery(`v\.chat_id as session_id`).
+		WillReturnRows(sqlmock.NewRows(resumeArtifactSummaryColumns()).AddRow(
+			"resume-1",
+			"",
+			"Go 后端简历",
+			int64(1),
+			"resume.pdf",
+			"ready",
+			"ready",
+			int64(100),
+			int64(3),
+			int64(0),
+			"",
+			"",
+			false,
+			int64(3),
+			"Go 后端简历",
+			float64(0),
+			"",
+			"",
+			int64(0),
+			sql.NullTime{},
+			now,
+			now,
+		))
+	mock.ExpectQuery(`from "public"\."vector_store" v`).
 		WithArgs(int64(7)).
-		WillReturnRows(sqlmock.NewRows([]string{"session_id", "title", "updated_at"}).AddRow("resume-1", "Go 后端简历", now))
+		WillReturnRows(sqlmock.NewRows(resumeArtifactSummaryColumns()))
 	mock.ExpectQuery(`select content, created_at`).
 		WithArgs(int64(7), "resume-1").
 		WillReturnRows(sqlmock.NewRows([]string{"content", "created_at"}).
@@ -94,5 +118,32 @@ func TestBuildResumeSummaryIncludesLatestProjectsCount(t *testing.T) {
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("unmet sql expectations: %v", err)
+	}
+}
+
+func resumeArtifactSummaryColumns() []string {
+	return []string{
+		"artifact_id",
+		"bound_session_id",
+		"title",
+		"version",
+		"filename",
+		"status",
+		"parse_stage",
+		"parse_progress",
+		"processed_chunk_count",
+		"failed_chunk_count",
+		"parse_error_code",
+		"parse_error_message",
+		"parse_retryable",
+		"chunk_count",
+		"bound_session_name",
+		"overall_score",
+		"level",
+		"evaluation_status",
+		"risk_count",
+		"latest_evaluation_at",
+		"uploaded_at",
+		"updated_at",
 	}
 }

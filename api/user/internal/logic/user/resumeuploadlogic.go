@@ -10,6 +10,7 @@ import (
 	"GoZero-AI/internal/sessionmode"
 	"GoZero-AI/internal/statuserr"
 
+	"github.com/google/uuid"
 	"github.com/zeromicro/go-zero/core/logx"
 )
 
@@ -33,14 +34,15 @@ func (l *ResumeUploadLogic) ResumeUpload(req *types.ResumeUploadReq, filename, c
 		return nil, err
 	}
 
-	chatID := strings.TrimSpace(req.ChatId)
-	if chatID == "" {
-		return nil, statuserr.New(http.StatusBadRequest, "chatId 不能为空")
+	legacySessionID := strings.TrimSpace(req.ChatId)
+	artifactID := legacySessionID
+	if artifactID == "" {
+		artifactID = newResumeArtifactID()
 	}
 
 	trimmedContent := strings.TrimSpace(content)
 	if trimmedContent == "" {
-		return nil, statuserr.New(http.StatusBadRequest, "PDF 未解析出有效文本")
+		return nil, statuserr.Coded(http.StatusBadRequest, "empty_text", "PDF 未解析出有效文本")
 	}
 
 	title := strings.TrimSpace(req.Title)
@@ -50,20 +52,38 @@ func (l *ResumeUploadLogic) ResumeUpload(req *types.ResumeUploadReq, filename, c
 	modeKey := sessionmode.NormalizeKey(req.Mode)
 
 	chunks := splitText(trimmedContent, l.svcCtx.Config.ResumeChunkSize())
-	version, err := l.svcCtx.ResumeStore.SaveResume(l.ctx, userID, chatID, title, filename, modeKey, chunks)
+	version, err := l.svcCtx.ResumeStore.SaveResume(l.ctx, userID, artifactID, legacySessionID, title, filename, modeKey, chunks)
 	if err != nil {
 		return nil, err
 	}
 
 	return &types.ResumeUploadResp{
-		Msg:        "私有简历上传成功",
-		ChatId:     chatID,
-		ArtifactId: chatID,
-		Title:      title,
-		Filename:   filename,
-		Version:    version,
-		Chunks:     len(chunks),
+		Msg:             "私有简历上传成功",
+		ChatId:          legacySessionID,
+		LegacySessionId: legacySessionID,
+		ArtifactId:      artifactID,
+		Title:           title,
+		Filename:        filename,
+		Version:         version,
+		Status:          "ready",
+		Chunks:          len(chunks),
+		ParseStatus:     buildReadyResumeParseStatus(int64(len(chunks))),
 	}, nil
+}
+
+func newResumeArtifactID() string {
+	return "resume_" + uuid.NewString()
+}
+
+func buildReadyResumeParseStatus(chunks int64) types.ResumeParseStatus {
+	return types.ResumeParseStatus{
+		Stage:           "ready",
+		Progress:        100,
+		TotalChunks:     chunks,
+		ProcessedChunks: chunks,
+		FailedChunks:    0,
+		Retryable:       false,
+	}
 }
 
 func splitText(text string, maxChunkSize int) []string {

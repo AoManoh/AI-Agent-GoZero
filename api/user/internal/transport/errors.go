@@ -41,9 +41,13 @@ func InstallErrorHandlers() {
 			message = "请求已取消"
 		}
 
-		return statusCode, map[string]any{
+		body := map[string]any{
 			"message": message,
 		}
+		if code, ok := statuserr.ErrorCode(err); ok {
+			body["code"] = code
+		}
+		return statusCode, body
 	})
 }
 

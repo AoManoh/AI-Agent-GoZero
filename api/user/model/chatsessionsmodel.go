@@ -47,6 +47,7 @@ type (
 		StartedAt             sql.NullTime `db:"started_at"`
 		CompletedAt           sql.NullTime `db:"completed_at"`
 		DurationSeconds       int64        `db:"duration_seconds"`
+		ResumeArtifactId      string       `db:"resume_artifact_id"`
 		MessageCount          int64        `db:"message_count"`
 		IsActive              bool         `db:"is_active"`
 	}
@@ -61,6 +62,7 @@ type (
 		FocusAreas            any
 		FollowUpDepth         string
 		EstimatedMinutes      int64
+		ResumeArtifactId      string
 	}
 )
 
@@ -70,9 +72,9 @@ type chatSessionRunner interface {
 
 const chatSessionSelectFields = `id, session_id, user_id, title, mode,
 direction_key, direction_label, difficulty_level, difficulty_label,
-interviewer_style, interviewer_style_label, focus_areas, follow_up_depth,
-estimated_minutes, progress_percent, created_at, updated_at, last_message_at,
-started_at, completed_at, duration_seconds, message_count, is_active`
+	interviewer_style, interviewer_style_label, focus_areas, follow_up_depth,
+	estimated_minutes, progress_percent, created_at, updated_at, last_message_at,
+	started_at, completed_at, duration_seconds, resume_artifact_id, message_count, is_active`
 
 func NewChatSessionsModel(conn sqlx.SqlConn) ChatSessionsModel {
 	return &defaultChatSessionsModel{
@@ -102,9 +104,10 @@ func (m *defaultChatSessionsModel) createWithConfig(ctx context.Context, runner 
 session_id, user_id, title, mode,
 direction_key, direction_label, difficulty_level, difficulty_label,
 interviewer_style, interviewer_style_label, focus_areas, follow_up_depth,
-estimated_minutes, progress_percent, started_at, is_active
+estimated_minutes, progress_percent, started_at, is_active,
+resume_artifact_id
 )
-values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, $12, $13, 0, now(), true)
+values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, $12, $13, 0, now(), true, $14)
 	returning %s`, m.table, chatSessionSelectFields)
 
 	var resp ChatSession
@@ -122,6 +125,7 @@ values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, $12, $13, 0, now(),
 		string(focusAreas),
 		defaultString(config.FollowUpDepth, "N+3"),
 		defaultInt64(config.EstimatedMinutes, 30),
+		config.ResumeArtifactId,
 	); err != nil {
 		return nil, err
 	}

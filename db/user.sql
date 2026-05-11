@@ -374,12 +374,15 @@ ALTER TABLE "public"."chat_sessions" ADD COLUMN IF NOT EXISTS "progress_percent"
 ALTER TABLE "public"."chat_sessions" ADD COLUMN IF NOT EXISTS "started_at" TIMESTAMPTZ;
 ALTER TABLE "public"."chat_sessions" ADD COLUMN IF NOT EXISTS "completed_at" TIMESTAMPTZ;
 ALTER TABLE "public"."chat_sessions" ADD COLUMN IF NOT EXISTS "duration_seconds" INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE "public"."chat_sessions" ADD COLUMN IF NOT EXISTS "resume_artifact_id" VARCHAR(64) NOT NULL DEFAULT '';
 DROP INDEX IF EXISTS idx_chat_sessions_user_last_message;
 CREATE INDEX idx_chat_sessions_user_last_message ON "public"."chat_sessions" (user_id, last_message_at DESC);
 DROP INDEX IF EXISTS idx_chat_sessions_user_active;
 CREATE INDEX idx_chat_sessions_user_active ON "public"."chat_sessions" (user_id, is_active);
 DROP INDEX IF EXISTS idx_chat_sessions_user_completed_at;
 CREATE INDEX idx_chat_sessions_user_completed_at ON "public"."chat_sessions" (user_id, completed_at DESC);
+DROP INDEX IF EXISTS idx_chat_sessions_user_resume_artifact;
+CREATE INDEX idx_chat_sessions_user_resume_artifact ON "public"."chat_sessions" (user_id, resume_artifact_id);
 
 COMMENT ON TABLE "public"."chat_sessions" IS '存储用户工作台中的会话元数据，用于会话列表、恢复与排序';
 COMMENT ON COLUMN "public"."chat_sessions"."id" IS '会话元数据主键';
@@ -403,6 +406,7 @@ COMMENT ON COLUMN "public"."chat_sessions"."last_message_at" IS '会话最近一
 COMMENT ON COLUMN "public"."chat_sessions"."started_at" IS '面试开始时间';
 COMMENT ON COLUMN "public"."chat_sessions"."completed_at" IS '面试完成时间';
 COMMENT ON COLUMN "public"."chat_sessions"."duration_seconds" IS '面试持续时长，单位秒';
+COMMENT ON COLUMN "public"."chat_sessions"."resume_artifact_id" IS '本会话绑定的独立简历资产ID，旧会话可为空';
 COMMENT ON COLUMN "public"."chat_sessions"."message_count" IS '会话消息条数，用于工作台统计';
 COMMENT ON COLUMN "public"."chat_sessions"."is_active" IS '会话是否仍处于活跃状态';
 
@@ -411,18 +415,43 @@ COMMENT ON COLUMN "public"."chat_sessions"."is_active" IS '会话是否仍处于
 -- ----------------------------
 CREATE TABLE IF NOT EXISTS "public"."resume_documents" (
                                                           "id" BIGSERIAL PRIMARY KEY,
+                                                          "artifact_id" VARCHAR(64) NOT NULL,
                                                           "user_id" BIGINT NOT NULL,
-                                                          "session_id" VARCHAR(64) NOT NULL,
+                                                          "session_id" VARCHAR(64) NOT NULL DEFAULT '',
                                                           "version" BIGINT NOT NULL DEFAULT 1,
                                                           "title" VARCHAR(200) NOT NULL,
                                                           "filename" VARCHAR(255) NOT NULL,
                                                           "status" VARCHAR(32) NOT NULL DEFAULT 'ready',
+                                                          "parse_stage" VARCHAR(32) NOT NULL DEFAULT 'ready',
+                                                          "parse_progress" INTEGER NOT NULL DEFAULT 100,
+                                                          "processed_chunk_count" INTEGER NOT NULL DEFAULT 0,
+                                                          "failed_chunk_count" INTEGER NOT NULL DEFAULT 0,
+                                                          "parse_error_code" VARCHAR(64) NOT NULL DEFAULT '',
+                                                          "parse_error_message" TEXT NOT NULL DEFAULT '',
+                                                          "parse_retryable" BOOLEAN NOT NULL DEFAULT false,
                                                           "chunk_count" INTEGER NOT NULL DEFAULT 0,
                                                           "is_current" BOOLEAN NOT NULL DEFAULT true,
                                                           "uploaded_at" TIMESTAMPTZ NOT NULL DEFAULT now(),
                                                           "updated_at" TIMESTAMPTZ NOT NULL DEFAULT now(),
-                                                          UNIQUE ("user_id", "session_id", "version")
+                                                          UNIQUE ("user_id", "artifact_id", "version")
 );
+
+ALTER TABLE "public"."resume_documents" ADD COLUMN IF NOT EXISTS "artifact_id" VARCHAR(64);
+UPDATE "public"."resume_documents"
+SET "artifact_id" = "session_id"
+WHERE "artifact_id" IS NULL OR btrim("artifact_id") = '';
+ALTER TABLE "public"."resume_documents" ALTER COLUMN "artifact_id" SET NOT NULL;
+ALTER TABLE "public"."resume_documents" ALTER COLUMN "artifact_id" SET DEFAULT '';
+ALTER TABLE "public"."resume_documents" ALTER COLUMN "session_id" SET DEFAULT '';
+ALTER TABLE "public"."resume_documents" ADD COLUMN IF NOT EXISTS "parse_stage" VARCHAR(32) NOT NULL DEFAULT 'ready';
+ALTER TABLE "public"."resume_documents" ADD COLUMN IF NOT EXISTS "parse_progress" INTEGER NOT NULL DEFAULT 100;
+ALTER TABLE "public"."resume_documents" ADD COLUMN IF NOT EXISTS "processed_chunk_count" INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE "public"."resume_documents" ADD COLUMN IF NOT EXISTS "failed_chunk_count" INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE "public"."resume_documents" ADD COLUMN IF NOT EXISTS "parse_error_code" VARCHAR(64) NOT NULL DEFAULT '';
+ALTER TABLE "public"."resume_documents" ADD COLUMN IF NOT EXISTS "parse_error_message" TEXT NOT NULL DEFAULT '';
+ALTER TABLE "public"."resume_documents" ADD COLUMN IF NOT EXISTS "parse_retryable" BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE "public"."resume_documents" DROP CONSTRAINT IF EXISTS resume_documents_user_id_session_id_version_key;
+ALTER TABLE "public"."resume_documents" DROP CONSTRAINT IF EXISTS resume_documents_user_id_artifact_id_version_key;
 
 DO $$
     BEGIN
@@ -433,46 +462,33 @@ DO $$
         END IF;
     END $$;
 
-DO $$
-    BEGIN
-        IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_resume_documents_session_id') THEN
-            ALTER TABLE "public"."resume_documents"
-                ADD CONSTRAINT fk_resume_documents_session_id
-                    FOREIGN KEY (session_id) REFERENCES "public"."chat_sessions"(session_id) ON DELETE CASCADE NOT VALID;
-        END IF;
-    END $$;
-
-DO $$
-    BEGIN
-        IF EXISTS (
-            SELECT 1
-            FROM pg_constraint
-            WHERE conname = 'fk_resume_documents_session_id'
-              AND NOT convalidated
-        ) THEN
-            BEGIN
-                ALTER TABLE "public"."resume_documents"
-                    VALIDATE CONSTRAINT fk_resume_documents_session_id;
-            EXCEPTION
-                WHEN OTHERS THEN
-                    RAISE NOTICE 'skip validating fk_resume_documents_session_id: %', SQLERRM;
-            END;
-        END IF;
-    END $$;
+ALTER TABLE "public"."resume_documents" DROP CONSTRAINT IF EXISTS fk_resume_documents_session_id;
 
 DROP INDEX IF EXISTS idx_resume_documents_user_current;
 CREATE INDEX idx_resume_documents_user_current ON "public"."resume_documents" (user_id, is_current, updated_at DESC);
+DROP INDEX IF EXISTS idx_resume_documents_user_artifact_version;
+CREATE UNIQUE INDEX idx_resume_documents_user_artifact_version ON "public"."resume_documents" (user_id, artifact_id, version);
+DROP INDEX IF EXISTS idx_resume_documents_user_artifact_current;
+CREATE INDEX idx_resume_documents_user_artifact_current ON "public"."resume_documents" (user_id, artifact_id, is_current);
 DROP INDEX IF EXISTS idx_resume_documents_session_current;
 CREATE INDEX idx_resume_documents_session_current ON "public"."resume_documents" (session_id, user_id, is_current);
 
-COMMENT ON TABLE "public"."resume_documents" IS '存储用户简历资料的版本化元数据，向量分块仍保存在 vector_store 中';
+COMMENT ON TABLE "public"."resume_documents" IS '存储用户简历资产的版本化元数据，向量分块仍保存在 vector_store 中';
 COMMENT ON COLUMN "public"."resume_documents"."id" IS '简历资料版本主键';
+COMMENT ON COLUMN "public"."resume_documents"."artifact_id" IS '独立简历资产ID，新数据不再等同于会话ID';
 COMMENT ON COLUMN "public"."resume_documents"."user_id" IS '简历所属用户ID';
-COMMENT ON COLUMN "public"."resume_documents"."session_id" IS '该简历当前绑定的会话ID';
-COMMENT ON COLUMN "public"."resume_documents"."version" IS '同一用户同一会话下的简历版本号';
+COMMENT ON COLUMN "public"."resume_documents"."session_id" IS '兼容旧数据的会话ID，新简历资产可为空字符串';
+COMMENT ON COLUMN "public"."resume_documents"."version" IS '同一用户同一简历资产下的版本号';
 COMMENT ON COLUMN "public"."resume_documents"."title" IS '简历资料展示标题';
 COMMENT ON COLUMN "public"."resume_documents"."filename" IS '上传的原始文件名';
 COMMENT ON COLUMN "public"."resume_documents"."status" IS '解析状态，例如 ready/failed';
+COMMENT ON COLUMN "public"."resume_documents"."parse_stage" IS '解析阶段，例如 extracting/chunking/embedding/ready/failed';
+COMMENT ON COLUMN "public"."resume_documents"."parse_progress" IS '解析进度百分比';
+COMMENT ON COLUMN "public"."resume_documents"."processed_chunk_count" IS '解析流程已处理分块数';
+COMMENT ON COLUMN "public"."resume_documents"."failed_chunk_count" IS '解析流程失败分块数';
+COMMENT ON COLUMN "public"."resume_documents"."parse_error_code" IS '结构化解析失败码';
+COMMENT ON COLUMN "public"."resume_documents"."parse_error_message" IS '面向用户的解析失败说明';
+COMMENT ON COLUMN "public"."resume_documents"."parse_retryable" IS '解析失败是否建议用户重试';
 COMMENT ON COLUMN "public"."resume_documents"."chunk_count" IS '本版本写入 vector_store 的简历分块数量';
 COMMENT ON COLUMN "public"."resume_documents"."is_current" IS '是否为当前会话正在使用的简历版本';
 COMMENT ON COLUMN "public"."resume_documents"."uploaded_at" IS '本版本上传时间';
@@ -517,32 +533,7 @@ DO $$
         END IF;
     END $$;
 
-DO $$
-    BEGIN
-        IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_resume_evaluations_artifact_id') THEN
-            ALTER TABLE "public"."resume_evaluations"
-                ADD CONSTRAINT fk_resume_evaluations_artifact_id
-                    FOREIGN KEY (artifact_id) REFERENCES "public"."chat_sessions"(session_id) ON DELETE CASCADE NOT VALID;
-        END IF;
-    END $$;
-
-DO $$
-    BEGIN
-        IF EXISTS (
-            SELECT 1
-            FROM pg_constraint
-            WHERE conname = 'fk_resume_evaluations_artifact_id'
-              AND NOT convalidated
-        ) THEN
-            BEGIN
-                ALTER TABLE "public"."resume_evaluations"
-                    VALIDATE CONSTRAINT fk_resume_evaluations_artifact_id;
-            EXCEPTION
-                WHEN OTHERS THEN
-                    RAISE NOTICE 'skip validating fk_resume_evaluations_artifact_id: %', SQLERRM;
-            END;
-        END IF;
-    END $$;
+ALTER TABLE "public"."resume_evaluations" DROP CONSTRAINT IF EXISTS fk_resume_evaluations_artifact_id;
 
 UPDATE "public"."resume_evaluations"
 SET "first_generated_at" = COALESCE("first_generated_at", "generated_at", "updated_at", now())
@@ -559,7 +550,7 @@ CREATE INDEX idx_resume_evaluations_user_status ON "public"."resume_evaluations"
 
 COMMENT ON TABLE "public"."resume_evaluations" IS '存储简历维度的结构化评估结果，为简历管理页提供稳定数据源';
 COMMENT ON COLUMN "public"."resume_evaluations"."id" IS '简历评估记录主键';
-COMMENT ON COLUMN "public"."resume_evaluations"."artifact_id" IS '关联的简历资料ID，对应 resume_documents.session_id';
+COMMENT ON COLUMN "public"."resume_evaluations"."artifact_id" IS '关联的独立简历资产ID，对应 resume_documents.artifact_id';
 COMMENT ON COLUMN "public"."resume_evaluations"."user_id" IS '评估所属用户ID';
 COMMENT ON COLUMN "public"."resume_evaluations"."status" IS '评估状态，如 missing/evaluating/ready/insufficient_data/failed';
 COMMENT ON COLUMN "public"."resume_evaluations"."summary" IS '评估摘要';
