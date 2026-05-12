@@ -65,8 +65,8 @@
               :key="resume.id"
               type="button"
               class="wb-resume"
-              :class="{ 'wb-resume-active': form.resumeId === resume.id }"
-              @click="form.resumeId = resume.id"
+              :class="{ 'wb-resume-active': form.resumeArtifactId === resume.id }"
+              @click="form.resumeArtifactId = resume.id"
             >
               <div class="wb-resume-icon" aria-hidden="true">
                 <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round">
@@ -198,7 +198,7 @@ const steps = [
 // 当前所在步骤：根据已填字段推断（任何用户操作都会推进 step）
 const currentStep = computed(() => {
   if (!form.value.direction) return 0;
-  if (!form.value.resumeId) return 1;
+  if (!form.value.resumeArtifactId) return 1;
   if (form.value.difficultyIdx === null) return 2;
   return 3;
 });
@@ -332,7 +332,7 @@ const selectDirection = (dir) => {
 // === 表单状态 ===
 const form = ref({
   direction: "",
-  resumeId: String(route.query.resumeArtifactId || route.query.resumeId || ""),
+  resumeArtifactId: String(route.query.resumeArtifactId || route.query.resumeId || ""),
   difficultyIdx: null,
   focus: [],
 });
@@ -355,7 +355,7 @@ const startInterview = async () => {
         directionKey: form.value.direction,
         difficulty: difficulty?.key || "mid",
         focusKeys: form.value.focus,
-        resumeArtifactId: form.value.resumeId,
+        resumeArtifactId: form.value.resumeArtifactId,
       })
     );
     const sessionId = response?.session?.sessionId;

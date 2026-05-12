@@ -186,9 +186,6 @@
             <span aria-hidden="true">↻</span>
             <span>{{ regenerating ? '生成中…' : '重新生成 AI 画像' }}</span>
           </button>
-          <!-- TODO(phase2-resume-cta-handler): 后端 CreateSession 接受 resumeId 后改为
-               apiService.user.createSession({ resumeId, ... }) 直接进面试。
-               触发条件：@d:\Go-Project\GoZero-AI\api\user\user.api 中 CreateSessionReq 出现 resumeId 字段。 -->
           <button
             type="button"
             class="wb-rd-cta-primary"
@@ -213,7 +210,7 @@ const route = useRoute();
 const router = useRouter();
 
 // 简历 artifact ID（从动态路由 :id 取）。
-const resumeId = computed(() => String(route.params.id || ""));
+const resumeArtifactId = computed(() => String(route.params.id || ""));
 
 // === 状态 ===
 const loading = ref(true);
@@ -263,7 +260,7 @@ const scoreSourceLabel = (source) => {
 // 加载详情：并发拉 detail（chunks）和 analysis（评估）。
 // 容错：任一接口失败仍然显示对方数据；都失败时进 error 状态。
 const loadDetail = async () => {
-  if (!resumeId.value) {
+  if (!resumeArtifactId.value) {
     error.value = "未指定简历 ID";
     loading.value = false;
     return;
@@ -274,8 +271,8 @@ const loadDetail = async () => {
 
   try {
     const [detailRes, analysisRes] = await Promise.allSettled([
-      apiService.user.resumeArtifactDetail(resumeId.value),
-      apiService.user.resumeArtifactAnalysis(resumeId.value, { limit: 50 }),
+      apiService.user.resumeArtifactDetail(resumeArtifactId.value),
+      apiService.user.resumeArtifactAnalysis(resumeArtifactId.value, { limit: 50 }),
     ]);
 
     let detailData = null;
@@ -287,7 +284,7 @@ const loadDetail = async () => {
       // 元信息字段（title / artifactId / uploadedAt）都在 artifact 子对象里，不是顶层。
       const artifact = r.artifact || {};
       detailData = {
-        id: artifact.artifactId || resumeId.value,
+        id: artifact.artifactId || resumeArtifactId.value,
         name: artifact.title || "未命名简历",
         uploadedAt: artifact.uploadedAt || "",
         status: artifact.status || "",
@@ -298,7 +295,7 @@ const loadDetail = async () => {
     if (analysisRes.status === "fulfilled" && analysisRes.value) {
       const a = analysisRes.value;
       detailData = {
-        ...(detailData || { id: resumeId.value }),
+        ...(detailData || { id: resumeArtifactId.value }),
         ...detailData,
         // analysis 字段补充 detail（detail 优先，因为含上传元信息）
         skillCount: Array.isArray(a.skills) ? a.skills.length : 0,
@@ -333,10 +330,10 @@ const loadDetail = async () => {
 
 // 重新生成 AI 画像。完成后重新 loadDetail 拉最新数据。
 const handleRegenerate = async () => {
-  if (!resumeId.value || regenerating.value) return;
+  if (!resumeArtifactId.value || regenerating.value) return;
   regenerating.value = true;
   try {
-    await apiService.user.resumeArtifactAnalysisPrepare(resumeId.value, {
+    await apiService.user.resumeArtifactAnalysisPrepare(resumeArtifactId.value, {
       force: true,
       limit: 50,
     });
@@ -349,11 +346,10 @@ const handleRegenerate = async () => {
   }
 };
 
-// 用这份简历开始面试。当前桥接到 /workbench/new?resumeId=:id（WorkbenchNew 已支持
-// 该 query 预填表单）。Phase 2 后端 CreateSession 接受 resumeId 后会改为直接调用。
+// 用这份简历开始面试。WorkbenchNew 负责创建会话并传递 resumeArtifactId。
 const handleStartInterview = () => {
-  if (!resumeId.value) return;
-  router.push({ path: '/workbench/new', query: { resumeId: resumeId.value } });
+  if (!resumeArtifactId.value) return;
+  router.push({ path: '/workbench/new', query: { resumeArtifactId: resumeArtifactId.value } });
 };
 
 // 关闭按钮：优先 router.back() 回到主面板（保留 D-U3 push 历史）；

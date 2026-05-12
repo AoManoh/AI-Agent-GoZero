@@ -394,23 +394,10 @@
               >看完整详情 →</RouterLink>
             </div>
 
-            <!-- TODO(phase2-resume-cta-disclaimer): 后端 CreateSession 接受 resumeId 后移除本声明。
-                 当前实现：11px 灰字两行，明确告知用户追问仅供参考。
-                 后端状态：正在开发（用户 2026-05-12 01:19 告知）。
-                 对齐目标：本声明文本整块删除，CTA 上方不再需要提示。
-                 触发条件：@d:\Go-Project\GoZero-AI\api\user\user.api 中 CreateSessionReq 出现 resumeId 字段。
-                 起草日期：2026-05-12 -->
             <p class="wb-cta-disclaimer">
-              面试会使用这份简历的方向偏好；追问列表当前仅供参考。
+              面试会使用这份简历的分析画像生成首题。
             </p>
 
-            <!-- TODO(phase2-resume-cta-handler): 后端 CreateSession 接受 resumeId 后接入。
-                 当前实现：仅 router.push('/workbench/new?resumeId=:id')，不能把 SuggestedQuestions 带进新面试。
-                 后端状态：正在开发（用户 2026-05-12 01:19 告知）。
-                 对齐目标：改为 apiService.user.createSession({ resumeId, directionKey, focusKeys })，
-                          后端自动从 resume_evaluations.suggested_questions 取 [0] 作首题。
-                 触发条件：@d:\Go-Project\GoZero-AI\api\user\user.api 中 CreateSessionReq 出现 resumeId 字段。
-                 起草日期：2026-05-12 -->
             <button
               type="button"
               class="wb-cta-primary"
@@ -881,15 +868,11 @@ const handleQuestionClick = (question) => {
   setTimeout(() => el.classList.remove('wb-chunk-highlight'), 600);
 };
 
-// handleStartInterview：金色 CTA。
-// TODO(phase2-resume-cta-handler): 后端 CreateSession 接受 resumeId 后改为直接
-//   apiService.user.createSession({ resumeId: id, directionKey, focusKeys, ... })，
-//   后端从 resume_evaluations.suggested_questions 拿 [0] 作首题。
-//   触发条件：user.api CreateSessionReq 出现 resumeId 字段。
+// handleStartInterview：金色 CTA，进入新建面试并携带简历画像上下文。
 const handleStartInterview = () => {
   const id = selectedResume.value?.id;
   if (!id) return;
-  router.push({ path: '/workbench/new', query: { resumeId: id } });
+  router.push({ path: '/workbench/new', query: { resumeArtifactId: id } });
 };
 
 // scoreSourceLabel：后端 ScoreSource 枚举 → 中文标签。
@@ -1767,7 +1750,7 @@ const formatScore = (score) => {
   text-decoration: underline;
 }
 
-/* 降级声明（D-U10 / phase2-resume-cta-disclaimer） */
+/* 简历面试 CTA 辅助说明 */
 .wb-cta-disclaimer {
   margin: 0;
   font: var(--fs-2xs)/1.55 var(--sans);
@@ -1777,7 +1760,7 @@ const formatScore = (score) => {
   padding: 0 4px;
 }
 
-/* 金色 CTA（phase2-resume-cta-handler） */
+/* 金色 CTA */
 .wb-cta-primary {
   display: inline-flex;
   align-items: center;
