@@ -229,7 +229,7 @@ func formalInterviewScenarioConfig(guidance practiceGuidanceSnapshot) interviewe
 	}
 }
 
-func practiceScenarioConfig(context svc.SessionPracticeContext, guidance practiceGuidanceSnapshot) interviewer.ScenarioConfig {
+func practiceScenarioConfig(context svc.SessionRuntimeContext, guidance practiceGuidanceSnapshot) interviewer.ScenarioConfig {
 	return interviewer.ScenarioConfig{
 		Type:             interviewer.ScenarioQuestionPractice,
 		QuestionKey:      context.QuestionKey,

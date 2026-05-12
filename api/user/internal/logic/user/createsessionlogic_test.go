@@ -10,6 +10,7 @@ import (
 	"GoZero-AI/api/user/internal/types"
 	"GoZero-AI/api/user/model"
 	"GoZero-AI/internal/sessionmode"
+	"GoZero-AI/internal/sessionruntime"
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/zeromicro/go-zero/core/stores/sqlx"
@@ -44,6 +45,9 @@ func TestCreateSessionAttachesResumeSuggestedQuestion(t *testing.T) {
 			"N+3",
 			int64(30),
 			artifactID,
+			"formal_interview",
+			"resume_plan",
+			"resume-follow-1",
 		).
 		WillReturnRows(newCreateSessionRows("sess-created", artifactID, now, 0))
 	mock.ExpectExec(regexp.QuoteMeta(`insert into "public"."vector_store"`)).
@@ -105,6 +109,28 @@ func TestCreateSessionAttachesResumeSuggestedQuestion(t *testing.T) {
 	}
 }
 
+func TestApplySessionRuntimeContextUsesExplicitStarter(t *testing.T) {
+	t.Run("bank question is question practice", func(t *testing.T) {
+		config := model.SessionCreateConfig{}
+		applySessionRuntimeContext(&config, &model.InterviewQuestion{QuestionKey: "go-rag"}, nil)
+		if config.ScenarioType != sessionruntime.ScenarioQuestionPractice ||
+			config.StarterSource != sessionruntime.StarterBank ||
+			config.StarterQuestionKey != "go-rag" {
+			t.Fatalf("config = %+v, want bank question practice", config)
+		}
+	})
+
+	t.Run("resume generated starter remains formal interview", func(t *testing.T) {
+		config := model.SessionCreateConfig{ResumeArtifactId: "resume-1"}
+		applySessionRuntimeContext(&config, nil, &types.InterviewPlanQuestion{Key: "resume:q1"})
+		if config.ScenarioType != sessionruntime.ScenarioFormalInterview ||
+			config.StarterSource != sessionruntime.StarterResumePlan ||
+			config.StarterQuestionKey != "resume:q1" {
+			t.Fatalf("config = %+v, want resume formal interview", config)
+		}
+	})
+}
+
 func newCreateSessionRows(sessionID, resumeArtifactID string, now time.Time, messageCount int64) *sqlmock.Rows {
 	return sqlmock.NewRows(chatSessionModelColumns()).AddRow(
 		int64(1),
@@ -129,6 +155,9 @@ func newCreateSessionRows(sessionID, resumeArtifactID string, now time.Time, mes
 		sql.NullTime{},
 		int64(0),
 		resumeArtifactID,
+		"formal_interview",
+		"resume_plan",
+		"resume-follow-1",
 		messageCount,
 		true,
 	)

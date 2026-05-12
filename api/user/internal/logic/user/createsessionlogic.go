@@ -8,6 +8,7 @@ import (
 	"GoZero-AI/api/user/internal/svc"
 	"GoZero-AI/api/user/internal/types"
 	"GoZero-AI/api/user/model"
+	"GoZero-AI/internal/sessionruntime"
 	"GoZero-AI/internal/statuserr"
 
 	"github.com/google/uuid"
@@ -85,6 +86,7 @@ func (l *CreateSessionLogic) CreateSession(req *types.CreateSessionReq) (*types.
 		}
 		generatedQuestion = question
 	}
+	applySessionRuntimeContext(&config, selectedQuestion, generatedQuestion)
 
 	if title == "新对话" && selectedQuestion != nil {
 		title = selectedQuestion.Title
@@ -131,6 +133,25 @@ func (l *CreateSessionLogic) CreateSession(req *types.CreateSessionReq) (*types.
 		Config:        buildSessionConfigSnapshot(*session),
 		ResumeBinding: resumeBinding,
 	}, nil
+}
+
+func applySessionRuntimeContext(config *model.SessionCreateConfig, selectedQuestion *model.InterviewQuestion, generatedQuestion *types.InterviewPlanQuestion) {
+	if config == nil {
+		return
+	}
+	config.ScenarioType = sessionruntime.ScenarioFormalInterview
+	config.StarterSource = sessionruntime.StarterNone
+	config.StarterQuestionKey = ""
+	if selectedQuestion != nil {
+		config.ScenarioType = sessionruntime.ScenarioQuestionPractice
+		config.StarterSource = sessionruntime.StarterBank
+		config.StarterQuestionKey = strings.TrimSpace(selectedQuestion.QuestionKey)
+		return
+	}
+	if generatedQuestion != nil {
+		config.StarterSource = sessionruntime.StarterResumePlan
+		config.StarterQuestionKey = strings.TrimSpace(generatedQuestion.Key)
+	}
 }
 
 func (l *CreateSessionLogic) loadResumeSuggestedQuestion(userID int64, artifactID string) (*types.InterviewPlanQuestion, error) {

@@ -50,6 +50,9 @@ func TestFinishSessionSyncsCompletedFlowState(t *testing.T) {
 			sql.NullTime{Time: now, Valid: true},
 			int64(1200),
 			"",
+			"formal_interview",
+			"none",
+			"",
 			int64(8),
 			true,
 		))
@@ -93,7 +96,8 @@ func chatSessionModelColumns() []string {
 		"direction_key", "direction_label", "difficulty_level", "difficulty_label",
 		"interviewer_style", "interviewer_style_label", "focus_areas", "follow_up_depth",
 		"estimated_minutes", "progress_percent", "created_at", "updated_at", "last_message_at",
-		"started_at", "completed_at", "duration_seconds", "resume_artifact_id", "message_count", "is_active",
+		"started_at", "completed_at", "duration_seconds", "resume_artifact_id",
+		"scenario_type", "starter_source", "starter_question_key", "message_count", "is_active",
 	}
 }
 

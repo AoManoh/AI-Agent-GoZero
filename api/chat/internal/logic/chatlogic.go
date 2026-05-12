@@ -45,6 +45,7 @@ import (
 
 	chatAuth "GoZero-AI/api/chat/internal/auth"
 	"GoZero-AI/internal/chatflow"
+	"GoZero-AI/internal/sessionruntime"
 	"GoZero-AI/internal/statuserr"
 
 	"github.com/sashabaranov/go-openai"
@@ -88,6 +89,10 @@ type ChatLogic struct {
 	// 存储数据库连接、Redis 连接等资源
 	// 存储业务逻辑依赖的服务实例
 	svcCtx *svc.ServiceContext
+}
+
+type RetrievalPolicy struct {
+	ScenarioType string
 }
 
 // NewChatLogic 创建对话逻辑处理器实例
@@ -244,17 +249,21 @@ func (l *ChatLogic) Chat(req *types2.InterviewAppChatReq) (<-chan *types2.ChatRe
 		} else if err != nil {
 			l.Logger.Errorf("读取会话配置失败: %v", err)
 		}
+		runtimeContext := defaultSessionRuntimeContext()
+		if loadedRuntime, found, err := l.svcCtx.VectorStore.LoadSessionRuntimeContext(l.ctx, req.ChatId, scopedUserID); err == nil && found {
+			runtimeContext = loadedRuntime
+		} else if err != nil {
+			l.Logger.Errorf("读取会话运行上下文失败: %v", err)
+		}
 		var scenarioConfig *interviewer.ScenarioConfig
-		if practiceContext, found, err := l.svcCtx.VectorStore.LoadSessionPracticeContext(l.ctx, req.ChatId, scopedUserID); err == nil && found {
+		if runtimeContext.ScenarioType == sessionruntime.ScenarioQuestionPractice {
 			guidance, err := stateManager.UpdatePracticeGuidance(scope, req.Message)
 			if err != nil {
 				l.Logger.Errorf("更新题库练习引导状态失败: %v", err)
 				guidance = defaultPracticeGuidanceSnapshot()
 			}
-			scenario := practiceScenarioConfig(practiceContext, guidance)
+			scenario := practiceScenarioConfig(runtimeContext, guidance)
 			scenarioConfig = &scenario
-		} else if err != nil {
-			l.Logger.Errorf("读取题库练习上下文失败: %v", err)
 		}
 		if scenarioConfig == nil {
 			guidance, err := stateManager.UpdateFormalInterviewGuidance(scope, req.Message)
@@ -267,7 +276,7 @@ func (l *ChatLogic) Chat(req *types2.InterviewAppChatReq) (<-chan *types2.ChatRe
 		}
 
 		// 2.3 知识检索（RAG）：正式面试只注入当前 session 私有资料，题库练习保留原检索能力。
-		knowledgeChunks, err := l.retrieveInterviewKnowledge(req.Message, scopedUserID, req.ChatId, scenarioConfig)
+		knowledgeChunks, err := l.retrieveInterviewKnowledge(req.Message, scopedUserID, req.ChatId, retrievalPolicyForScenario(scenarioConfig))
 		if err != nil {
 			l.Logger.Errorf("知识检索失败: %v", err)
 			knowledgeChunks = []types2.KnowledgeChunk{}
@@ -421,12 +430,26 @@ func (l *ChatLogic) saveConversationMessage(chatID, role, content string, userID
 	return nil
 }
 
-func (l *ChatLogic) retrieveInterviewKnowledge(message string, userID *int64, chatID string, scenario *interviewer.ScenarioConfig) ([]types2.KnowledgeChunk, error) {
+func (l *ChatLogic) retrieveInterviewKnowledge(message string, userID *int64, chatID string, policy RetrievalPolicy) ([]types2.KnowledgeChunk, error) {
 	topK := l.svcCtx.Config.VectorDB.Knowledge.TopK
-	if scenario != nil && scenario.Type == interviewer.ScenarioFormalInterview {
+	if policy.ScenarioType == sessionruntime.ScenarioFormalInterview {
 		return l.svcCtx.VectorStore.RetrievePrivateSessionKnowledgeScopedContext(l.ctx, message, topK, userID, chatID)
 	}
 	return l.svcCtx.VectorStore.RetrieveKnowledgeScopedContext(l.ctx, message, topK, userID, chatID)
+}
+
+func defaultSessionRuntimeContext() svc.SessionRuntimeContext {
+	return svc.SessionRuntimeContext{
+		ScenarioType:  sessionruntime.ScenarioFormalInterview,
+		StarterSource: sessionruntime.StarterNone,
+	}
+}
+
+func retrievalPolicyForScenario(scenario *interviewer.ScenarioConfig) RetrievalPolicy {
+	if scenario == nil {
+		return RetrievalPolicy{ScenarioType: sessionruntime.ScenarioFormalInterview}
+	}
+	return RetrievalPolicy{ScenarioType: sessionruntime.NormalizeScenario(scenario.Type)}
 }
 
 func requiresSessionRecovery(snapshot chatflow.Snapshot) bool {
