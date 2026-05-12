@@ -264,11 +264,10 @@ const selectedDirectionLabel = computed(() => {
   return directions.value.find((d) => d.key === form.value.direction)?.label || "";
 });
 
-// === 简历选项（mock first，onMounted 异步接入 resumeArtifacts 覆盖）===
-const resumes = ref([
-  { id: "r-v3", name: "Resume_v3.pdf", info: "12 项目 · 上次更新 2 天前", primary: true },
-  { id: "r-v2", name: "Resume_v2.pdf", info: "10 项目 · 1 周前", primary: false },
-]);
+// === 简历选项（初值空数组，loadResumes 从后端拉真实数据）===
+// 历史上这里有两条 mock（Resume_v3.pdf / Resume_v2.pdf），新用户没上传也会看到假简历。
+// 现在严格走「0 简历 → step 2 只显示『添加新简历』按钮 → 引导跳 /workbench/resume 上传」。
+const resumes = ref([]);
 
 const goToResumePage = () => {
   router.push({ path: "/workbench/resume" });
@@ -461,11 +460,12 @@ const loadPresets = async () => {
 };
 
 // === 异步加载简历资料列表 ===
+// 后端返回 0 条 = 新用户从未上传，直接保持 resumes.value=[]，step 2 只显示「添加新简历」按钮兜底。
+// 不允许 fallback 到 mock，那会让新用户误选不存在的 artifactId，提交时 createSession 会失败。
 const loadResumes = async () => {
   try {
     const res = await apiService.user.resumeArtifacts();
     const list = Array.isArray(res?.artifacts) ? res.artifacts : [];
-    if (list.length === 0) return; // 保留 mock
     resumes.value = list.map((it, i) => ({
       id: it.artifactId,
       name: it.title || it.filename || `简历 v${it.version}`,
@@ -473,12 +473,13 @@ const loadResumes = async () => {
       primary: i === 0,
     }));
   } catch (error) {
-    // 静默降级
+    // 静默降级为空列表：关联简历区域只保留“添加新简历”入口。
+    resumes.value = [];
   }
 };
 
 onMounted(() => {
-  // 并发拉两个接口；mock 已组装，成功后覆盖。
+  // 并发拉两个接口；简历必须来自后端，空响应保持空态。
   loadPresets();
   loadResumes();
 });

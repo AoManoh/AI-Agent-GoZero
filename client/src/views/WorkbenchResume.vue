@@ -559,54 +559,10 @@ const createEmptyEvaluationState = () => ({
   evaluationMeta: null,
 });
 
-// === 简历列表（mock first，onMounted 异步接入 resumeArtifacts 覆盖） ===
-const resumes = ref([
-  {
-    id: "r-v3",
-    name: "Resume_v3.pdf",
-    size: "1.2 MB",
-    uploadedAt: "2 天前",
-    projectCount: 12,
-    skillCount: 28,
-    status: "parsed",
-    primary: true,
-    skills: ["Go", "Vue", "Postgres", "Redis", "Docker", "ETCD", "gRPC", "RAG"],
-    projects: [
-      { name: "GoZero-AI 个人面试官", stack: "Go-Zero · Vue 3 · pgvector" },
-      { name: "微服务订单系统", stack: "Go · Kafka · MySQL" },
-      { name: "实时协作白板", stack: "WebSocket · CRDT · Redis" },
-    ],
-    ...createEmptyEvaluationState(),
-    evaluationStatus: "ready",
-    overallScore: 82,
-    summary: "项目素材完整，适合围绕微服务、RAG 和工程实践展开追问。",
-    strengths: ["技术栈清晰", "项目素材丰富"],
-    suggestions: ["补充核心项目的量化指标。"],
-    risks: [],
-  },
-  {
-    id: "r-v2",
-    name: "Resume_v2.pdf",
-    size: "1.0 MB",
-    uploadedAt: "1 周前",
-    projectCount: 10,
-    skillCount: 22,
-    status: "parsed",
-    primary: false,
-    skills: ["Go", "Vue", "Postgres", "Docker"],
-    projects: [
-      { name: "面试系统 v1", stack: "Go · MySQL · Vue" },
-      { name: "blog 后端", stack: "Go · MongoDB" },
-    ],
-    ...createEmptyEvaluationState(),
-    evaluationStatus: "ready",
-    overallScore: 74,
-    summary: "已有基础项目线索，仍需补充职责边界和结果证据。",
-    strengths: ["方向明确"],
-    suggestions: ["补充项目职责和优化结果。"],
-    risks: [],
-  },
-]);
+// === 简历列表（初值为空数组，loadResumes 从后端拉真实数据）===
+// 历史上这里有两条 mock（Resume_v3.pdf / Resume_v2.pdf），导致新用户一进页面就显示假简历。
+// 现在严格走「未上传 → 0 简历 → resumeState=S0 → dropzone 引导上传」流程，避免假数据混淆。
+const resumes = ref([]);
 
 const selectedId = ref("");
 
@@ -753,11 +709,12 @@ const formatRelativeTime = (timestamp) => {
 };
 
 // 列表拉取：后端返回资产与评估摘要，详情分块在选中时 lazy load。
+// 后端返回 0 条 = 新用户从未上传，直接保持 resumes.value=[]，UI 走 resumeState='S0' dropzone 引导。
+// 不允许在空响应时 fallback 到 mock，那会让新用户误以为已经有简历（历史 bug）。
 const loadResumes = async () => {
   try {
     const res = await apiService.user.resumeArtifacts();
     const list = Array.isArray(res?.artifacts) ? res.artifacts : [];
-    if (list.length === 0) return; // 保留 mock
 
     resumes.value = list.map((it, i) => ({
       id: it.artifactId,
@@ -776,7 +733,8 @@ const loadResumes = async () => {
       level: it.level || "",
     }));
   } catch (error) {
-    // 静默降级；mock 列表已可用
+    // 静默降级；空态由 S0 dropzone 兜底，不再补 mock
+    resumes.value = [];
   }
 };
 
@@ -931,7 +889,7 @@ const loadResumeAnalysis = async (id, options = {}) => {
     const res = await apiService.user.resumeArtifactAnalysis(id, { limit: 6 });
     applyResumeAnalysis(id, res);
   } catch (error) {
-    // 静默降级；mock 字段保留
+    // 静默降级；保留列表接口返回的基础字段，评估区继续显示待生成状态。
   }
 };
 
