@@ -3,7 +3,7 @@
     WorkbenchLayout：5 个 /workbench 页面共享的视觉外壳。
     - 与 Home 同源的 aurora 背景层（冷月光 + 暖琥珀双 blob，mix-blend-mode: screen）
     - SiteHeader fixed 80px + 5 个 section nav + 主 CTA "+ 新建面试" + 头像
-    - main 留 80+60px 顶部空间避让 fixed header
+    - main 留 80px 顶部空间避让 fixed header；业务页自己控制首屏节奏
     - AppFooter 复用，与 SiteHeader 镜像（80px / max-width 1320 / 1px 顶分隔）
     使用方式：
       <WorkbenchLayout>
@@ -279,13 +279,13 @@ const handleLogout = async () => {
 }
 
 /* === main === */
-/* 80px 与 SiteHeader fixed 高度配合避让；额外 60px 让 hero 顶部留出呼吸。
+/* 80px 与 SiteHeader fixed 高度配合避让。
    flex: 1 让 main 撑满剩余视口高度，footer 自然贴底（min-height: 100vh
    情况下短内容也能让 footer 在视口底而非内容紧下方）。 */
 .wb-main {
   flex: 1;
   margin-top: 80px;
-  padding-top: 60px;
+  padding-top: 0;
   position: relative;
   /* z-index: 1 保证 main 内容层在 aurora (z-index: -1) 之上、
      ripple 一类的浮层之下。 */
@@ -318,7 +318,7 @@ const handleLogout = async () => {
     margin-left: 0;
   }
   .wb-main {
-    padding-top: 40px;
+    padding-top: 0;
   }
 }
 </style>

@@ -1,8 +1,8 @@
 <template>
   <!--
     WorkbenchNew：新建面试配置向导（对应设计图 2）。
-    布局：左侧配置区 + 右侧面试计划预览 + 底部确认条。
-    交互：用户在一页完成方向 / 简历 / 难度 / 侧重点选择，右侧展示计划生成状态，点“开始面试”创建会话。
+    布局：顶部步骤条 + 纵向配置区 + 底部确认条。
+    交互：用户在一页完成方向 / 简历 / 难度 / 侧重点选择，点“开始面试”创建后端会话。
   -->
   <WorkbenchLayout>
     <div class="wb-new-content">
@@ -12,33 +12,34 @@
           <span>新建面试</span>
         </div>
         <h1 class="wb-new-title">配置一场专属面试</h1>
-        <p class="wb-new-sub">选择方向、难度和重点方向，AI 会基于你的简历定制题目。</p>
+        <p class="wb-new-sub">方向、难度、简历和侧重点会作为会话配置传给后端面试官策略。</p>
       </section>
 
-      <div class="wb-new-shell">
-        <aside class="wb-config-panel" aria-label="面试配置">
-          <ol class="wb-stepper" aria-label="配置步骤">
-            <li
-              v-for="(step, idx) in steps"
-              :key="step.key"
-              class="wb-step"
-              :class="{ 'wb-step-active': currentStep === idx, 'wb-step-done': currentStep > idx }"
-            >
-              <span class="wb-step-num">{{ String(idx + 1).padStart(2, '0') }}</span>
-              <span class="wb-step-copy">
-                <span class="wb-step-label">{{ step.label }}</span>
-                <span class="wb-step-desc">{{ step.desc }}</span>
-              </span>
-            </li>
-          </ol>
+      <ol class="wb-stepper" aria-label="配置步骤">
+        <li
+          v-for="(step, idx) in steps"
+          :key="step.key"
+          class="wb-step"
+          :class="{ 'wb-step-active': currentStep === idx, 'wb-step-done': currentStep > idx }"
+        >
+          <span class="wb-step-num">{{ idx + 1 }}</span>
+          <span class="wb-step-label">{{ step.label }}</span>
+        </li>
+      </ol>
 
+      <div class="wb-new-shell">
+        <section class="wb-config-panel" aria-label="面试配置">
           <div class="wb-new-form">
             <fieldset class="wb-block" data-step="direction">
-              <legend class="wb-block-legend">
+              <legend class="wb-visually-hidden">选择方向</legend>
+              <div class="wb-block-headline">
                 <span class="wb-block-tag">01</span>
-                选择方向
-              </legend>
-              <div class="wb-direction-grid">
+                <div>
+                  <h2 class="wb-block-title">面试方向</h2>
+                  <p class="wb-block-desc">题库范围与面试官策略</p>
+                </div>
+              </div>
+              <div class="wb-block-body wb-direction-grid">
                 <button
                   v-for="dir in directions"
                   :key="dir.key"
@@ -49,17 +50,22 @@
                 >
                   <span class="wb-dir-dot" :style="{ background: dir.color }" aria-hidden="true"></span>
                   <span class="wb-dir-name">{{ dir.label }}</span>
-                  <span class="wb-dir-tags">{{ dir.tags.join(' · ') }}</span>
+                  <span class="wb-dir-tags">{{ formatDirectionMeta(dir) }}</span>
+                  <span v-if="form.direction === dir.key" class="wb-choice-check" aria-hidden="true">✓</span>
                 </button>
               </div>
             </fieldset>
 
             <fieldset class="wb-block">
-              <legend class="wb-block-legend">
+              <legend class="wb-visually-hidden">关联简历</legend>
+              <div class="wb-block-headline">
                 <span class="wb-block-tag">02</span>
-                关联简历 <span class="wb-block-hint">可选</span>
-              </legend>
-              <div class="wb-resume-row">
+                <div>
+                  <h2 class="wb-block-title">简历</h2>
+                  <p class="wb-block-desc">可选上下文</p>
+                </div>
+              </div>
+              <div class="wb-block-body wb-resume-row">
                 <button
                   v-for="resume in resumes"
                   :key="resume.id"
@@ -93,11 +99,15 @@
             </fieldset>
 
             <fieldset class="wb-block">
-              <legend class="wb-block-legend">
+              <legend class="wb-visually-hidden">难度等级</legend>
+              <div class="wb-block-headline">
                 <span class="wb-block-tag">03</span>
-                难度等级
-              </legend>
-              <div class="wb-difficulty">
+                <div>
+                  <h2 class="wb-block-title">难度</h2>
+                  <p class="wb-block-desc">追问强度</p>
+                </div>
+              </div>
+              <div class="wb-block-body wb-difficulty">
                 <button
                   v-for="(diff, idx) in difficulties"
                   :key="diff.key"
@@ -113,11 +123,15 @@
             </fieldset>
 
             <fieldset class="wb-block">
-              <legend class="wb-block-legend">
+              <legend class="wb-visually-hidden">考察侧重</legend>
+              <div class="wb-block-headline">
                 <span class="wb-block-tag">04</span>
-                考察侧重 <span class="wb-block-hint">可多选</span>
-              </legend>
-              <div class="wb-focus-grid">
+                <div>
+                  <h2 class="wb-block-title">考察侧重</h2>
+                  <p class="wb-block-desc">多选能力维度</p>
+                </div>
+              </div>
+              <div class="wb-block-body wb-focus-grid">
                 <label
                   v-for="focus in focusOptions"
                   :key="focus.key"
@@ -141,86 +155,6 @@
               </div>
             </fieldset>
           </div>
-        </aside>
-
-        <section class="wb-preview-panel" aria-label="面试计划预览">
-          <header class="wb-preview-head">
-            <div>
-              <p class="wb-preview-kicker">实时预览</p>
-              <h2 class="wb-preview-title">面试计划预览</h2>
-              <p class="wb-preview-sub">配置完成后，这里会展示题目、时长、追问深度和能力覆盖。</p>
-            </div>
-            <button
-              type="button"
-              class="wb-preview-refresh"
-              :disabled="!previewReady || previewLoading"
-              @click="loadPlanPreview"
-            >
-              <span aria-hidden="true">↻</span>
-              <span>{{ previewLoading ? '生成中' : '重新生成' }}</span>
-            </button>
-            <span
-              class="wb-preview-status"
-              :class="{
-                'wb-preview-status-ready': previewStatus === 'ready',
-                'wb-preview-status-loading': previewStatus === 'loading',
-                'wb-preview-status-error': previewStatus === 'error'
-              }"
-            >
-              {{ previewStatusLabel }}
-            </span>
-          </header>
-
-          <div class="wb-preview-metrics">
-            <article v-for="metric in previewMetrics" :key="metric.key" class="wb-preview-metric">
-              <span class="wb-preview-metric-label">{{ metric.label }}</span>
-              <strong>{{ metric.value }}</strong>
-              <span>{{ metric.meta }}</span>
-            </article>
-          </div>
-
-          <div class="wb-preview-block">
-            <div class="wb-preview-block-head">
-              <h3>能力维度分布</h3>
-              <span>{{ previewFocusDistribution.length || selectedFocusLabels.length }} 项</span>
-            </div>
-            <div v-if="previewFocusDistribution.length > 0" class="wb-preview-focus-bars">
-              <div v-for="item in previewFocusDistribution" :key="item.key" class="wb-preview-focus-bar">
-                <span>{{ item.label }}</span>
-                <strong>{{ item.percent }}%</strong>
-                <i :style="{ width: `${item.percent}%` }" aria-hidden="true"></i>
-              </div>
-            </div>
-            <div v-else-if="selectedFocusLabels.length > 0" class="wb-preview-focus-list">
-              <span v-for="label in selectedFocusLabels" :key="label">{{ label }}</span>
-            </div>
-            <p v-else class="wb-preview-empty">选择方向后会自动带出建议侧重点。</p>
-          </div>
-
-          <div class="wb-preview-block wb-preview-questions">
-            <div class="wb-preview-block-head">
-              <h3>题目安排</h3>
-              <span>{{ previewQuestionCountLabel }}</span>
-            </div>
-            <div v-if="previewLoading" class="wb-preview-placeholder">
-              <p>正在生成面试计划…</p>
-            </div>
-            <div v-else-if="previewError" class="wb-preview-placeholder wb-preview-placeholder-error">
-              <p>{{ previewError }}</p>
-            </div>
-            <ol v-else-if="previewQuestions.length > 0" class="wb-preview-question-list">
-              <li v-for="(question, index) in previewQuestions" :key="question.key || index">
-                <span class="wb-preview-question-index">{{ index + 1 }}.</span>
-                <p>{{ question.title || question.prompt }}</p>
-                <span class="wb-preview-question-chip">{{ question.focusLabel || '综合能力' }}</span>
-                <span class="wb-preview-question-meta">{{ question.difficultyLabel || selectedDifficultyLabel }}</span>
-              </li>
-            </ol>
-            <div v-else class="wb-preview-placeholder">
-              <p v-if="previewReady">暂未生成题目预览，点击重新生成再试。</p>
-              <p v-else>先选择方向和难度，系统再生成计划。</p>
-            </div>
-          </div>
         </section>
       </div>
 
@@ -239,12 +173,17 @@
           <div class="wb-summary-sep" aria-hidden="true"></div>
           <div class="wb-summary-line">
             <span class="wb-summary-label">重点</span>
-            <span class="wb-summary-value">{{ form.focus.length > 0 ? `${form.focus.length} 项` : '未选择' }}</span>
+            <span class="wb-summary-value">{{ focusSummaryLabel }}</span>
           </div>
           <div class="wb-summary-sep" aria-hidden="true"></div>
           <div class="wb-summary-line">
             <span class="wb-summary-label">简历</span>
             <span class="wb-summary-value">{{ selectedResumeLabel }}</span>
+          </div>
+          <div class="wb-summary-sep" aria-hidden="true"></div>
+          <div class="wb-summary-line">
+            <span class="wb-summary-label">预计</span>
+            <span class="wb-summary-value">{{ selectedEstimatedMinutes }} 分钟</span>
           </div>
         </div>
         <button
@@ -262,17 +201,12 @@
 </template>
 
 <script setup>
-import { computed, onMounted, onUnmounted, ref, watch } from "vue";
+import { computed, onMounted, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
 import WorkbenchLayout from "../components/dashboard/WorkbenchLayout.vue";
 import { apiService } from "../composables/useApi";
-import {
-  buildSessionCreatePayload,
-  normalizeDifficultyLevel,
-  normalizeDirectionKey,
-  normalizeFocusKeys,
-} from "../utils/interviewSession";
+import { buildSessionCreatePayload } from "../utils/interviewSession";
 
 const router = useRouter();
 const route = useRoute();
@@ -353,17 +287,6 @@ const selectedDirectionLabel = computed(() => {
   return directions.value.find((d) => d.key === form.value.direction)?.label || "";
 });
 
-const selectedDifficulty = computed(() => {
-  if (form.value.difficultyIdx === null) return null;
-  return difficulties.value[form.value.difficultyIdx] || null;
-});
-
-const selectedDifficultyLevel = computed(() => {
-  const diff = selectedDifficulty.value;
-  if (!diff) return 0;
-  return diff.level || normalizeDifficultyLevel(diff.key);
-});
-
 // === 简历选项（初值空数组，loadResumes 从后端拉真实数据）===
 // 历史上这里有两条硬编码示例简历，新用户没上传也会看到假简历。
 // 现在严格走「0 简历 → step 2 只显示『添加新简历』按钮 → 引导跳 /workbench/resume 上传」。
@@ -404,158 +327,21 @@ const selectedResumeLabel = computed(() => {
   return resume?.name || "未关联";
 });
 
-const selectedFocusLabels = computed(() => {
-  return form.value.focus
-    .map((key) => focusOptions.value.find((item) => item.key === key)?.label || key)
-    .filter(Boolean);
-});
-
-const previewReady = computed(() => {
-  return Boolean(form.value.direction) && form.value.difficultyIdx !== null;
-});
-
-const planPreview = ref(null);
-const previewLoading = ref(false);
-const previewError = ref("");
-let previewTimer = null;
-let previewRequestSeq = 0;
-
-const previewConfig = computed(() => planPreview.value?.config || null);
-const previewQuestions = computed(() =>
-  Array.isArray(planPreview.value?.questions) ? planPreview.value.questions : []
+const focusSummaryLabel = computed(() =>
+  form.value.focus.length > 0 ? `${form.value.focus.length} 项` : "默认侧重"
 );
 
-const previewStatus = computed(() => {
-  if (!previewReady.value) return "idle";
-  if (previewLoading.value) return "loading";
-  if (previewError.value) return "error";
-  if (planPreview.value) return "ready";
-  return "idle";
-});
+const selectedEstimatedMinutes = ref(30);
 
-const previewStatusLabel = computed(() => {
-  switch (previewStatus.value) {
-    case "loading":
-      return "生成中";
-    case "ready":
-      return "已生成";
-    case "error":
-      return "预览失败";
-    default:
-      return previewReady.value ? "待生成" : "待配置";
+const formatDirectionMeta = (dir) => {
+  const count = Number(dir?.questionCount) || 0;
+  const range = Array.isArray(dir?.difficultyRange) && dir.difficultyRange.length >= 2
+    ? `难度 ${dir.difficultyRange[0]}-${dir.difficultyRange[1]}`
+    : "难度 1-5";
+  if (count > 0) {
+    return `题库 ${count} 题 / ${range}`;
   }
-});
-
-const previewQuestionCountLabel = computed(() => {
-  const count = previewQuestions.value.length;
-  if (previewLoading.value) return "生成中";
-  if (count > 0) return `${count} 题`;
-  return previewReady.value ? "暂无题目" : "待选择";
-});
-
-const previewFocusDistribution = computed(() => {
-  const questions = previewQuestions.value;
-  if (questions.length === 0) return [];
-  const groups = new Map();
-  questions.forEach((question) => {
-    const key = question.focusKey || question.focusLabel || "general";
-    const label = question.focusLabel || question.focusKey || "综合能力";
-    const prev = groups.get(key) || { key, label, count: 0 };
-    prev.count += 1;
-    groups.set(key, prev);
-  });
-  return Array.from(groups.values()).map((item) => ({
-    ...item,
-    percent: Math.round((item.count / questions.length) * 100),
-  }));
-});
-
-const previewMetrics = computed(() => [
-  {
-    key: "questions",
-    label: "题目数量",
-    value: previewQuestions.value.length > 0 ? `${previewQuestions.value.length} 题` : "—",
-    meta: previewConfig.value ? "由题库实时生成" : "来自题库预览接口",
-  },
-  {
-    key: "minutes",
-    label: "预计时长",
-    value: previewConfig.value?.estimatedMinutes ? `${previewConfig.value.estimatedMinutes} 分钟` : "—",
-    meta: selectedDifficulty.value?.desc || "选择难度后确定",
-  },
-  {
-    key: "depth",
-    label: "追问深度",
-    value: previewConfig.value?.followUpDepth || selectedDifficulty.value?.label || "—",
-    meta: "由难度与侧重点决定",
-  },
-  {
-    key: "coverage",
-    label: "能力覆盖",
-    value: previewConfig.value?.focusAreas?.length
-      ? `${previewConfig.value.focusAreas.length} 项`
-      : `${selectedFocusLabels.value.length} 项`,
-    meta: selectedDirectionLabel.value || "选择方向后确定",
-  },
-]);
-
-const buildPreviewParams = () => {
-  if (!previewReady.value) return null;
-  const focusKeys = normalizeFocusKeys(form.value.focus);
-  const params = {
-    directionKey: normalizeDirectionKey(form.value.direction),
-    difficulty: selectedDifficultyLevel.value || 3,
-    interviewerStyle: "senior",
-    limit: 8,
-  };
-  if (focusKeys.length > 0) {
-    params.focusKeys = focusKeys.join(",");
-  }
-  return params;
-};
-
-const loadPlanPreview = async () => {
-  const params = buildPreviewParams();
-  if (!params) {
-    planPreview.value = null;
-    previewError.value = "";
-    previewLoading.value = false;
-    return;
-  }
-
-  const seq = ++previewRequestSeq;
-  previewLoading.value = true;
-  previewError.value = "";
-
-  try {
-    const res = await apiService.user.interviewPlanPreview(params);
-    if (seq !== previewRequestSeq) return;
-    planPreview.value = res || null;
-  } catch (error) {
-    if (seq !== previewRequestSeq) return;
-    planPreview.value = null;
-    previewError.value = error?.message || "计划预览暂时不可用，不影响创建面试。";
-  } finally {
-    if (seq === previewRequestSeq) {
-      previewLoading.value = false;
-    }
-  }
-};
-
-const schedulePlanPreview = () => {
-  if (previewTimer) {
-    clearTimeout(previewTimer);
-    previewTimer = null;
-  }
-  if (!previewReady.value) {
-    planPreview.value = null;
-    previewError.value = "";
-    previewLoading.value = false;
-    return;
-  }
-  previewTimer = setTimeout(() => {
-    loadPlanPreview();
-  }, 250);
+  return Array.isArray(dir?.tags) ? dir.tags.join(" · ") : range;
 };
 
 // === 重点方向（本地 fallback；onMounted 异步接入 interviewPresets.focusOptions 后覆盖）===
@@ -613,7 +399,7 @@ const startInterview = async () => {
         directionKey: form.value.direction,
         difficulty: difficulty?.key || "mid",
         focusKeys: form.value.focus,
-        estimatedMinutes: previewConfig.value?.estimatedMinutes || 30,
+        estimatedMinutes: selectedEstimatedMinutes.value,
         resumeArtifactId: form.value.resumeArtifactId,
       })
     );
@@ -661,6 +447,8 @@ const loadPresets = async () => {
         label: d.label,
         color: pickDirectionColor(d.key),
         focusKeys: Array.isArray(d.focusKeys) ? [...d.focusKeys] : [],
+        questionCount: Number(d.questionCount) || 0,
+        difficultyRange: Array.isArray(d.difficultyRange) ? [...d.difficultyRange] : [],
         // 后端 focusKeys 是该方向的重点 chip。用作 tags 显示；限高 3 项避免溢出。
         tags: Array.isArray(d.focusKeys) ? d.focusKeys.slice(0, 3) : [],
       }));
@@ -714,6 +502,9 @@ const loadPresets = async () => {
       if (form.value.focus.length === 0 && Array.isArray(dc.focusAreas)) {
         form.value.focus = dc.focusAreas.map((f) => f.key).filter(Boolean);
       }
+      if (typeof dc.estimatedMinutes === "number" && dc.estimatedMinutes > 0) {
+        selectedEstimatedMinutes.value = dc.estimatedMinutes;
+      }
     }
   } catch (error) {
     // 静默降级；本地 fallback 预设继续可用
@@ -739,25 +530,9 @@ const loadResumes = async () => {
   }
 };
 
-watch(
-  () => [
-    form.value.direction,
-    form.value.difficultyIdx,
-    form.value.focus.join("|"),
-  ],
-  schedulePlanPreview
-);
-
 onMounted(async () => {
   // 并发拉两个接口；简历必须来自后端，空响应保持空态。
   await Promise.all([loadPresets(), loadResumes()]);
-  schedulePlanPreview();
-});
-
-onUnmounted(() => {
-  if (previewTimer) {
-    clearTimeout(previewTimer);
-  }
 });
 </script>
 
@@ -1346,8 +1121,7 @@ onUnmounted(() => {
   align-items: start;
 }
 
-.wb-config-panel,
-.wb-preview-panel {
+.wb-config-panel {
   min-width: 0;
   background:
     linear-gradient(180deg, rgba(18, 19, 24, 0.86) 0%, rgba(8, 9, 13, 0.90) 100%) padding-box,
@@ -1358,14 +1132,7 @@ onUnmounted(() => {
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.055),
     0 18px 46px rgba(0, 0, 0, 0.34);
-}
-
-.wb-config-panel {
   padding: clamp(18px, 2vw, 28px);
-}
-
-.wb-preview-panel {
-  padding: clamp(20px, 2.2vw, 32px);
 }
 
 .wb-stepper {
@@ -1417,286 +1184,6 @@ onUnmounted(() => {
   grid-template-columns: repeat(auto-fit, minmax(118px, 1fr));
 }
 
-.wb-preview-head {
-  display: flex;
-  justify-content: space-between;
-  gap: 18px;
-  align-items: flex-start;
-  margin-bottom: 24px;
-}
-
-.wb-preview-head > div {
-  flex: 1;
-  min-width: 0;
-}
-
-.wb-preview-refresh {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  height: 32px;
-  padding: 0 12px;
-  border-radius: var(--radius-sm);
-  border: 1px solid rgba(220, 155, 90, 0.28);
-  background: rgba(220, 155, 90, 0.07);
-  color: rgba(255, 224, 190, 0.96);
-  font: 600 var(--fs-2xs) var(--sans);
-  cursor: pointer;
-  white-space: nowrap;
-}
-
-.wb-preview-refresh:disabled {
-  cursor: not-allowed;
-  opacity: .5;
-}
-
-.wb-preview-kicker {
-  margin: 0 0 8px;
-  font: 600 var(--fs-2xs) var(--mono);
-  color: rgba(220, 155, 90, 0.9);
-  letter-spacing: .08em;
-  text-transform: uppercase;
-}
-
-.wb-preview-title {
-  margin: 0;
-  font: 800 clamp(24px, 2vw, 32px) var(--display);
-  color: var(--t);
-  letter-spacing: -.02em;
-}
-
-.wb-preview-sub {
-  max-width: 640px;
-  margin: 10px 0 0;
-  color: var(--t3);
-  line-height: 1.7;
-}
-
-.wb-preview-status {
-  flex-shrink: 0;
-  display: inline-flex;
-  align-items: center;
-  height: 30px;
-  padding: 0 12px;
-  border-radius: var(--radius-pill);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  color: var(--t3);
-  font: 600 var(--fs-2xs) var(--mono);
-  letter-spacing: .05em;
-  background: rgba(255, 255, 255, 0.025);
-}
-
-.wb-preview-status-ready {
-  color: rgba(220, 155, 90, 0.95);
-  border-color: rgba(220, 155, 90, 0.26);
-  background: rgba(220, 155, 90, 0.08);
-}
-
-.wb-preview-status-loading {
-  color: rgba(190, 210, 255, 0.95);
-  border-color: rgba(110, 182, 255, 0.28);
-  background: rgba(110, 182, 255, 0.08);
-}
-
-.wb-preview-status-error {
-  color: rgba(255, 190, 170, 0.96);
-  border-color: rgba(220, 110, 90, 0.30);
-  background: rgba(220, 110, 90, 0.08);
-}
-
-.wb-preview-metrics {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
-  gap: 12px;
-  margin-bottom: 24px;
-}
-
-.wb-preview-metric {
-  min-width: 0;
-  padding: 16px;
-  border-radius: var(--radius-md);
-  border: 1px solid rgba(255, 255, 255, 0.075);
-  background: rgba(255, 255, 255, 0.025);
-}
-
-.wb-preview-metric-label,
-.wb-preview-metric span:last-child {
-  display: block;
-  font: var(--fs-2xs) var(--mono);
-  color: var(--t3);
-  letter-spacing: .04em;
-}
-
-.wb-preview-metric strong {
-  display: block;
-  margin: 9px 0 5px;
-  font: 800 clamp(24px, 2vw, 34px)/1 var(--display);
-  color: rgba(245, 199, 124, 0.95);
-}
-
-.wb-preview-block {
-  padding: 18px;
-  border-radius: var(--radius-md);
-  border: 1px solid rgba(255, 255, 255, 0.075);
-  background: rgba(255, 255, 255, 0.02);
-}
-
-.wb-preview-block + .wb-preview-block {
-  margin-top: 16px;
-}
-
-.wb-preview-block-head {
-  display: flex;
-  justify-content: space-between;
-  gap: 16px;
-  align-items: center;
-  margin-bottom: 14px;
-}
-
-.wb-preview-block-head h3 {
-  margin: 0;
-  font: 700 var(--fs-md) var(--display);
-  color: var(--t);
-}
-
-.wb-preview-block-head span {
-  font: var(--fs-2xs) var(--mono);
-  color: var(--t3);
-  letter-spacing: .04em;
-}
-
-.wb-preview-focus-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.wb-preview-focus-list span {
-  display: inline-flex;
-  align-items: center;
-  height: 30px;
-  padding: 0 12px;
-  border-radius: var(--radius-sm);
-  border: 1px solid rgba(220, 155, 90, 0.22);
-  background: rgba(220, 155, 90, 0.07);
-  color: rgba(255, 224, 190, 0.95);
-  font: 600 var(--fs-2xs) var(--sans);
-}
-
-.wb-preview-focus-bars {
-  display: grid;
-  gap: 10px;
-}
-
-.wb-preview-focus-bar {
-  position: relative;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 12px;
-  align-items: center;
-  padding: 11px 12px 13px;
-  border-radius: var(--radius-sm);
-  background: rgba(255, 255, 255, 0.025);
-  overflow: hidden;
-}
-
-.wb-preview-focus-bar span,
-.wb-preview-focus-bar strong {
-  position: relative;
-  z-index: 1;
-  font: 600 var(--fs-2xs) var(--sans);
-  color: var(--t2);
-}
-
-.wb-preview-focus-bar strong {
-  color: rgba(245, 199, 124, 0.96);
-}
-
-.wb-preview-focus-bar i {
-  position: absolute;
-  left: 0;
-  bottom: 0;
-  height: 2px;
-  border-radius: 2px;
-  background: rgba(220, 155, 90, 0.9);
-}
-
-.wb-preview-empty,
-.wb-preview-placeholder p {
-  margin: 0;
-  color: var(--t3);
-  line-height: 1.7;
-}
-
-.wb-preview-placeholder {
-  min-height: 180px;
-  display: grid;
-  place-items: center;
-  text-align: center;
-  border-radius: var(--radius-md);
-  border: 1px dashed rgba(255, 255, 255, 0.10);
-  background: rgba(0, 0, 0, 0.12);
-  padding: 24px;
-}
-
-.wb-preview-placeholder-error {
-  border-color: rgba(220, 110, 90, 0.22);
-  background: rgba(220, 110, 90, 0.06);
-}
-
-.wb-preview-question-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  border-radius: var(--radius-md);
-  border: 1px solid rgba(255, 255, 255, 0.07);
-  overflow: hidden;
-}
-
-.wb-preview-question-list li {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto auto;
-  align-items: center;
-  gap: 12px;
-  padding: 13px 14px;
-  background: rgba(255, 255, 255, 0.015);
-}
-
-.wb-preview-question-list li + li {
-  border-top: 1px solid rgba(255, 255, 255, 0.065);
-}
-
-.wb-preview-question-index {
-  font: 700 var(--fs-2xs) var(--mono);
-  color: rgba(245, 199, 124, 0.94);
-}
-
-.wb-preview-question-list p {
-  margin: 0;
-  color: var(--t2);
-  line-height: 1.55;
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
-
-.wb-preview-question-chip,
-.wb-preview-question-meta {
-  display: inline-flex;
-  align-items: center;
-  min-height: 24px;
-  padding: 0 8px;
-  border-radius: var(--radius-sm);
-  background: rgba(220, 155, 90, 0.08);
-  color: rgba(255, 224, 190, 0.95);
-  font: 600 var(--fs-3xs) var(--sans);
-  white-space: nowrap;
-}
-
-.wb-preview-question-meta {
-  background: rgba(255, 255, 255, 0.035);
-  color: var(--t3);
-}
-
 .wb-summary-bar {
   margin-top: clamp(20px, 2.4vw, 36px);
 }
@@ -1719,28 +1206,308 @@ onUnmounted(() => {
 }
 
 @media (max-width: 620px) {
-  .wb-stepper,
-  .wb-preview-metrics {
+  .wb-stepper {
     grid-template-columns: 1fr;
   }
 
-  .wb-preview-head,
   .wb-summary-bar {
     flex-direction: column;
     align-items: stretch;
   }
 
-  .wb-preview-question-list li {
-    grid-template-columns: auto minmax(0, 1fr);
-  }
-
-  .wb-preview-question-chip,
-  .wb-preview-question-meta {
-    width: fit-content;
-  }
-
   .wb-summary-sep {
     display: none;
+  }
+}
+
+/* ============ C4 配置型新建面试页语义修正 ============ */
+.wb-new-content {
+  max-width: 1280px;
+  padding: 0 clamp(20px, 4vw, 56px) 96px;
+}
+
+.wb-new-hero {
+  max-width: 760px;
+  margin: 0 auto;
+  align-items: center;
+  text-align: center;
+  padding-bottom: clamp(20px, 2.6vw, 34px);
+}
+
+.wb-new-sub {
+  max-width: 680px;
+}
+
+.wb-stepper {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: clamp(10px, 2vw, 24px);
+  margin: 0 auto clamp(22px, 3vw, 38px);
+  max-width: 720px;
+}
+
+.wb-step {
+  position: relative;
+  width: auto;
+  min-width: 0;
+  padding: 0;
+  gap: 10px;
+  border: 0;
+  background: transparent;
+  color: var(--t3);
+}
+
+.wb-step:not(:last-child)::after {
+  content: "";
+  width: clamp(28px, 4vw, 58px);
+  height: 1px;
+  margin-left: clamp(4px, 1vw, 14px);
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.20), rgba(255, 255, 255, 0.06));
+}
+
+.wb-step-active:not(:last-child)::after,
+.wb-step-done:not(:last-child)::after {
+  background: linear-gradient(90deg, rgba(220, 155, 90, 0.85), rgba(255, 255, 255, 0.08));
+}
+
+.wb-step-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border-radius: 50%;
+  background: rgba(8, 10, 14, 0.72);
+  border-color: rgba(255, 255, 255, 0.18);
+}
+
+.wb-step-active .wb-step-num {
+  color: rgba(255, 224, 172, 0.98);
+  box-shadow: 0 0 0 5px rgba(220, 155, 90, 0.10), 0 0 18px rgba(220, 155, 90, 0.24);
+}
+
+.wb-step-label {
+  font: 600 var(--fs-sm) var(--sans);
+}
+
+.wb-new-shell {
+  display: block;
+  max-width: 1120px;
+  margin: 0 auto;
+}
+
+.wb-config-panel {
+  padding: 0;
+  background: none;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  backdrop-filter: none;
+}
+
+.wb-new-form {
+  gap: clamp(14px, 1.8vw, 20px);
+}
+
+.wb-block {
+  display: grid;
+  grid-template-columns: minmax(180px, 23%) minmax(0, 1fr);
+  align-items: center;
+  gap: clamp(18px, 3vw, 36px);
+  padding: clamp(20px, 2.2vw, 28px);
+  background:
+    linear-gradient(180deg, rgba(18, 22, 29, 0.86) 0%, rgba(8, 11, 16, 0.92) 100%) padding-box,
+    linear-gradient(145deg, rgba(255, 255, 255, 0.16) 0%, rgba(255, 255, 255, 0.035) 100%) border-box;
+  border: 1px solid transparent;
+  border-radius: var(--radius-lg);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.05),
+    0 14px 42px rgba(0, 0, 0, 0.25);
+}
+
+.wb-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.wb-block-headline {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  min-width: 0;
+}
+
+.wb-block-headline > div {
+  min-width: 0;
+}
+
+.wb-block-title {
+  margin: 0 0 8px;
+  color: var(--t);
+  font: 800 clamp(20px, 1.6vw, 26px) var(--display);
+  letter-spacing: 0;
+}
+
+.wb-block-desc {
+  margin: 0;
+  color: var(--t3);
+  line-height: 1.65;
+}
+
+.wb-block-tag {
+  flex-shrink: 0;
+  min-width: 34px;
+  text-align: center;
+}
+
+.wb-block-body {
+  min-width: 0;
+}
+
+.wb-direction-grid {
+  grid-template-columns: repeat(auto-fit, minmax(min(250px, 100%), 1fr));
+}
+
+.wb-dir {
+  position: relative;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-areas:
+    "dot name"
+    "dot meta";
+  column-gap: 14px;
+  row-gap: 5px;
+  align-items: center;
+  min-height: 96px;
+  padding: 18px;
+}
+
+.wb-dir-dot {
+  grid-area: dot;
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.16), 0 0 18px rgba(255, 255, 255, 0.10);
+}
+
+.wb-dir-name {
+  grid-area: name;
+  min-width: 0;
+  padding-right: 32px;
+}
+
+.wb-dir-tags {
+  grid-area: meta;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wb-choice-check {
+  position: absolute;
+  top: 18px;
+  right: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: rgba(245, 180, 92, 0.96);
+  color: #15110c;
+  font: 800 var(--fs-xs) var(--sans);
+}
+
+.wb-resume-row {
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+}
+
+.wb-resume {
+  min-height: 66px;
+}
+
+.wb-difficulty {
+  grid-template-columns: repeat(auto-fit, minmax(128px, 1fr));
+}
+
+.wb-diff-btn {
+  min-height: 88px;
+}
+
+.wb-focus-grid {
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+
+.wb-summary-bar {
+  max-width: 1120px;
+  margin: clamp(20px, 2.8vw, 36px) auto 0;
+  border-radius: var(--radius-lg);
+}
+
+.wb-summary-cta {
+  min-width: 180px;
+  border-radius: var(--radius-pill);
+  background:
+    linear-gradient(180deg, #ffd98c 0%, #f1af4f 100%);
+  color: #17110a;
+  box-shadow: 0 12px 30px rgba(220, 155, 90, 0.20), inset 0 1px 0 rgba(255, 255, 255, 0.55);
+}
+
+@media (max-width: 900px) {
+  .wb-new-hero {
+    align-items: flex-start;
+    text-align: left;
+  }
+
+  .wb-stepper {
+    justify-content: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .wb-step:not(:last-child)::after {
+    width: clamp(18px, 6vw, 42px);
+  }
+
+  .wb-block {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+}
+
+@media (max-width: 620px) {
+  .wb-stepper {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+  }
+
+  .wb-step::after {
+    display: none;
+  }
+
+  .wb-step {
+    padding: 9px 10px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: var(--radius-md);
+    background: rgba(255, 255, 255, 0.025);
+  }
+
+  .wb-dir {
+    grid-template-columns: auto minmax(0, 1fr);
+    grid-template-areas:
+      "dot name"
+      "dot meta";
   }
 }
 </style>

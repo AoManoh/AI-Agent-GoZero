@@ -1584,20 +1584,21 @@ onMounted(async () => {
    - amber accent 仅在「主数字」上使用 gradient text，让 1614 / 348 / N 这些量化指标成为视觉锚 */
 .wb-quick {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 18px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: clamp(12px, 1.4vw, 18px);
   margin-bottom: 56px;
 }
 
 /* 单卡：与 Hero v2 的 wb-card 同质感（哑光暖黑 + hairline border + 多层 shadow） */
 .wb-qcard {
   position: relative;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 14px;
   /* min-height 240：比 hero card 320 薄点，但比原 220 厚，让 4 卡与 hero 状态卡视觉节奏对齐。 */
   min-height: 240px;
-  padding: 28px 30px 24px;
+  padding: clamp(22px, 2vw, 28px) clamp(20px, 2.1vw, 30px) clamp(20px, 1.8vw, 24px);
   background:
     linear-gradient(180deg,
       rgba(22, 20, 18, 1) 0%,
@@ -1653,6 +1654,7 @@ onMounted(async () => {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+  min-width: 0;
 }
 
 .wb-qcard-icon {
@@ -1683,6 +1685,10 @@ onMounted(async () => {
 }
 
 .wb-qcard-tag {
+  min-width: 0;
+  max-width: 60%;
+  overflow: hidden;
+  text-overflow: ellipsis;
   font: var(--fs-2xs) var(--mono);
   color: var(--t3);
   letter-spacing: .04em;
@@ -1755,15 +1761,21 @@ onMounted(async () => {
   justify-content: space-between;
   gap: 10px;
   margin-top: auto;
+  min-width: 0;
 }
 
 .wb-qcard-meta {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font: var(--fs-xs) var(--mono);
   color: var(--t3);
   letter-spacing: .03em;
 }
 
 .wb-qcard-link {
+  flex-shrink: 0;
   font: 600 var(--fs-sm) var(--sans);
   color: var(--t);
   text-decoration: none;
@@ -2181,7 +2193,7 @@ onMounted(async () => {
 @media (max-width: 1100px) {
   .wb-quick {
     /* 中屏 2x2 */
-    grid-template-columns: repeat(2, 1fr);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
   .wb-bottom {
     grid-template-columns: 1fr;
