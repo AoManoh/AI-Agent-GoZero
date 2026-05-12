@@ -298,8 +298,21 @@ const submitRenameFolder = (folder) => {
 
 const confirmDeleteFolder = (folder) => {
   if (props.busy) return;
-  // 后端只允许删除空目录，避免用户资料被隐式移动。
-  const ok = window.confirm(`确认删除空文件夹「${folder.name}」吗？\n\n如果其中仍有文档或子文件夹，请先移动后再删除。`);
+  // 后端只允许删除空目录（refactor 9c38333），前端预判可避免无效 409 + 给用户更明确的反馈。
+  // documentCount 由后端 svc.ListKnowledgeFolders SQL 聚合（COUNT DISTINCT title/source/version），
+  // 子目录 count 取 flatten 前 spread 保留的 children 数组（v0.2+ 树形响应）。
+  const docCount = Number(folder.documentCount || 0);
+  const childCount = Array.isArray(folder.children) ? folder.children.length : 0;
+  if (docCount > 0 || childCount > 0) {
+    const parts = [];
+    if (docCount > 0) parts.push(`${docCount} 份文档`);
+    if (childCount > 0) parts.push(`${childCount} 个子目录`);
+    window.alert(
+      `目录「${folder.name}」中还有 ${parts.join("、")}，请先移动或删除其中的内容，再来删除目录。`
+    );
+    return;
+  }
+  const ok = window.confirm(`确认删除空文件夹「${folder.name}」吗？`);
   if (!ok) return;
   emit("delete-folder", { id: Number(folder.id) });
 };
