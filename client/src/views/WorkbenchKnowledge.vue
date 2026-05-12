@@ -688,18 +688,42 @@ const readerButtonHint = "全文阅读：把所有切片按顺序拼接后用 ma
 // reader 模式需要全部 chunks 内容，因此用独立的 fullChunksByDoc Map 做缓存，避免冲掉列表预览。
 const fullChunksByDoc = ref(new Map());
 
+// reader 阅读位置持久化：同 tab 内（sessionStorage）按文档 id 记忆 scrollY，下次进入同一文档自动恢复。
+// 跨 tab 不共享避免不同窗口干扰；用户退出登录或关闭页签后自然清空。
+const READER_SCROLL_KEY_PREFIX = "wb-kb-reader-scroll-";
+const readReaderScrollFor = (docId) => {
+  try {
+    const raw = sessionStorage.getItem(READER_SCROLL_KEY_PREFIX + docId);
+    if (!raw) return 0;
+    const n = Number(raw);
+    return Number.isFinite(n) && n >= 0 ? n : 0;
+  } catch {
+    return 0;
+  }
+};
+const writeReaderScrollFor = (docId, top) => {
+  try {
+    sessionStorage.setItem(READER_SCROLL_KEY_PREFIX + docId, String(Math.max(0, Math.round(top))));
+  } catch {
+    // 隐私模式 / 配额满 → 静默降级，不影响阅读
+  }
+};
+
 const enterReaderMode = async (doc) => {
   if (!doc?.id) return;
   selectedDocId.value = doc.id;
   viewMode.value = "reader";
   readerError.value = "";
   readerProgress.value = 0;
-  // 滚到顶（reader 容器复用 list 容器位置；切回时无需复原滚动位置）
+  // 上一次阅读到的 scrollY；首次进入或新文档 → 0
+  const restoreTop = readReaderScrollFor(doc.id);
   await nextTick();
-  readerScrollRef.value?.scrollTo?.({ top: 0, behavior: "auto" });
-  // 已缓存则跳过
+  window.scrollTo({ top: restoreTop, behavior: "auto" });
+  // 已缓存则跳过 fetch
   if (fullChunksByDoc.value.has(doc.id)) {
     await nextTick();
+    // chunks 已就位，再尝试恢复一次（避免 reader-body 已经渲染时 nextTick 没等到布局）
+    window.scrollTo({ top: restoreTop, behavior: "auto" });
     updateReaderProgress();
     return;
   }
@@ -715,11 +739,18 @@ const enterReaderMode = async (doc) => {
   } finally {
     readerLoading.value = false;
     await nextTick();
+    // 内容渲染完成后再恢复一次，确保 scrollHeight 已经撑开
+    window.scrollTo({ top: restoreTop, behavior: "auto" });
     updateReaderProgress();
   }
 };
 
 const exitReaderMode = () => {
+  // 兜底写入最后一次 scrollY，避免 throttle 边缘的最后一次微小位移没被持久化
+  const docId = selectedDocId.value;
+  if (docId) {
+    writeReaderScrollFor(docId, window.scrollY || document.documentElement.scrollTop || 0);
+  }
   viewMode.value = "list";
   readerProgress.value = 0;
 };
@@ -739,9 +770,18 @@ const updateReaderProgress = () => {
   readerProgress.value = Math.round(ratio * 100);
 };
 
+// 写入持久化的 throttle：scroll 事件高频触发，每 250ms 写一次 sessionStorage 即可。
+// 用 timestamp 比较而非 setTimeout，避免 timer 累积；最后一次滚动也由 exitReaderMode 兜底。
+let lastReaderScrollSaveAt = 0;
 const handleReaderScroll = () => {
   if (viewMode.value !== "reader") return;
   updateReaderProgress();
+  const docId = selectedDocId.value;
+  if (!docId) return;
+  const now = Date.now();
+  if (now - lastReaderScrollSaveAt < 250) return;
+  lastReaderScrollSaveAt = now;
+  writeReaderScrollFor(docId, window.scrollY || document.documentElement.scrollTop || 0);
 };
 
 // 把 chunks 数组拼成 markdown 字符串。chunks 之间用空行分隔，避免段落黏合。
