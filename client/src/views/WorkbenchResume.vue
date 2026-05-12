@@ -7,12 +7,16 @@
   -->
   <WorkbenchLayout>
     <div class="wb-resume-content">
+      <!--
+        Hero（F2 改造）：删除原大标题「让 AI 读懂你的项目」（营销级文案不适合工具页），
+        eyebrow tag「简历管理」与副标题合并到单行 flex baseline 布局，节省顶部 ~120px 垂直空间。
+        视觉效果：[• 简历管理]  上传简历后，AI 会基于项目细节做深度追问，模拟真实面试节奏。
+      -->
       <section class="wb-resume-hero">
         <div class="wb-eyebrow">
           <span class="wb-eyebrow-dot" aria-hidden="true"></span>
-          <span>简历管理</span>
+          <span class="wb-eyebrow-label">简历管理</span>
         </div>
-        <h1 class="wb-resume-title">让 AI 读懂你的项目</h1>
         <p class="wb-resume-sub">上传简历后，AI 会基于项目细节做深度追问，模拟真实面试节奏。</p>
       </section>
 
@@ -1183,7 +1187,7 @@ const formatScore = (score) => {
   border: 1px solid transparent;
   border-radius: var(--radius-md);
   color: var(--t);
-  font: 600 13px var(--sans);
+  font: 600 var(--fs-sm) var(--sans);
   cursor: pointer;
   transition: border-color .2s ease;
   text-align: left;
@@ -1203,14 +1207,14 @@ const formatScore = (score) => {
 }
 
 .wb-resume-selector-score {
-  font: 600 12px var(--mono);
+  font: 600 var(--fs-xs) var(--mono);
   color: rgba(220, 155, 90, 0.95);
   letter-spacing: .04em;
   flex-shrink: 0;
 }
 
 .wb-resume-selector-caret {
-  font-size: 14px;
+  font-size: var(--fs-md);
   color: var(--t3);
   transition: transform .2s ease;
   flex-shrink: 0;
@@ -1250,7 +1254,7 @@ const formatScore = (score) => {
   border-radius: var(--radius-sm);
   cursor: pointer;
   transition: background-color .15s ease, color .15s ease;
-  font: 13px var(--sans);
+  font: var(--fs-sm) var(--sans);
   color: var(--t2);
 }
 
@@ -1272,7 +1276,7 @@ const formatScore = (score) => {
 }
 
 .wb-resume-selector-item-score {
-  font: 600 11px var(--mono);
+  font: 600 var(--fs-2xs) var(--mono);
   color: rgba(220, 155, 90, 0.85);
   letter-spacing: .04em;
   flex-shrink: 0;
@@ -1283,7 +1287,7 @@ const formatScore = (score) => {
   display: flex;
   align-items: center;
   gap: 8px;
-  font: 11px var(--mono);
+  font: var(--fs-2xs) var(--mono);
   color: var(--t3);
   letter-spacing: .04em;
   margin: 0 0 14px;
@@ -1364,7 +1368,7 @@ const formatScore = (score) => {
 }
 
 .wb-overall-meta {
-  font: 10px var(--mono);
+  font: var(--fs-3xs) var(--mono);
   color: var(--t3);
   letter-spacing: .04em;
 }
@@ -1374,7 +1378,7 @@ const formatScore = (score) => {
   align-items: center;
   height: 22px;
   padding: 0 10px;
-  font: 600 11px var(--sans);
+  font: 600 var(--fs-2xs) var(--sans);
   letter-spacing: .04em;
   border-radius: var(--radius-pill);
   border: 1px solid transparent;
@@ -1404,7 +1408,7 @@ const formatScore = (score) => {
 /* AI 总结 */
 .wb-resume-summary {
   margin: 0;
-  font: 13px/1.7 var(--sans);
+  font: var(--fs-sm)/1.7 var(--sans);
   color: var(--t2);
   text-align: left;
 }
@@ -1432,12 +1436,12 @@ const formatScore = (score) => {
 }
 
 .wb-dim-label {
-  font: 600 12px var(--sans);
+  font: 600 var(--fs-xs) var(--sans);
   color: var(--t);
 }
 
 .wb-dim-score {
-  font: 700 12px var(--mono);
+  font: 700 var(--fs-xs) var(--mono);
   color: rgba(220, 155, 90, 0.95);
   letter-spacing: .04em;
 }
@@ -1470,7 +1474,7 @@ const formatScore = (score) => {
   border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: var(--radius-sm);
   color: var(--t);
-  font: 12px/1.5 var(--sans);
+  font: var(--fs-xs)/1.5 var(--sans);
   text-align: center;
   pointer-events: none;
   opacity: 0;
@@ -1494,7 +1498,7 @@ const formatScore = (score) => {
 }
 
 .wb-eval-section-label {
-  font: 600 10px var(--mono);
+  font: 600 var(--fs-3xs) var(--mono);
   color: var(--t3);
   letter-spacing: .08em;
   text-transform: uppercase;
@@ -1510,7 +1514,7 @@ const formatScore = (score) => {
 }
 
 .wb-eval-list li {
-  font: 12px/1.6 var(--sans);
+  font: var(--fs-xs)/1.6 var(--sans);
   color: var(--t2);
   padding: 7px 10px;
   background: rgba(255, 255, 255, 0.025);
@@ -1553,7 +1557,7 @@ const formatScore = (score) => {
 }
 
 .wb-section-label {
-  font: 600 10px var(--mono);
+  font: 600 var(--fs-3xs) var(--mono);
   color: var(--t3);
   letter-spacing: .08em;
   text-transform: uppercase;
@@ -1581,12 +1585,12 @@ const formatScore = (score) => {
 }
 
 .wb-focus-chip-label {
-  font: 600 12px var(--sans);
+  font: 600 var(--fs-xs) var(--sans);
   color: var(--t);
 }
 
 .wb-focus-chip-score {
-  font: 700 11px var(--mono);
+  font: 700 var(--fs-2xs) var(--mono);
   color: rgba(220, 155, 90, 0.95);
   letter-spacing: .04em;
 }
@@ -1608,7 +1612,7 @@ const formatScore = (score) => {
 
 .wb-focus-chip-meta {
   margin: 0;
-  font: 11px var(--mono);
+  font: var(--fs-2xs) var(--mono);
   color: var(--t3);
   letter-spacing: .03em;
 }
@@ -1648,7 +1652,7 @@ const formatScore = (score) => {
 }
 
 .wb-question-num {
-  font: 600 11px var(--mono);
+  font: 600 var(--fs-2xs) var(--mono);
   color: var(--t3);
   letter-spacing: .04em;
 }
@@ -1658,7 +1662,7 @@ const formatScore = (score) => {
   align-items: center;
   height: 18px;
   padding: 0 7px;
-  font: 600 10px var(--sans);
+  font: 600 var(--fs-3xs) var(--sans);
   letter-spacing: .04em;
   border-radius: var(--radius-pill);
   border: 1px solid transparent;
@@ -1678,7 +1682,7 @@ const formatScore = (score) => {
 
 .wb-question-title {
   margin: 0;
-  font: 13px/1.55 var(--sans);
+  font: var(--fs-sm)/1.55 var(--sans);
   color: var(--t);
 }
 
@@ -1692,7 +1696,7 @@ const formatScore = (score) => {
 
 .wb-question-fallback-text {
   margin: 0;
-  font: 12px/1.55 var(--sans);
+  font: var(--fs-xs)/1.55 var(--sans);
   color: var(--t3);
 }
 
@@ -1713,7 +1717,7 @@ const formatScore = (score) => {
   border: 1px solid rgba(255, 255, 255, 0.10);
   border-radius: var(--radius-sm);
   color: var(--t2);
-  font: 600 12px var(--sans);
+  font: 600 var(--fs-xs) var(--sans);
   cursor: pointer;
   transition: border-color .2s ease, color .2s ease, background-color .2s ease;
 }
@@ -1730,13 +1734,13 @@ const formatScore = (score) => {
 }
 
 .wb-action-icon {
-  font-size: 13px;
+  font-size: var(--fs-sm);
   line-height: 1;
 }
 
 .wb-action-meta {
   margin: 0;
-  font: 11px var(--mono);
+  font: var(--fs-2xs) var(--mono);
   color: var(--t3);
   letter-spacing: .03em;
   text-align: center;
@@ -1751,7 +1755,7 @@ const formatScore = (score) => {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font: 12px var(--sans);
+  font: var(--fs-xs) var(--sans);
   color: rgba(220, 155, 90, 0.95);
   text-decoration: none;
   padding: 6px 0;
@@ -1766,7 +1770,7 @@ const formatScore = (score) => {
 /* 降级声明（D-U10 / phase2-resume-cta-disclaimer） */
 .wb-cta-disclaimer {
   margin: 0;
-  font: 11px/1.55 var(--sans);
+  font: var(--fs-2xs)/1.55 var(--sans);
   color: var(--t3);
   text-align: center;
   opacity: 0.75;
@@ -1786,7 +1790,7 @@ const formatScore = (score) => {
   border: 1px solid rgba(220, 155, 90, 0.6);
   border-radius: var(--radius-md);
   color: rgba(20, 12, 6, 0.95);
-  font: 700 15px var(--sans);
+  font: 700 var(--fs-lg) var(--sans);
   letter-spacing: .01em;
   cursor: pointer;
   transition: transform .2s ease, box-shadow .2s ease, opacity .2s ease;
@@ -1800,7 +1804,7 @@ const formatScore = (score) => {
 }
 
 .wb-cta-arrow {
-  font-size: 16px;
+  font-size: var(--fs-md);
   line-height: 1;
   transition: transform .2s ease;
 }
@@ -1815,12 +1819,12 @@ const formatScore = (score) => {
 .wb-risk-low { border-left-color: rgba(220, 200, 130, 0.80); }
 
 .wb-risk-label {
-  font: 600 12px var(--sans);
+  font: 600 var(--fs-xs) var(--sans);
   color: var(--t);
 }
 
 .wb-risk-suggest {
-  font: 11px/1.55 var(--sans);
+  font: var(--fs-2xs)/1.55 var(--sans);
   color: var(--t3);
 }
 
@@ -1842,7 +1846,7 @@ const formatScore = (score) => {
   border: 1px solid transparent;
   border-radius: var(--radius-lg);
   text-align: center;
-  font: 13px/1.7 var(--sans);
+  font: var(--fs-sm)/1.7 var(--sans);
   color: var(--t3);
   min-height: 360px;
   isolation: isolate;
@@ -1870,7 +1874,7 @@ const formatScore = (score) => {
 }
 
 .wb-resume-placeholder-meta {
-  font: 11px var(--mono);
+  font: var(--fs-2xs) var(--mono);
   color: var(--t3);
   letter-spacing: .04em;
   opacity: 0.55;
@@ -1903,7 +1907,7 @@ const formatScore = (score) => {
   border: 1px solid transparent;
   border-radius: var(--radius-lg);
   text-align: center;
-  font: 14px/1.7 var(--sans);
+  font: var(--fs-md)/1.7 var(--sans);
   color: var(--t3);
   isolation: isolate;
 }
@@ -1918,7 +1922,7 @@ const formatScore = (score) => {
 }
 
 .wb-resume-mid-placeholder code {
-  font: 11px var(--mono);
+  font: var(--fs-2xs) var(--mono);
   padding: 2px 8px;
   background: rgba(220, 155, 90, 0.10);
   border: 1px solid rgba(220, 155, 90, 0.25);
@@ -1927,24 +1931,31 @@ const formatScore = (score) => {
   letter-spacing: .04em;
 }
 
+/* Hero 改造（F2，2026-05-12）：
+   - 原 H1 标题「让 AI 读懂你的项目」已删除（营销文案不适合工具页）
+   - eyebrow chip + sub 副标题改 flex baseline 单行紧凑布局
+   - 中屏自动 wrap 到下一行（chip 在上，sub 在下） */
 .wb-resume-hero {
-  padding: 0 0 40px;
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 12px 18px;
+  padding: 28px 0 32px;
 }
 
 .wb-eyebrow {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  font: 12px var(--mono);
+  font: var(--fs-xs) var(--mono);
   color: var(--t2);
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: var(--radius-pill);
   padding: 6px 14px;
-  margin-bottom: 22px;
   letter-spacing: .04em;
   background: rgba(255, 255, 255, 0.025);
   backdrop-filter: blur(8px);
-  width: fit-content;
+  flex-shrink: 0;
 }
 
 .wb-eyebrow-dot {
@@ -1960,19 +1971,15 @@ const formatScore = (score) => {
   50% { opacity: .35; }
 }
 
-.wb-resume-title {
-  font: 800 clamp(30px, 2.8vw, 42px) var(--display);
-  color: var(--t);
-  letter-spacing: -.02em;
-  margin: 0 0 14px;
-}
-
+/* 副标题（F2 改造）：与 eyebrow chip 同行 baseline 对齐；
+   字号从 15px → fs-lg (17px)；颜色从 t3 → t2 提升可读性；
+   flex: 1 让 sub 占用剩余宽度，长文本自动 wrap 在右侧。 */
 .wb-resume-sub {
-  font-size: 15px;
-  color: var(--t3);
-  line-height: 1.7;
+  font-size: var(--fs-lg);
+  color: var(--t2);
+  line-height: 1.65;
   margin: 0;
-  max-width: 560px;
+  flex: 1 1 480px;
 }
 
 /* ============ Dropzone ============ */
@@ -2031,7 +2038,7 @@ const formatScore = (score) => {
 }
 
 .wb-dropzone-main {
-  font: 600 18px var(--display);
+  font: 600 var(--fs-xl) var(--display);
   color: var(--t);
   letter-spacing: -.01em;
   margin-bottom: 6px;
@@ -2041,7 +2048,7 @@ const formatScore = (score) => {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  font: 13px var(--sans);
+  font: var(--fs-sm) var(--sans);
   color: var(--t3);
   flex-wrap: wrap;
   justify-content: center;
@@ -2053,7 +2060,7 @@ const formatScore = (score) => {
 }
 
 .wb-dropzone-meta {
-  font: 11px var(--mono);
+  font: var(--fs-2xs) var(--mono);
   color: var(--t3);
   letter-spacing: .04em;
   margin-left: 6px;
@@ -2078,7 +2085,7 @@ const formatScore = (score) => {
 
 .wb-upload-error {
   margin-top: 12px;
-  font: 13px var(--sans);
+  font: var(--fs-sm) var(--sans);
   color: #ef6660;
 }
 
@@ -2095,14 +2102,14 @@ const formatScore = (score) => {
 }
 
 .wb-block-title {
-  font: 700 17px var(--display);
+  font: 700 var(--fs-xl) var(--display);
   color: var(--t);
   margin: 0;
   letter-spacing: -.01em;
 }
 
 .wb-block-meta {
-  font: 12px var(--mono);
+  font: var(--fs-xs) var(--mono);
   color: var(--t3);
   letter-spacing: .04em;
 }
@@ -2186,7 +2193,7 @@ const formatScore = (score) => {
 }
 
 .wb-resume-card-tag {
-  font: 10px var(--mono);
+  font: var(--fs-3xs) var(--mono);
   color: rgba(220, 155, 90, 0.95);
   background: rgba(220, 155, 90, 0.1);
   border: 1px solid rgba(220, 155, 90, 0.3);
@@ -2196,7 +2203,7 @@ const formatScore = (score) => {
 }
 
 .wb-resume-card-name {
-  font: 600 14px var(--sans);
+  font: 600 var(--fs-md) var(--sans);
   color: var(--t);
   margin: 0;
   overflow: hidden;
@@ -2205,7 +2212,7 @@ const formatScore = (score) => {
 }
 
 .wb-resume-card-meta {
-  font: 11px var(--mono);
+  font: var(--fs-2xs) var(--mono);
   color: var(--t3);
   letter-spacing: .03em;
   display: flex;
@@ -2232,7 +2239,7 @@ const formatScore = (score) => {
 }
 
 .wb-resume-stat-lb {
-  font: 11px var(--mono);
+  font: var(--fs-2xs) var(--mono);
   color: var(--t3);
   letter-spacing: .04em;
 }
@@ -2247,7 +2254,7 @@ const formatScore = (score) => {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  font: 11px var(--mono);
+  font: var(--fs-2xs) var(--mono);
   color: var(--t3);
   letter-spacing: .04em;
 }
@@ -2273,7 +2280,7 @@ const formatScore = (score) => {
 }
 
 .wb-resume-card-action {
-  font: 12px var(--mono);
+  font: var(--fs-xs) var(--mono);
   color: var(--t2);
   letter-spacing: .04em;
 }
@@ -2333,14 +2340,14 @@ const formatScore = (score) => {
 }
 
 .wb-chunk-num {
-  font: 600 11px var(--mono);
+  font: 600 var(--fs-2xs) var(--mono);
   color: rgba(220, 155, 90, 0.95);
   letter-spacing: .04em;
 }
 
 .wb-chunk-content {
   margin: 0;
-  font: 13px/1.7 var(--sans);
+  font: var(--fs-sm)/1.7 var(--sans);
   color: var(--t2);
   white-space: pre-wrap;
   word-break: break-word;
@@ -2381,20 +2388,20 @@ const formatScore = (score) => {
 
 .wb-parsing-title {
   margin: 0;
-  font: 600 14px var(--sans);
+  font: 600 var(--fs-md) var(--sans);
   color: var(--t);
 }
 
 .wb-parsing-meta {
   margin: 0;
-  font: 12px var(--mono);
+  font: var(--fs-xs) var(--mono);
   color: var(--t3);
   letter-spacing: .03em;
 }
 
 .wb-parsing-warn {
   margin: 0;
-  font: 11px/1.55 var(--sans);
+  font: var(--fs-2xs)/1.55 var(--sans);
   color: rgba(230, 165, 100, 0.90);
   max-width: 360px;
 }
@@ -2425,13 +2432,13 @@ const formatScore = (score) => {
 
 .wb-failed-title {
   margin: 0;
-  font: 600 14px var(--sans);
+  font: 600 var(--fs-md) var(--sans);
   color: rgba(255, 195, 180, 0.95);
 }
 
 .wb-failed-meta {
   margin: 0;
-  font: 12px/1.55 var(--sans);
+  font: var(--fs-xs)/1.55 var(--sans);
   color: var(--t3);
   max-width: 380px;
 }
@@ -2456,12 +2463,12 @@ const formatScore = (score) => {
 }
 
 .wb-empty-title {
-  font: 600 15px var(--display);
+  font: 600 var(--fs-lg) var(--display);
   color: var(--t);
 }
 
 .wb-empty-sub {
-  font-size: 13px;
+  font-size: var(--fs-sm);
   color: var(--t3);
 }
 
@@ -2489,7 +2496,7 @@ const formatScore = (score) => {
   border: 1px solid rgba(220, 155, 90, 0.35);
   background: rgba(220, 155, 90, 0.10);
   color: rgba(255, 224, 190, 0.95);
-  font: 600 12px var(--sans);
+  font: 600 var(--fs-xs) var(--sans);
   cursor: pointer;
 }
 
@@ -2525,7 +2532,7 @@ const formatScore = (score) => {
 
 .wb-eval-score-label {
   margin-top: 8px;
-  font: 12px var(--mono);
+  font: var(--fs-xs) var(--mono);
   color: var(--t3);
 }
 
@@ -2536,7 +2543,7 @@ const formatScore = (score) => {
 .wb-eval-summary p {
   margin: 10px 0 0;
   color: var(--t2);
-  font: 14px/1.7 var(--sans);
+  font: var(--fs-md)/1.7 var(--sans);
 }
 
 .wb-eval-status {
@@ -2545,7 +2552,7 @@ const formatScore = (score) => {
   height: 24px;
   padding: 0 9px;
   border-radius: var(--radius-pill);
-  font: 600 12px var(--sans);
+  font: 600 var(--fs-xs) var(--sans);
   color: rgba(255, 255, 255, 0.88);
   background: rgba(255, 255, 255, 0.07);
 }
@@ -2587,12 +2594,12 @@ const formatScore = (score) => {
   display: flex;
   justify-content: space-between;
   gap: 12px;
-  font: 600 13px var(--sans);
+  font: 600 var(--fs-sm) var(--sans);
   color: var(--t);
 }
 
 .wb-dimension-head strong {
-  font: 700 13px var(--mono);
+  font: 700 var(--fs-sm) var(--mono);
   color: rgba(220, 155, 90, 0.95);
 }
 
@@ -2614,7 +2621,7 @@ const formatScore = (score) => {
 .wb-dimension p {
   margin: 9px 0 0;
   color: var(--t3);
-  font: 12px/1.6 var(--sans);
+  font: var(--fs-xs)/1.6 var(--sans);
 }
 
 .wb-detail-grid {
@@ -2629,7 +2636,7 @@ const formatScore = (score) => {
 }
 
 .wb-detail-label {
-  font: 11px var(--mono);
+  font: var(--fs-2xs) var(--mono);
   color: var(--t3);
   letter-spacing: .06em;
   text-transform: uppercase;
@@ -2643,7 +2650,7 @@ const formatScore = (score) => {
 }
 
 .wb-tag {
-  font: 12px var(--sans);
+  font: var(--fs-xs) var(--sans);
   color: var(--t2);
   padding: 4px 10px;
   border-radius: var(--radius-pill);
@@ -2668,13 +2675,13 @@ const formatScore = (score) => {
 }
 
 .wb-project-name {
-  font: 600 13px var(--sans);
+  font: 600 var(--fs-sm) var(--sans);
   color: var(--t);
   margin-bottom: 2px;
 }
 
 .wb-project-stack {
-  font: 11px var(--mono);
+  font: var(--fs-2xs) var(--mono);
   color: var(--t3);
   letter-spacing: .03em;
 }
@@ -2697,7 +2704,7 @@ const formatScore = (score) => {
 
 .wb-eval-list li {
   color: var(--t2);
-  font: 13px/1.6 var(--sans);
+  font: var(--fs-sm)/1.6 var(--sans);
   padding: 10px 12px;
   border-radius: var(--radius-sm);
   border: 1px solid rgba(255, 255, 255, 0.06);
