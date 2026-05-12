@@ -43,28 +43,33 @@ export const chatEndpoints = {
 
   // ============ Knowledge Manager（WorkbenchKnowledge.vue 用） ============
   //
-  // 当前后端接口对齐状态（2026-05-12 通过 curl probe 实跑 :8123 探活，参见 docs/work-logs/）：
+  // 当前后端接口对齐状态（2026-05-12 通过 curl probe 实跑 :8123 探活）：
   //
-  //   ✅ 已实现：
+  //   ✅ 仓库代码已实现 + :8123 已加载：
   //     - GET    /api/ai/knowledge/documents              → 200
   //     - GET    /api/ai/knowledge/documents/:id/chunks   → 200
-  //     - POST   /api/ai/knowledge/upload                 → 401（需登录 Bearer token；存在）
+  //     - POST   /api/ai/knowledge/upload                 → 401（需登录 Bearer token）
   //     - POST   /api/ai/knowledge/test-query             → 400（路由存在；缺 body）
   //
-  //   ❌ 当前后端尚未实现（仓库 routes.go 已注册，但实际运行的旧版本未包含）：
-  //     - GET    /api/ai/knowledge/folders                → 404
-  //     - POST   /api/ai/knowledge/folders                → 404
-  //     - PATCH  /api/ai/knowledge/folders/:id            → 404
-  //     - DELETE /api/ai/knowledge/folders/:id            → 404
-  //     - PATCH  /api/ai/knowledge/documents/:id/folder   → 404
+  //   ⚠️  仓库代码已实现，但 :8123 进程是 v0.2 之前的旧 build，**重启 chat 后端即生效**：
+  //     - GET    /api/ai/knowledge/folders                → 当前 404
+  //     - POST   /api/ai/knowledge/folders                → 当前 404
+  //     - PATCH  /api/ai/knowledge/folders/:id            → 当前 404
+  //     - DELETE /api/ai/knowledge/folders/:id            → 当前 404
+  //     - PATCH  /api/ai/knowledge/documents/:id/folder   → 当前 404
   //
-  // 后端补齐之前，前端的 KnowledgeSidebar 目录树 / 目录 CRUD / 「移动到目录」select 都会 fallback：
-  //   - knowledgeFolders 失败 → 视为 0 文件夹，sidebar 只显示 visibility 二分类
-  //   - knowledgeMoveDocumentFolder 失败 → 抛错给 UI 层 alert
-  //   - knowledgeCreateFolder/UpdateFolder/DeleteFolder 失败 → 同样 UI alert
+  //   后端事实源（不要把前端备注当事实源，请以 chat.api 为准）：
+  //     - 路由契约：api/chat/chat.api（type 定义 + 路由声明）
+  //     - 路由表：  api/chat/internal/handler/routes.go（goctl 生成，自动同步）
+  //     - handler： api/chat/internal/handler/knowledge_manager.go
+  //     - logic：   api/chat/internal/logic/knowledge_*.go
+  //     - 数据库：  db/user.sql 的 knowledge_folders / knowledge_base.folder_id
+  //     - 开发记录：docs/development/2026-05-12-knowledge-v02-backend-interfaces.md
   //
-  // 后续待办：后端补齐 5 个 folder 接口后，请同步 review 此处注释 + 字段对齐
-  // （KnowledgeFolderItem.path/depth/documentCount/sortOrder/children；KnowledgeFolderDeleteResp.deleted）。
+  //   重启后未对齐时的兜底（前端已 try/catch 优雅降级，不阻塞主流程）：
+  //     - knowledgeFolders 失败 → 视为 0 文件夹，sidebar 只显示 visibility 二分类
+  //     - knowledgeMoveDocumentFolder 失败 → 抛错给 UI 层 alert
+  //     - knowledgeCreateFolder/UpdateFolder/DeleteFolder 失败 → 同样 UI alert
 
   // 知识库文档列表：匿名只读公共知识，登录后包含当前用户私有
   // ✅ 后端已实现
@@ -77,8 +82,8 @@ export const chatEndpoints = {
     };
   },
 
-  // ❌ TODO(backend-align): 当前 :8123 后端 404，前端 fallback 为 0 文件夹。
-  //    期望响应：{ folders: KnowledgeFolderItem[]（树形 children 嵌套）, unfiledCount, totalCount, initialized, meta }
+  // ⚠️  仓库代码已实现，当前 :8123 运行旧 build 返回 404；重启后端即生效。
+  //    期望响应（KnowledgeFoldersResp）：{ folders: KnowledgeFolderItem[]（树形 children 嵌套）, unfiledCount, total, totalCount, initialized, meta }
   knowledgeFolders() {
     return {
       service: "chat",
@@ -87,8 +92,9 @@ export const chatEndpoints = {
     };
   },
 
-  // ❌ TODO(backend-align): 当前 :8123 后端 404。
-  //    期望请求：{ name, parentId? } | 期望响应：{ folder: KnowledgeFolderItem, meta }
+  // ⚠️  仓库代码已实现，当前 :8123 运行旧 build 返回 404；重启后端即生效。
+  //    期望请求（KnowledgeCreateFolderReq）：{ name, parentId?, sortOrder? }
+  //    期望响应（KnowledgeFolderMutationResp）：{ folder: KnowledgeFolderItem, meta }
   knowledgeCreateFolder(payload) {
     return {
       service: "chat",
@@ -98,8 +104,9 @@ export const chatEndpoints = {
     };
   },
 
-  // ❌ TODO(backend-align): 当前 :8123 后端 404。
-  //    期望请求：{ name?, parentId?, sortOrder? } | 期望响应：{ folder: KnowledgeFolderItem, meta }
+  // ⚠️  仓库代码已实现，当前 :8123 运行旧 build 返回 404；重启后端即生效。
+  //    期望请求（KnowledgeUpdateFolderReq）：{ name?, parentId?, sortOrder?, setParent?, setSortOrder? }
+  //    期望响应（KnowledgeFolderMutationResp）：{ folder: KnowledgeFolderItem, meta }
   knowledgeUpdateFolder(id, payload) {
     return {
       service: "chat",
@@ -109,9 +116,9 @@ export const chatEndpoints = {
     };
   },
 
-  // ❌ TODO(backend-align): 当前 :8123 后端 404。
-  //    新策略（refactor 9c38333）：仅允许删除空目录，非空返回 409 ErrKnowledgeFolderNotEmpty。
-  //    期望响应：{ deleted: bool, meta }
+  // ⚠️  仓库代码已实现，当前 :8123 运行旧 build 返回 404；重启后端即生效。
+  //    策略（refactor 9c38333）：仅允许删除空目录，非空返回 409 ErrKnowledgeFolderNotEmpty。
+  //    期望响应（KnowledgeFolderDeleteResp）：{ deleted: bool, meta }
   knowledgeDeleteFolder(id) {
     return {
       service: "chat",
@@ -146,9 +153,9 @@ export const chatEndpoints = {
     };
   },
 
-  // ❌ TODO(backend-align): 当前 :8123 后端 404。
-  //    期望请求：{ folderId: number | 0=未归类 } | 期望响应：{ document: KnowledgeDocumentItem, meta }
-  //    用于卡片右上 select「移动到目录」交互；对应 svc.MoveKnowledgeDocumentFolder。
+  // ⚠️  仓库代码已实现，当前 :8123 运行旧 build 返回 404；重启后端即生效。
+  //    期望请求（KnowledgeMoveDocumentFolderReq）：{ folderId: number | 0=未归类 }
+  //    期望响应（KnowledgeDocumentMutationResp）：{ document: KnowledgeDocumentItem, meta }
   knowledgeMoveDocumentFolder(id, payload) {
     return {
       service: "chat",
