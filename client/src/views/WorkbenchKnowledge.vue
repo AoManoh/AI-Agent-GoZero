@@ -108,62 +108,143 @@
           </div>
         </section>
 
-        <!-- 右：详情 + 片段预览 -->
+        <!-- 右：详情 + 双 tab（Chunks 预览 / Test query 召回）-->
         <aside class="wb-kb-detail">
-          <div v-if="selectedDoc" class="wb-kb-detail-inner">
-            <header class="wb-kb-detail-head">
-              <div class="wb-kb-detail-icon" aria-hidden="true">{{ getDocTypeLabel(selectedDoc.type) }}</div>
-              <div class="wb-kb-detail-meta">
-                <h4 class="wb-kb-detail-name">{{ selectedDoc.name }}</h4>
-                <div class="wb-kb-detail-info">{{ selectedDoc.uploadedAt }} · {{ formatBytes(selectedDoc.sizeBytes) }}</div>
-              </div>
-            </header>
+          <!-- Tab 切换栏：在 detail-head 上方，跨整列宽 -->
+          <nav class="wb-kb-tabs" role="tablist" aria-label="知识库右栏视图切换">
+            <button
+              v-for="tab in tabDefs"
+              :key="tab.id"
+              type="button"
+              class="wb-kb-tab"
+              :class="{ 'wb-kb-tab-active': activeTab === tab.id }"
+              role="tab"
+              :aria-selected="activeTab === tab.id"
+              @click="activeTab = tab.id"
+            >
+              {{ tab.label }}
+            </button>
+          </nav>
 
-            <div class="wb-kb-detail-stats">
-              <div class="wb-kb-detail-stat">
-                <span class="wb-kb-detail-stat-num">{{ selectedDoc.chunkCount }}</span>
-                <span class="wb-kb-detail-stat-lb">片段</span>
-              </div>
-              <div class="wb-kb-detail-stat">
-                <span class="wb-kb-detail-stat-num">{{ selectedDoc.embeddingDimension || "—" }}</span>
-                <span class="wb-kb-detail-stat-lb">维度</span>
-              </div>
-              <div class="wb-kb-detail-stat">
-                <span class="wb-kb-detail-stat-num">v{{ selectedDoc.version || 1 }}</span>
-                <span class="wb-kb-detail-stat-lb">版本</span>
-              </div>
-            </div>
+          <!-- Tab 1: Chunks 预览（默认） -->
+          <div v-if="activeTab === 'chunks'" class="wb-kb-tabpanel" role="tabpanel">
+            <div v-if="selectedDoc" class="wb-kb-detail-inner">
+              <header class="wb-kb-detail-head">
+                <div class="wb-kb-detail-icon" aria-hidden="true">{{ getDocTypeLabel(selectedDoc.type) }}</div>
+                <div class="wb-kb-detail-meta">
+                  <h4 class="wb-kb-detail-name">{{ selectedDoc.name }}</h4>
+                  <div class="wb-kb-detail-info">{{ selectedDoc.uploadedAt }} · {{ formatBytes(selectedDoc.sizeBytes) }}</div>
+                </div>
+              </header>
 
-            <div v-if="selectedDoc.embeddingModel" class="wb-kb-detail-meta-line">
-              <span class="wb-detail-label">向量模型</span>
-              <span class="wb-kb-detail-meta-value">{{ selectedDoc.embeddingModel }}</span>
-            </div>
-
-            <div class="wb-kb-detail-block">
-              <div class="wb-detail-label">片段预览（Chunks）</div>
-              <div v-if="selectedDoc.chunks?.length > 0" class="wb-kb-chunks">
-                <div
-                  v-for="(chunk, i) in selectedDoc.chunks"
-                  :key="`chunk-${i}`"
-                  class="wb-kb-chunk"
-                >
-                  <div class="wb-kb-chunk-num">#{{ String(i + 1).padStart(2, '0') }}</div>
-                  <p class="wb-kb-chunk-text">{{ chunk }}</p>
+              <div class="wb-kb-detail-stats">
+                <div class="wb-kb-detail-stat">
+                  <span class="wb-kb-detail-stat-num">{{ selectedDoc.chunkCount }}</span>
+                  <span class="wb-kb-detail-stat-lb">片段</span>
+                </div>
+                <div class="wb-kb-detail-stat">
+                  <span class="wb-kb-detail-stat-num">{{ selectedDoc.embeddingDimension || "—" }}</span>
+                  <span class="wb-kb-detail-stat-lb">维度</span>
+                </div>
+                <div class="wb-kb-detail-stat">
+                  <span class="wb-kb-detail-stat-num">v{{ selectedDoc.version || 1 }}</span>
+                  <span class="wb-kb-detail-stat-lb">版本</span>
                 </div>
               </div>
-              <div v-else-if="selectedDoc.status === 'processing'" class="wb-kb-chunks-empty">
-                文档正在解析中…
+
+              <div v-if="selectedDoc.embeddingModel" class="wb-kb-detail-meta-line">
+                <span class="wb-detail-label">向量模型</span>
+                <span class="wb-kb-detail-meta-value">{{ selectedDoc.embeddingModel }}</span>
               </div>
-              <div v-else-if="selectedDoc.status === 'failed'" class="wb-kb-chunks-empty">
-                文档解析失败，请重新上传
+
+              <div class="wb-kb-detail-block">
+                <div class="wb-detail-label">片段预览（Chunks）</div>
+                <div v-if="selectedDoc.chunks?.length > 0" class="wb-kb-chunks">
+                  <div
+                    v-for="(chunk, i) in selectedDoc.chunks"
+                    :key="`chunk-${i}`"
+                    class="wb-kb-chunk"
+                  >
+                    <div class="wb-kb-chunk-num">#{{ String(i + 1).padStart(2, '0') }}</div>
+                    <p class="wb-kb-chunk-text">{{ chunk }}</p>
+                  </div>
+                </div>
+                <div v-else-if="selectedDoc.status === 'processing'" class="wb-kb-chunks-empty">
+                  文档正在解析中…
+                </div>
+                <div v-else-if="selectedDoc.status === 'failed'" class="wb-kb-chunks-empty">
+                  文档解析失败，请重新上传
+                </div>
+                <div v-else class="wb-kb-chunks-empty">点击文档卡片以加载片段。</div>
               </div>
-              <div v-else class="wb-kb-chunks-empty">点击文档卡片以加载片段。</div>
+            </div>
+
+            <div v-else class="wb-kb-detail-empty">
+              <div class="wb-empty-title">选择一份文档</div>
+              <div class="wb-empty-sub">查看片段预览、向量维度和元信息。</div>
             </div>
           </div>
 
-          <div v-else class="wb-kb-detail-empty">
-            <div class="wb-empty-title">选择一份文档</div>
-            <div class="wb-empty-sub">查看片段预览、向量维度和元信息。</div>
+          <!-- Tab 2: Test query 召回 -->
+          <div v-else-if="activeTab === 'test-query'" class="wb-kb-tabpanel" role="tabpanel">
+            <div class="wb-kb-test-block">
+              <label class="wb-detail-label" for="kb-test-query-input">召回测试 Query</label>
+              <div class="wb-kb-test-input-row">
+                <input
+                  id="kb-test-query-input"
+                  v-model="testQuery"
+                  type="text"
+                  class="wb-kb-test-input"
+                  placeholder="输入一段话或问题，验证向量检索 TopK 命中"
+                  :disabled="testLoading"
+                  @keydown.enter.prevent="runTestQuery"
+                />
+                <button
+                  type="button"
+                  class="wb-kb-test-btn"
+                  :disabled="testLoading || !testQuery.trim()"
+                  @click="runTestQuery"
+                >
+                  {{ testLoading ? "检索中…" : "检索" }}
+                </button>
+              </div>
+              <div class="wb-kb-test-meta">
+                <span>当前知识范围：{{ activeScopeLabel }}</span>
+                <span aria-hidden="true">·</span>
+                <span>TopK = {{ testTopK }}</span>
+                <span v-if="testError" class="wb-kb-test-error">{{ testError }}</span>
+              </div>
+            </div>
+
+            <div class="wb-kb-detail-block">
+              <div class="wb-detail-label">召回结果</div>
+              <div v-if="testResults.length > 0" class="wb-kb-chunks">
+                <div
+                  v-for="(item, i) in testResults"
+                  :key="`tr-${i}-${item.chunkId}`"
+                  class="wb-kb-chunk wb-kb-test-result"
+                >
+                  <div class="wb-kb-test-result-head">
+                    <span class="wb-kb-chunk-num">#{{ String(i + 1).padStart(2, '0') }}</span>
+                    <span
+                      class="wb-kb-score-chip"
+                      :class="`wb-kb-score-${getScoreLevel(item.score)}`"
+                      :title="`相似度 ${formatScore(item.score)}`"
+                    >
+                      {{ formatScore(item.score) }}
+                    </span>
+                  </div>
+                  <h5 v-if="item.title" class="wb-kb-test-result-title">{{ item.title }}</h5>
+                  <p class="wb-kb-chunk-text">{{ item.content }}</p>
+                </div>
+              </div>
+              <div v-else-if="testQueriedOnce" class="wb-kb-chunks-empty">
+                没有找到与查询相关的片段。请尝试不同的关键词或先上传更多资料。
+              </div>
+              <div v-else class="wb-kb-chunks-empty">
+                输入查询后，向量检索会返回 TopK 相似的 chunks 与相似度分数。
+              </div>
+            </div>
           </div>
         </aside>
       </div>
@@ -325,6 +406,70 @@ const emptyStateCTA = computed(() => activeKey.value === "private");
 
 // 全文阅读按钮 hint（v0.2 启用）
 const readerButtonHint = "全文阅读模式将在 v0.2 启用（reader = chunks concat + marked 渲染）";
+
+// === 右栏双 tab：Chunks 预览 / Test query 召回（F4） ===
+//
+// 决策来源 §7.1 F4：
+//   - 默认 tab='chunks'，命中文档详情 + 片段预览（保持现有交互不变）
+//   - tab='test-query' 调用 POST /api/ai/knowledge/test-query 验证当前 visibility 范围内的 TopK 检索
+//   - score chip 三色阈值：≥0.7 高（绿） / 0.3-0.7 中（金） / <0.3 低（红），配合 hover title 显示精确分数
+const tabDefs = [
+  { id: "chunks", label: "Chunks 预览" },
+  { id: "test-query", label: "Test query" },
+];
+const activeTab = ref("chunks");
+
+// Test query 状态
+const testQuery = ref("");
+const testTopK = ref(5); // 默认 5（后端 boundedKnowledgeLimit 默认 5、最大 10）
+const testResults = ref([]);
+const testLoading = ref(false);
+const testError = ref("");
+const testQueriedOnce = ref(false);
+
+const runTestQuery = async () => {
+  const q = testQuery.value.trim();
+  if (!q || testLoading.value) return;
+  testLoading.value = true;
+  testError.value = "";
+  try {
+    const res = await apiService.chat.knowledgeTestQuery({
+      query: q,
+      topK: testTopK.value,
+    });
+    testResults.value = Array.isArray(res?.results) ? res.results : [];
+    testQueriedOnce.value = true;
+  } catch (error) {
+    testResults.value = [];
+    testError.value = error?.message || "检索失败，请稍后重试";
+    testQueriedOnce.value = true;
+  } finally {
+    testLoading.value = false;
+  }
+};
+
+// 切换 visibility 时清空上次 test query 结果，避免显示与新分组不匹配的旧结果
+watch(activeKey, () => {
+  if (testQueriedOnce.value) {
+    testResults.value = [];
+    testQueriedOnce.value = false;
+    testError.value = "";
+  }
+});
+
+// 相似度分数格式化为 0.00 - 1.00 三位定点
+const formatScore = (score) => {
+  if (typeof score !== "number" || Number.isNaN(score)) return "—";
+  return score.toFixed(2);
+};
+
+// 三色阈值映射：返回 'high' | 'mid' | 'low'，CSS 类名拼接 wb-kb-score-{level}
+const getScoreLevel = (score) => {
+  if (typeof score !== "number" || Number.isNaN(score)) return "low";
+  if (score >= 0.7) return "high";
+  if (score >= 0.3) return "mid";
+  return "low";
+};
 
 // 拉取文档列表：后端返回 KnowledgeDocumentItem[]，含 visibility / sizeBytes / embeddingDimension / embeddingModel
 const loadDocuments = async () => {
@@ -746,6 +891,47 @@ const getDocStatusLabel = (status) => {
   overflow-y: auto;
 }
 
+/* === 右栏 tab 切换 === */
+.wb-kb-tabs {
+  display: flex;
+  gap: 0.25rem;
+  padding: 0.25rem;
+  margin-bottom: clamp(0.875rem, 1.5vw, 1.125rem);
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: var(--radius-pill);
+}
+
+.wb-kb-tab {
+  flex: 1;
+  font: 600 clamp(11px, 0.85vw, 13px) var(--sans);
+  color: var(--t3);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-pill);
+  padding: 0.4375rem 0.75rem;
+  cursor: pointer;
+  transition: color 0.2s ease, background-color 0.2s ease;
+  letter-spacing: 0.01em;
+}
+
+.wb-kb-tab:hover:not(.wb-kb-tab-active) {
+  color: var(--t);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.wb-kb-tab-active {
+  color: rgba(220, 155, 90, 0.95);
+  background: rgba(220, 155, 90, 0.08);
+  box-shadow: inset 0 0 0 1px rgba(220, 155, 90, 0.18);
+}
+
+.wb-kb-tabpanel {
+  display: flex;
+  flex-direction: column;
+  gap: clamp(0.875rem, 1.5vw, 1.125rem);
+}
+
 .wb-kb-detail-head {
   display: flex;
   align-items: center;
@@ -887,6 +1073,129 @@ const getDocStatusLabel = (status) => {
   border: 1px dashed rgba(255, 255, 255, 0.08);
   border-radius: var(--radius-sm);
   background: rgba(255, 255, 255, 0.015);
+}
+
+/* === Test query tab 输入区 === */
+.wb-kb-test-block {
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem;
+  padding-bottom: 0.875rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.wb-kb-test-input-row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: stretch;
+}
+
+.wb-kb-test-input {
+  flex: 1;
+  min-width: 0;
+  font: clamp(12px, 0.9vw, 14px) var(--sans);
+  color: var(--t);
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-sm);
+  padding: 0.5rem 0.75rem;
+  outline: none;
+  transition: border-color 0.2s ease, background-color 0.2s ease;
+}
+
+.wb-kb-test-input:focus {
+  border-color: rgba(220, 155, 90, 0.45);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.wb-kb-test-input:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.wb-kb-test-input::placeholder {
+  color: var(--t3);
+}
+
+.wb-kb-test-btn {
+  font: 600 clamp(12px, 0.9vw, 13px) var(--sans);
+  color: var(--bg);
+  background: rgba(220, 155, 90, 0.95);
+  border: none;
+  border-radius: var(--radius-sm);
+  padding: 0 0.875rem;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background-color 0.2s ease, opacity 0.2s ease;
+}
+
+.wb-kb-test-btn:hover:not(:disabled) {
+  background: rgba(232, 173, 110, 1);
+}
+
+.wb-kb-test-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.wb-kb-test-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.375rem;
+  font: clamp(10px, 0.7vw, 11px) var(--mono);
+  color: var(--t3);
+  letter-spacing: 0.04em;
+}
+
+.wb-kb-test-error {
+  color: #ef8a73;
+}
+
+/* === Test query 召回结果 === */
+.wb-kb-test-result-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.375rem;
+}
+
+.wb-kb-test-result-title {
+  font: 600 clamp(12px, 0.9vw, 13px) var(--sans);
+  color: var(--t2);
+  margin: 0 0 0.25rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* score chip 三色阈值（≥0.7 高 / 0.3-0.7 中 / <0.3 低） */
+.wb-kb-score-chip {
+  font: 700 11px var(--mono);
+  letter-spacing: 0.04em;
+  padding: 2px 8px;
+  border-radius: 999px;
+  flex-shrink: 0;
+  border: 1px solid transparent;
+}
+
+.wb-kb-score-high {
+  color: rgba(155, 209, 168, 0.95);
+  background: rgba(155, 209, 168, 0.1);
+  border-color: rgba(155, 209, 168, 0.3);
+}
+
+.wb-kb-score-mid {
+  color: rgba(220, 155, 90, 0.95);
+  background: rgba(220, 155, 90, 0.08);
+  border-color: rgba(220, 155, 90, 0.3);
+}
+
+.wb-kb-score-low {
+  color: rgba(239, 138, 115, 0.95);
+  background: rgba(239, 102, 96, 0.08);
+  border-color: rgba(239, 102, 96, 0.3);
 }
 
 .wb-kb-detail-empty {
