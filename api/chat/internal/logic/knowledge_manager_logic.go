@@ -176,16 +176,20 @@ func (l *KnowledgeFoldersLogic) KnowledgeFolders(*types.KnowledgeFoldersReq) (*t
 	if err != nil {
 		return nil, statuserr.ServiceUnavailable("知识库目录暂不可用，请稍后重试")
 	}
-
-	items := make([]types.KnowledgeFolderItem, 0, len(folders))
-	for _, folder := range folders {
-		items = append(items, buildKnowledgeFolderItem(folder))
+	unfiledCount, err := l.svcCtx.VectorStore.CountUnfiledKnowledgeDocuments(l.ctx, userID)
+	if err != nil {
+		return nil, statuserr.ServiceUnavailable("知识库目录暂不可用，请稍后重试")
 	}
 
+	items := buildKnowledgeFolderTree(folders)
+
 	return &types.KnowledgeFoldersResp{
-		Folders: items,
-		Total:   int64(len(items)),
-		Meta:    buildKnowledgeManagerMeta(&userID),
+		Folders:      items,
+		UnfiledCount: unfiledCount,
+		Total:        int64(len(folders)),
+		TotalCount:   int64(len(folders)),
+		Initialized:  false,
+		Meta:         buildKnowledgeManagerMeta(&userID),
 	}, nil
 }
 
@@ -253,20 +257,26 @@ func (l *KnowledgeUpdateFolderLogic) KnowledgeUpdateFolder(req *types.KnowledgeU
 	}, nil
 }
 
-func (l *KnowledgeDeleteFolderLogic) KnowledgeDeleteFolder(req *types.KnowledgeDeleteFolderReq) error {
+func (l *KnowledgeDeleteFolderLogic) KnowledgeDeleteFolder(req *types.KnowledgeDeleteFolderReq) (*types.KnowledgeFolderDeleteResp, error) {
 	userID, err := requiredKnowledgeUserID(l.ctx)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if req.Id <= 0 {
-		return statuserr.New(http.StatusBadRequest, "知识目录 ID 无效")
+		return nil, statuserr.New(http.StatusBadRequest, "知识目录 ID 无效")
 	}
 
-	if err := l.svcCtx.VectorStore.DeleteKnowledgeFolder(l.ctx, req.Id, userID); err != nil {
-		return mapKnowledgeMutationError(err, "知识目录不存在或无权访问")
+	result, err := l.svcCtx.VectorStore.DeleteKnowledgeFolder(l.ctx, req.Id, userID)
+	if err != nil {
+		return nil, mapKnowledgeMutationError(err, "知识目录不存在或无权访问")
 	}
 
-	return nil
+	return &types.KnowledgeFolderDeleteResp{
+		MovedDocCount:       result.MovedDocCount,
+		PromotedFolderCount: result.PromotedFolderCount,
+		ParentName:          result.ParentName,
+		Meta:                buildKnowledgeManagerMeta(&userID),
+	}, nil
 }
 
 func (l *KnowledgeMoveDocumentFolderLogic) KnowledgeMoveDocumentFolder(req *types.KnowledgeMoveDocumentFolderReq) (*types.KnowledgeDocumentMutationResp, error) {
@@ -476,6 +486,8 @@ func buildKnowledgeFolderItem(folder svc.KnowledgeFolder) types.KnowledgeFolderI
 	item := types.KnowledgeFolderItem{
 		Id:            folder.ID,
 		Name:          folder.Name,
+		Path:          folder.Path,
+		Depth:         folder.Depth,
 		SortOrder:     folder.SortOrder,
 		DocumentCount: folder.DocumentCount,
 		ChunkCount:    folder.ChunkCount,
@@ -489,13 +501,40 @@ func buildKnowledgeFolderItem(folder svc.KnowledgeFolder) types.KnowledgeFolderI
 	return item
 }
 
+func buildKnowledgeFolderTree(folders []svc.KnowledgeFolder) []types.KnowledgeFolderItem {
+	childrenByParent := make(map[int64][]svc.KnowledgeFolder, len(folders))
+	roots := make([]svc.KnowledgeFolder, 0)
+	for _, folder := range folders {
+		if folder.ParentID.Valid {
+			childrenByParent[folder.ParentID.Int64] = append(childrenByParent[folder.ParentID.Int64], folder)
+			continue
+		}
+		roots = append(roots, folder)
+	}
+
+	var buildNode func(folder svc.KnowledgeFolder) types.KnowledgeFolderItem
+	buildNode = func(folder svc.KnowledgeFolder) types.KnowledgeFolderItem {
+		item := buildKnowledgeFolderItem(folder)
+		for _, child := range childrenByParent[folder.ID] {
+			item.Children = append(item.Children, buildNode(child))
+		}
+		return item
+	}
+
+	items := make([]types.KnowledgeFolderItem, 0, len(roots))
+	for _, root := range roots {
+		items = append(items, buildNode(root))
+	}
+	return items
+}
+
 func validateKnowledgeFolderName(name string) error {
 	trimmed := strings.TrimSpace(name)
 	if trimmed == "" {
 		return statuserr.New(http.StatusBadRequest, "目录名称不能为空")
 	}
-	if len([]rune(trimmed)) > 120 {
-		return statuserr.New(http.StatusBadRequest, "目录名称不能超过 120 个字符")
+	if len([]rune(trimmed)) > 80 {
+		return statuserr.New(http.StatusBadRequest, "目录名称不能超过 80 个字符")
 	}
 
 	return nil

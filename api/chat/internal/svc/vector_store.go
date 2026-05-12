@@ -633,6 +633,25 @@ ORDER BY f.parent_id NULLS FIRST, f.sort_order ASC, f.created_at ASC, f.id ASC`,
 	return folders, nil
 }
 
+func (vs *VectorStore) CountUnfiledKnowledgeDocuments(ctx context.Context, userID int64) (int64, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if userID <= 0 {
+		return 0, fmt.Errorf("目录所属用户不能为空")
+	}
+	var count int64
+	if err := vs.Pool.QueryRow(ctx, `SELECT count(DISTINCT (title, coalesce(source, ''), coalesce(version, 1)))
+FROM knowledge_base
+WHERE user_id = $1
+  AND visibility = 'private'
+  AND status = 'ready'
+  AND folder_id IS NULL`, userID).Scan(&count); err != nil {
+		return 0, err
+	}
+	return count, nil
+}
+
 func (vs *VectorStore) CreateKnowledgeFolder(ctx context.Context, input KnowledgeCreateFolderInput) (KnowledgeFolder, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -707,7 +726,8 @@ func (vs *VectorStore) UpdateKnowledgeFolder(ctx context.Context, input Knowledg
 	}
 	defer rollbackTx(tx)
 
-	if err := ensureKnowledgeFolderOwned(ctx, tx, input.ID, input.UserID); err != nil {
+	current, err := loadKnowledgeFolderForUpdate(ctx, tx, input.ID, input.UserID)
+	if err != nil {
 		return KnowledgeFolder{}, err
 	}
 	if input.SetParent {
@@ -723,20 +743,51 @@ func (vs *VectorStore) UpdateKnowledgeFolder(ctx context.Context, input Knowledg
 			}
 		}
 	}
+	newName := current.Name
+	if name != "" {
+		newName = name
+	}
+	newParentID := int64(0)
+	if current.ParentID.Valid {
+		newParentID = current.ParentID.Int64
+	}
+	if input.SetParent {
+		newParentID = input.ParentID
+	}
+	parentPath, parentDepth, err := loadKnowledgeFolderParentPath(ctx, tx, newParentID, input.UserID)
+	if err != nil {
+		return KnowledgeFolder{}, err
+	}
+	newDepth := parentDepth
+	if newParentID > 0 {
+		newDepth = parentDepth + 1
+	}
+	span, err := loadKnowledgeFolderSubtreeDepthSpan(ctx, tx, input.ID, input.UserID, current.Depth)
+	if err != nil {
+		return KnowledgeFolder{}, err
+	}
+	if newDepth+span > 2 {
+		return KnowledgeFolder{}, statuserr.New(http.StatusUnprocessableEntity, "目录最多支持 3 层")
+	}
+	newPath := buildKnowledgeFolderPath(parentPath, newName)
 
 	row := tx.QueryRow(ctx, `UPDATE knowledge_folders
 SET name = CASE WHEN $3 THEN $4 ELSE name END,
     parent_id = CASE WHEN $5 THEN NULLIF($6::bigint, 0) ELSE parent_id END,
-    sort_order = CASE WHEN $7 THEN $8 ELSE sort_order END,
+    path = $7,
+    depth = $8,
+    sort_order = CASE WHEN $9 THEN $10 ELSE sort_order END,
     updated_at = now()
 WHERE id = $1 AND user_id = $2
-RETURNING id, user_id, parent_id, name, sort_order, 0::bigint, 0::bigint, created_at, updated_at`,
+RETURNING id, user_id, parent_id, name, path, depth, sort_order, 0::bigint, 0::bigint, created_at, updated_at`,
 		input.ID,
 		input.UserID,
 		name != "",
 		name,
 		input.SetParent,
 		input.ParentID,
+		newPath,
+		newDepth,
 		input.SetSortOrder,
 		input.SortOrder,
 	)
@@ -744,6 +795,9 @@ RETURNING id, user_id, parent_id, name, sort_order, 0::bigint, 0::bigint, create
 	folder, err := scanKnowledgeFolder(row)
 	if err != nil {
 		return KnowledgeFolder{}, translateKnowledgeFolderWriteError(err)
+	}
+	if err := rebuildKnowledgeFolderPaths(ctx, tx, input.UserID); err != nil {
+		return KnowledgeFolder{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return KnowledgeFolder{}, err
@@ -765,6 +819,8 @@ f.id,
 f.user_id,
 f.parent_id,
 f.name,
+f.path,
+f.depth,
 f.sort_order,
 count(DISTINCT (kb.title, kb.source, kb.version)) AS document_count,
 count(kb.id) AS chunk_count,
@@ -777,55 +833,76 @@ LEFT JOIN knowledge_base kb
  AND kb.visibility = 'private'
  AND kb.status = 'ready'
 WHERE f.id = $1 AND f.user_id = $2
-GROUP BY f.id, f.user_id, f.parent_id, f.name, f.sort_order, f.created_at, f.updated_at`,
+GROUP BY f.id, f.user_id, f.parent_id, f.name, f.path, f.depth, f.sort_order, f.created_at, f.updated_at`,
 		folderID,
 		userID,
 	))
 }
 
-func (vs *VectorStore) DeleteKnowledgeFolder(ctx context.Context, folderID, userID int64) error {
+func (vs *VectorStore) DeleteKnowledgeFolder(ctx context.Context, folderID, userID int64) (KnowledgeDeleteFolderResult, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	if folderID <= 0 || userID <= 0 {
-		return pgx.ErrNoRows
+		return KnowledgeDeleteFolderResult{}, pgx.ErrNoRows
 	}
 
 	tx, err := vs.Pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
-		return err
+		return KnowledgeDeleteFolderResult{}, err
 	}
 	defer rollbackTx(tx)
 
-	if err := ensureKnowledgeFolderOwned(ctx, tx, folderID, userID); err != nil {
-		return err
+	folder, err := loadKnowledgeFolderForUpdate(ctx, tx, folderID, userID)
+	if err != nil {
+		return KnowledgeDeleteFolderResult{}, err
 	}
 
-	var childCount int64
-	if err := tx.QueryRow(ctx, `SELECT count(*) FROM knowledge_folders WHERE user_id = $1 AND parent_id = $2`, userID, folderID).Scan(&childCount); err != nil {
-		return err
-	}
-	if childCount > 0 {
-		return statuserr.Conflict("目录下仍有子目录，不能删除")
+	var parentID any
+	parentName := "未归类"
+	if folder.ParentID.Valid {
+		parentID = folder.ParentID.Int64
+		if err := tx.QueryRow(ctx, `SELECT name FROM knowledge_folders WHERE id = $1 AND user_id = $2`, folder.ParentID.Int64, userID).Scan(&parentName); err != nil {
+			return KnowledgeDeleteFolderResult{}, err
+		}
 	}
 
-	var chunkCount int64
-	if err := tx.QueryRow(ctx, `SELECT count(*) FROM knowledge_base WHERE user_id = $1 AND folder_id = $2`, userID, folderID).Scan(&chunkCount); err != nil {
-		return err
+	docTag, err := tx.Exec(ctx, `UPDATE knowledge_base
+SET folder_id = $3,
+    updated_at = now()
+WHERE user_id = $1 AND folder_id = $2`, userID, folderID, parentID)
+	if err != nil {
+		return KnowledgeDeleteFolderResult{}, err
 	}
-	if chunkCount > 0 {
-		return statuserr.Conflict("目录下仍有文档，不能删除")
+
+	childTag, err := tx.Exec(ctx, `UPDATE knowledge_folders
+SET parent_id = $3,
+    updated_at = now()
+WHERE user_id = $1 AND parent_id = $2`, userID, folderID, parentID)
+	if err != nil {
+		return KnowledgeDeleteFolderResult{}, err
 	}
 
 	tag, err := tx.Exec(ctx, `DELETE FROM knowledge_folders WHERE id = $1 AND user_id = $2`, folderID, userID)
 	if err != nil {
-		return err
+		return KnowledgeDeleteFolderResult{}, err
 	}
 	if tag.RowsAffected() == 0 {
-		return pgx.ErrNoRows
+		return KnowledgeDeleteFolderResult{}, pgx.ErrNoRows
 	}
 
-	return tx.Commit(ctx)
+	if err := rebuildKnowledgeFolderPaths(ctx, tx, userID); err != nil {
+		return KnowledgeDeleteFolderResult{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return KnowledgeDeleteFolderResult{}, err
+	}
+
+	return KnowledgeDeleteFolderResult{
+		MovedDocCount:       docTag.RowsAffected(),
+		PromotedFolderCount: childTag.RowsAffected(),
+		ParentName:          parentName,
+	}, nil
 }
 
 func (vs *VectorStore) MoveKnowledgeDocumentFolder(ctx context.Context, documentID, userID, folderID int64) (KnowledgeDocument, error) {
@@ -1576,6 +1653,8 @@ func scanKnowledgeFolder(row pgx.Row) (KnowledgeFolder, error) {
 		&folder.UserID,
 		&folder.ParentID,
 		&folder.Name,
+		&folder.Path,
+		&folder.Depth,
 		&folder.SortOrder,
 		&folder.DocumentCount,
 		&folder.ChunkCount,
@@ -1588,6 +1667,83 @@ func scanKnowledgeFolder(row pgx.Row) (KnowledgeFolder, error) {
 	return folder, nil
 }
 
+func loadKnowledgeFolderForUpdate(ctx context.Context, db execQuerier, folderID, userID int64) (KnowledgeFolder, error) {
+	if folderID <= 0 || userID <= 0 {
+		return KnowledgeFolder{}, pgx.ErrNoRows
+	}
+	return scanKnowledgeFolder(db.QueryRow(ctx, `SELECT id, user_id, parent_id, name, path, depth, sort_order, 0::bigint, 0::bigint, created_at, updated_at
+FROM knowledge_folders
+WHERE id = $1 AND user_id = $2
+FOR UPDATE`, folderID, userID))
+}
+
+func loadKnowledgeFolderParentPath(ctx context.Context, db execQuerier, parentID, userID int64) (string, int64, error) {
+	if parentID == 0 {
+		return "", 0, nil
+	}
+	if parentID < 0 || userID <= 0 {
+		return "", 0, pgx.ErrNoRows
+	}
+	var path string
+	var depth int64
+	if err := db.QueryRow(ctx, `SELECT path, depth FROM knowledge_folders WHERE id = $1 AND user_id = $2 LIMIT 1`, parentID, userID).Scan(&path, &depth); err != nil {
+		return "", 0, err
+	}
+	return path, depth, nil
+}
+
+func loadKnowledgeFolderSubtreeDepthSpan(ctx context.Context, db execQuerier, folderID, userID, currentDepth int64) (int64, error) {
+	var maxDepth int64
+	if err := db.QueryRow(ctx, `WITH RECURSIVE subtree AS (
+    SELECT id, depth FROM knowledge_folders WHERE id = $1 AND user_id = $2
+    UNION ALL
+    SELECT f.id, f.depth
+    FROM knowledge_folders f
+    INNER JOIN subtree s ON f.parent_id = s.id
+    WHERE f.user_id = $2
+)
+SELECT coalesce(max(depth), $3) FROM subtree`, folderID, userID, currentDepth).Scan(&maxDepth); err != nil {
+		return 0, err
+	}
+	if maxDepth < currentDepth {
+		return 0, nil
+	}
+	return maxDepth - currentDepth, nil
+}
+
+func rebuildKnowledgeFolderPaths(ctx context.Context, db execQuerier, userID int64) error {
+	if userID <= 0 {
+		return fmt.Errorf("目录所属用户不能为空")
+	}
+	_, err := db.Exec(ctx, `WITH RECURSIVE folder_tree AS (
+    SELECT id, ('/' || btrim(name))::varchar(500) AS new_path, 0::integer AS new_depth
+    FROM knowledge_folders
+    WHERE user_id = $1 AND parent_id IS NULL
+    UNION ALL
+    SELECT child.id, (folder_tree.new_path || '/' || btrim(child.name))::varchar(500), folder_tree.new_depth + 1
+    FROM knowledge_folders child
+    INNER JOIN folder_tree ON child.parent_id = folder_tree.id
+    WHERE child.user_id = $1
+)
+UPDATE knowledge_folders f
+SET path = folder_tree.new_path,
+    depth = folder_tree.new_depth,
+    updated_at = now()
+FROM folder_tree
+WHERE f.id = folder_tree.id
+  AND f.user_id = $1`, userID)
+	return err
+}
+
+func buildKnowledgeFolderPath(parentPath, name string) string {
+	trimmedName := strings.Trim(strings.TrimSpace(name), "/")
+	trimmedParent := strings.TrimRight(strings.TrimSpace(parentPath), "/")
+	if trimmedParent == "" {
+		return "/" + trimmedName
+	}
+	return trimmedParent + "/" + trimmedName
+}
+
 func validateKnowledgeFolderMutation(userID, folderID int64, name string) error {
 	if userID <= 0 {
 		return fmt.Errorf("目录所属用户不能为空")
@@ -1598,8 +1754,8 @@ func validateKnowledgeFolderMutation(userID, folderID int64, name string) error 
 	if folderID == 0 && name == "" {
 		return fmt.Errorf("目录名称不能为空")
 	}
-	if name != "" && len([]rune(name)) > 120 {
-		return fmt.Errorf("目录名称不能超过 120 个字符")
+	if name != "" && len([]rune(name)) > 80 {
+		return fmt.Errorf("目录名称不能超过 80 个字符")
 	}
 
 	return nil

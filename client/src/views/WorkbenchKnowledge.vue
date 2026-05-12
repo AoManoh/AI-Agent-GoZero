@@ -52,6 +52,7 @@
           mode="folder-tree"
           :documents="sidebarDocuments"
           :folders="folders"
+          :unfiled-count="folderMeta.unfiledCount"
           :active-key="activeKey"
           :has-private-access="hasPrivateAccess"
           :busy="folderMutating"
@@ -103,11 +104,11 @@
                   >
                     <option value="0">未归类</option>
                     <option
-                      v-for="folder in folders"
+                      v-for="folder in folderOptions"
                       :key="folder.id"
                       :value="String(folder.id)"
                     >
-                      {{ folder.name }}
+                      {{ `${"　".repeat(folder.depth || 0)}${folder.name}` }}
                     </option>
                   </select>
                 </label>
@@ -228,7 +229,18 @@
                   placeholder="输入一段话或问题，验证向量检索 TopK 命中"
                   :disabled="testLoading"
                   @keydown.enter.prevent="runTestQuery"
+                  @keydown.ctrl.enter.prevent="runTestQuery"
                 />
+                <select
+                  v-model.number="testTopK"
+                  class="wb-kb-test-topk"
+                  :disabled="testLoading"
+                  aria-label="TopK"
+                >
+                  <option :value="3">TopK 3</option>
+                  <option :value="5">TopK 5</option>
+                  <option :value="10">TopK 10</option>
+                </select>
                 <button
                   type="button"
                   class="wb-kb-test-btn"
@@ -287,6 +299,9 @@ import { computed, onMounted, ref, watch } from "vue";
 import WorkbenchLayout from "../components/dashboard/WorkbenchLayout.vue";
 import KnowledgeSidebar from "../components/workbench/KnowledgeSidebar.vue";
 import { apiService } from "../composables/useApi";
+import { useAuth } from "../composables/useAuth";
+
+const { isAuthenticated } = useAuth();
 
 // === 上传 ===
 const uploadInputRef = ref(null);
@@ -344,7 +359,7 @@ const inferFileType = (name) => {
 //   - 'folder:{id}'：指定目录
 const activeKey = ref("public");
 
-const hasPrivateAccess = computed(() => true);
+const hasPrivateAccess = computed(() => isAuthenticated.value);
 
 const handleSidebarSelect = (key) => {
   activeKey.value = key;
@@ -389,16 +404,27 @@ const handleDeleteFolder = async ({ id }) => {
   if (folderMutating.value) return;
   folderMutating.value = true;
   try {
-    await apiService.chat.knowledgeDeleteFolder(id);
+    // v0.2+ cascade 删除：后端事务内将子文件夹与文档提升到父目录（顶级目录的子项提升到「未归类」），
+    // 返回 KnowledgeFolderDeleteResp 含 movedDocCount / promotedFolderCount / parentName 三字段，用于通知用户搬迁结果。
+    const result = await apiService.chat.knowledgeDeleteFolder(id);
     // 如果当前选中的是被删除的目录，回退到「我的私人资料」
     if (activeKey.value === `folder:${id}`) {
       activeKey.value = "private";
     }
     await Promise.all([loadFolders(), loadSidebarDocuments(), loadDocuments()]);
+    // 仅在确实有搬迁内容时提示，纯空目录删除保持安静。
+    const movedDocs = Number(result?.movedDocCount || 0);
+    const promotedFolders = Number(result?.promotedFolderCount || 0);
+    if (movedDocs > 0 || promotedFolders > 0) {
+      const target = result?.parentName || "未归类";
+      const parts = [];
+      if (movedDocs > 0) parts.push(`${movedDocs} 份文档`);
+      if (promotedFolders > 0) parts.push(`${promotedFolders} 个子目录`);
+      window.alert(`已将 ${parts.join("、")}移动到「${target}」`);
+    }
   } catch (error) {
     console.error("删除文件夹失败:", error);
-    // 后端返回 "目录下仍有子目录/文档" 等友好提示，直接展示给用户
-    window.alert(`删除文件夹失败：${error?.message || "目录可能不为空，请先清空目录后再删除"}`);
+    window.alert(`删除文件夹失败：${error?.message || "请稍后重试"}`);
   } finally {
     folderMutating.value = false;
   }
@@ -445,7 +471,7 @@ const activeScopeLabel = computed(() => {
   if (activeKey.value === "unfiled") return "未归类";
   if (activeKey.value.startsWith("folder:")) {
     const id = Number(activeKey.value.slice("folder:".length));
-    const folder = folders.value.find((item) => Number(item.id) === id);
+    const folder = folderOptions.value.find((item) => Number(item.id) === id);
     return folder?.name || "目录";
   }
   return "公共知识";
@@ -477,6 +503,25 @@ const buildScopeParams = () => {
 const documents = ref([]);
 const sidebarDocuments = ref([]);
 const folders = ref([]);
+const folderMeta = ref({ unfiledCount: 0, totalCount: 0, initialized: false });
+
+const flattenFolders = (nodes, depth = 0, output = []) => {
+  for (const node of nodes || []) {
+    const id = Number(node.id || 0);
+    if (!id) continue;
+    output.push({
+      ...node,
+      id,
+      depth,
+    });
+    if (Array.isArray(node.children) && node.children.length > 0) {
+      flattenFolders(node.children, depth + 1, output);
+    }
+  }
+  return output;
+};
+
+const folderOptions = computed(() => flattenFolders(folders.value));
 
 const filteredDocs = computed(() =>
   documents.value.filter((d) => matchVisibility(d, activeKey.value))
@@ -554,7 +599,7 @@ const readerButtonHint = "全文阅读模式将在后续启用（reader = chunks
 // 决策来源 §7.1 F4：
 //   - 默认 tab='chunks'，命中文档详情 + 片段预览（保持现有交互不变）
 //   - tab='test-query' 调用 POST /api/ai/knowledge/test-query 验证当前 visibility 范围内的 TopK 检索
-//   - score chip 三色阈值：≥0.7 高（绿） / 0.3-0.7 中（金） / <0.3 低（红），配合 hover title 显示精确分数
+//   - score chip 三色阈值：≥0.85 高（绿） / 0.70-0.85 中（金） / <0.70 低（红），配合 hover title 显示精确分数
 const tabDefs = [
   { id: "chunks", label: "Chunks 预览" },
   { id: "test-query", label: "Test query" },
@@ -563,7 +608,7 @@ const activeTab = ref("chunks");
 
 // Test query 状态
 const testQuery = ref("");
-const testTopK = ref(5); // 默认 5（后端 boundedKnowledgeLimit 默认 5、最大 10）
+const testTopK = ref(3);
 const testResults = ref([]);
 const testLoading = ref(false);
 const testError = ref("");
@@ -611,8 +656,8 @@ const formatScore = (score) => {
 // 三色阈值映射：返回 'high' | 'mid' | 'low'，CSS 类名拼接 wb-kb-score-{level}
 const getScoreLevel = (score) => {
   if (typeof score !== "number" || Number.isNaN(score)) return "low";
-  if (score >= 0.7) return "high";
-  if (score >= 0.3) return "mid";
+  if (score >= 0.85) return "high";
+  if (score >= 0.7) return "mid";
   return "low";
 };
 
@@ -669,8 +714,14 @@ const loadFolders = async () => {
   try {
     const res = await apiService.chat.knowledgeFolders();
     folders.value = Array.isArray(res?.folders) ? res.folders : [];
+    folderMeta.value = {
+      unfiledCount: Number(res?.unfiledCount || 0),
+      totalCount: Number(res?.totalCount || res?.total || 0),
+      initialized: Boolean(res?.initialized),
+    };
   } catch (error) {
     folders.value = [];
+    folderMeta.value = { unfiledCount: 0, totalCount: 0, initialized: false };
   }
 };
 
@@ -1328,6 +1379,22 @@ const getDocStatusLabel = (status) => {
   color: var(--t3);
 }
 
+.wb-kb-test-topk {
+  min-width: 80px;
+  font: 600 clamp(var(--fs-xs), 0.85vw, var(--fs-sm)) var(--sans);
+  color: var(--t);
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-sm);
+  padding: 0 0.5rem;
+  outline: none;
+}
+
+.wb-kb-test-topk:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
 .wb-kb-test-btn {
   font: 600 clamp(var(--fs-xs), 0.9vw, var(--fs-sm)) var(--sans);
   color: var(--bg);
@@ -1381,7 +1448,7 @@ const getDocStatusLabel = (status) => {
   white-space: nowrap;
 }
 
-/* score chip 三色阈值（≥0.7 高 / 0.3-0.7 中 / <0.3 低） */
+/* score chip 三色阈值（≥0.85 高 / 0.70-0.85 中 / <0.70 低） */
 .wb-kb-score-chip {
   font: 700 var(--fs-2xs) var(--mono);
   letter-spacing: 0.04em;

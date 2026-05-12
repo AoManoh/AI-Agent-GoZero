@@ -57,7 +57,7 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 				Handler: KnowledgeUpdateFolderHandler(serverCtx),
 			},
 			{
-				// 知识库目录删除接口，要求登录态 Bearer token，目录必须为空
+				// 知识库目录删除接口，要求登录态 Bearer token；删除后文档和直接子目录提升到父级
 				Method:  http.MethodDelete,
 				Path:    "/api/ai/knowledge/folders/:id",
 				Handler: KnowledgeDeleteFolderHandler(serverCtx),

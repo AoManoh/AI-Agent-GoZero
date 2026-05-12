@@ -69,7 +69,7 @@
           class="kb-sidebar-inline-input"
           type="text"
           placeholder="文件夹名"
-          maxlength="60"
+          maxlength="80"
           :disabled="busy"
           @keydown.esc.prevent="cancelCreateFolder"
         />
@@ -115,7 +115,7 @@
                 v-model="renameDraft"
                 class="kb-sidebar-inline-input kb-sidebar-rename-input"
                 type="text"
-                maxlength="60"
+                maxlength="80"
                 :disabled="busy"
                 @keydown.esc.prevent="cancelRenameFolder"
                 @click.stop
@@ -212,6 +212,10 @@ const props = defineProps({
     type: Array,
     default: () => [],
   },
+  unfiledCount: {
+    type: Number,
+    default: -1,
+  },
   activeKey: {
     type: String,
     default: "public",
@@ -294,9 +298,8 @@ const submitRenameFolder = (folder) => {
 
 const confirmDeleteFolder = (folder) => {
   if (props.busy) return;
-  // 用 native confirm 简化：v0.2 范围内不引入 modal 组件依赖；
-  // 后端 DeleteKnowledgeFolder 已强制空目录约束，含子目录或文档时返回友好错误，由父组件 alert 提示。
-  const ok = window.confirm(`确认删除文件夹「${folder.name}」吗？\n\n注意：目录必须为空（无子目录、无文档）才能删除。`);
+  // 用 native confirm 简化：后端会在事务内把直接子项提升到父级。
+  const ok = window.confirm(`确认删除文件夹「${folder.name}」吗？\n\n其中的文档和直接子文件夹会提升到父级目录，顶级目录会提升到未归类。`);
   if (!ok) return;
   emit("delete-folder", { id: Number(folder.id) });
 };
@@ -310,11 +313,38 @@ const privateCount = computed(() =>
   props.documents.filter((d) => (d.visibility || d.scope) === "private").length
 );
 
-const unfiledCount = computed(() =>
-  props.documents.filter((d) => (d.visibility || d.scope) === "private" && !Number(d.folderId || 0)).length
-);
+const unfiledCount = computed(() => {
+  if (props.unfiledCount >= 0) return props.unfiledCount;
+  return props.documents.filter((d) => (d.visibility || d.scope) === "private" && !Number(d.folderId || 0)).length;
+});
 
 const orderedFolders = computed(() => {
+  const flattenTree = (nodes, depth = 0, output = []) => {
+    const sorted = [...nodes].sort((a, b) => {
+      const sortDiff = Number(a.sortOrder || 0) - Number(b.sortOrder || 0);
+      if (sortDiff !== 0) return sortDiff;
+      return String(a.name || "").localeCompare(String(b.name || ""), "zh-CN");
+    });
+    for (const folder of sorted) {
+      const id = Number(folder.id || 0);
+      if (!id) continue;
+      output.push({
+        ...folder,
+        id,
+        key: `folder:${id}`,
+        depth,
+      });
+      if (Array.isArray(folder.children) && folder.children.length > 0) {
+        flattenTree(folder.children, depth + 1, output);
+      }
+    }
+    return output;
+  };
+
+  if (props.folders.some((folder) => Array.isArray(folder.children) && folder.children.length > 0)) {
+    return flattenTree(props.folders);
+  }
+
   const byParent = new Map();
   for (const folder of props.folders) {
     const parentId = Number(folder.parentId || 0);

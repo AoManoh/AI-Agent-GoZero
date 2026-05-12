@@ -122,12 +122,13 @@ func KnowledgeDeleteFolderHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
 		}
 
 		l := logic.NewKnowledgeDeleteFolderLogic(ctx, svcCtx)
-		if err := l.KnowledgeDeleteFolder(&req); err != nil {
+		resp, err := l.KnowledgeDeleteFolder(&req)
+		if err != nil {
 			httpx.ErrorCtx(ctx, w, err)
 			return
 		}
 
-		w.WriteHeader(http.StatusNoContent)
+		httpx.OkJsonCtx(ctx, w, resp)
 	}
 }
 
