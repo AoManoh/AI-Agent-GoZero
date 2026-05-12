@@ -14,10 +14,12 @@
       - POST /api/ai/knowledge/upload → 任何登录用户可上传，admin 上传 visibility=public，普通 user → private（Q7=B 角色路由），可选 folderId
       - GET /api/ai/knowledge/documents/:id/chunks → 单文档 chunks 数组
 
-    本期仍不实现:
-      - reader 模式（chunks concat + marked 渲染）
+    v0.3 已并入:
+      - reader 模式（chunks concat + marked 渲染 + DOMPurify 净化），点击卡片「全文阅读」按钮触发，
+        中栏 mode 切换 'list' → 'reader'，右栏 tabs 在 reader 模式下隐藏（专注阅读）。
+        chunks 一次拉满（limit=500）保证完整长度，渲染前用 DOMPurify 净化避免 XSS。
 
-    决策来源: docs/requirements/2026-05-12-workbench-knowledge-base-redesign.md
+    决策来源: docs/requirements/2026-05-12-workbench-knowledge-base-redesign.md §7.1 F7
   -->
   <WorkbenchLayout>
     <div class="wb-kb-content">
@@ -62,8 +64,49 @@
           @delete-folder="handleDeleteFolder"
         />
 
-        <!-- 中：文档列表 -->
-        <section class="wb-kb-list">
+        <!-- 中：文档列表 / Reader 模式（v0.3 F7） -->
+        <section
+          class="wb-kb-list"
+          :class="{ 'wb-kb-list-reader': viewMode === 'reader' }"
+          ref="readerScrollRef"
+        >
+          <!-- Reader 模式：跨两列全屏阅读 -->
+          <template v-if="viewMode === 'reader' && selectedDoc">
+            <header class="wb-kb-reader-head">
+              <button
+                type="button"
+                class="wb-kb-reader-back"
+                aria-label="返回文档列表"
+                @click="exitReaderMode"
+              >
+                ← 返回
+              </button>
+              <div class="wb-kb-reader-meta">
+                <h3 class="wb-kb-reader-title">{{ selectedDoc.name }}</h3>
+                <div class="wb-kb-reader-sub">
+                  <span>{{ selectedDoc.uploadedAt }}</span>
+                  <span aria-hidden="true">·</span>
+                  <span>{{ formatBytes(selectedDoc.sizeBytes) }}</span>
+                  <span aria-hidden="true">·</span>
+                  <span>{{ selectedDoc.chunkCount }} 片段</span>
+                </div>
+              </div>
+            </header>
+
+            <div v-if="readerLoading" class="wb-kb-reader-state">加载文档全文中…</div>
+            <div v-else-if="readerError" class="wb-kb-reader-state wb-kb-reader-error">
+              {{ readerError }}
+            </div>
+            <article
+              v-else-if="readerHtml"
+              class="wb-kb-reader-body"
+              v-html="readerHtml"
+            ></article>
+            <div v-else class="wb-kb-reader-state">这份文档没有可阅读的内容。</div>
+          </template>
+
+          <!-- List 模式（默认） -->
+          <template v-else>
           <header class="wb-block-head">
             <h3 class="wb-block-title">{{ activeScopeLabel }}</h3>
             <span class="wb-block-meta">{{ filteredDocs.length }} 份文档</span>
@@ -116,9 +159,8 @@
                   type="button"
                   class="wb-kb-doc-reader-btn"
                   :title="readerButtonHint"
-                  disabled
-                  aria-disabled="true"
-                  @click.stop
+                  :disabled="doc.status !== 'ready'"
+                  @click.stop="enterReaderMode(doc)"
                 >
                   全文阅读
                 </button>
@@ -137,10 +179,11 @@
               + 上传文档
             </button>
           </div>
+          </template>
         </section>
 
-        <!-- 右：详情 + 双 tab（Chunks 预览 / Test query 召回）-->
-        <aside class="wb-kb-detail">
+        <!-- 右：详情 + 双 tab（Chunks 预览 / Test query 召回）；reader 模式下隐藏让中栏专注阅读 -->
+        <aside v-show="viewMode === 'list'" class="wb-kb-detail">
           <!-- Tab 切换栏：在 detail-head 上方，跨整列宽 -->
           <nav class="wb-kb-tabs" role="tablist" aria-label="知识库右栏视图切换">
             <button
@@ -295,13 +338,18 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, nextTick, onMounted, ref, watch } from "vue";
+import { marked } from "marked";
+import DOMPurify from "dompurify";
 import WorkbenchLayout from "../components/dashboard/WorkbenchLayout.vue";
 import KnowledgeSidebar from "../components/workbench/KnowledgeSidebar.vue";
 import { apiService } from "../composables/useApi";
 import { useAuth } from "../composables/useAuth";
 
 const { isAuthenticated } = useAuth();
+
+// marked 全局开关：开 GFM + breaks（对中文 PDF 解析后的弱结构 markdown 友好）
+marked.setOptions({ gfm: true, breaks: true });
 
 // === 上传 ===
 const uploadInputRef = ref(null);
@@ -591,8 +639,75 @@ const emptyStateSub = computed(() => {
 // 仅在 private 视图下显示「上传」CTA（公共知识库由 admin 通过同端点上传，本子页 UI 不暴露 admin 切换 — Q7=C）
 const emptyStateCTA = computed(() => activeKey.value !== "public");
 
-// 全文阅读按钮 hint（后续 reader 模式启用）
-const readerButtonHint = "全文阅读模式将在后续启用（reader = chunks concat + marked 渲染）";
+// === Reader 模式（v0.3 F7）===
+//
+// viewMode='list' 默认显示文档列表 + 右栏双 tab；
+// viewMode='reader' 切到中栏 reader 全屏（覆盖文档列表与右栏 tabs），渲染 chunks concat 后的 markdown。
+//
+// chunks 拉满 limit=500（v0.1 lazy 拉时只拉 6 条预览），保证 reader 完整性；
+// 已拉过 chunks 的文档不重拉（fullChunksLoaded 标记）。
+const viewMode = ref("list");
+const readerLoading = ref(false);
+const readerError = ref("");
+const readerScrollRef = ref(null);
+
+const readerButtonHint = "全文阅读：把所有切片按顺序拼接后用 markdown 渲染";
+
+// 注意：mapKnowledgeDocument 的 chunks 字段在 v0.1 仅用 preview 占位（一条），
+// reader 模式需要全部 chunks 内容，因此用独立的 fullChunksByDoc Map 做缓存，避免冲掉列表预览。
+const fullChunksByDoc = ref(new Map());
+
+const enterReaderMode = async (doc) => {
+  if (!doc?.id) return;
+  selectedDocId.value = doc.id;
+  viewMode.value = "reader";
+  readerError.value = "";
+  // 滚到顶（reader 容器复用 list 容器位置；切回时无需复原滚动位置）
+  await nextTick();
+  readerScrollRef.value?.scrollTo?.({ top: 0, behavior: "auto" });
+  // 已缓存则跳过
+  if (fullChunksByDoc.value.has(doc.id)) return;
+  readerLoading.value = true;
+  try {
+    const res = await apiService.chat.knowledgeDocumentChunks(doc.id, { limit: 500 });
+    const chunks = Array.isArray(res?.chunks) ? res.chunks : [];
+    // 按 createdAt 升序拼接（后端已 ORDER BY created_at ASC）；保留每个 chunk 的 content 原文
+    fullChunksByDoc.value.set(doc.id, chunks.map((c) => c?.content || "").filter(Boolean));
+  } catch (error) {
+    console.error("加载文档全文失败:", error);
+    readerError.value = error?.message || "加载文档全文失败，请稍后重试";
+  } finally {
+    readerLoading.value = false;
+  }
+};
+
+const exitReaderMode = () => {
+  viewMode.value = "list";
+};
+
+// 把 chunks 数组拼成 markdown 字符串。chunks 之间用空行分隔，避免段落黏合。
+const readerMarkdown = computed(() => {
+  if (!selectedDoc.value) return "";
+  const chunks = fullChunksByDoc.value.get(selectedDoc.value.id);
+  if (!Array.isArray(chunks) || chunks.length === 0) return "";
+  return chunks.join("\n\n");
+});
+
+// 渲染前用 DOMPurify 净化，禁止 inline event 与 javascript: 协议；保留常见 markdown 安全标签。
+const readerHtml = computed(() => {
+  const md = readerMarkdown.value;
+  if (!md) return "";
+  const rawHtml = marked.parse(md);
+  return DOMPurify.sanitize(rawHtml, {
+    USE_PROFILES: { html: true },
+    FORBID_ATTR: ["onerror", "onload", "onclick"],
+  });
+});
+
+// 切换 visibility/folder 或选中其他文档时退出 reader 防止显示陈旧内容
+watch(activeKey, () => {
+  if (viewMode.value === "reader") exitReaderMode();
+});
 
 // === 右栏双 tab：Chunks 预览 / Test query 召回（F4） ===
 //
@@ -921,6 +1036,187 @@ const getDocStatusLabel = (status) => {
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
+}
+
+/* Reader 模式：跨右栏占用，让阅读区域更宽（lg/xl/md 三栏 grid 时生效；sm/xs 已堆叠不需要） */
+.wb-kb-list-reader {
+  grid-column: 2 / -1;
+}
+
+/* === Reader 模式（v0.3 F7）=== */
+.wb-kb-reader-head {
+  display: flex;
+  align-items: flex-start;
+  gap: clamp(0.625rem, 1vw, 0.875rem);
+  padding-bottom: 0.875rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  margin-bottom: 0.5rem;
+}
+
+.wb-kb-reader-back {
+  font: 600 clamp(var(--fs-2xs), 0.78vw, var(--fs-xs)) var(--sans);
+  color: var(--t2);
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius-sm);
+  padding: 6px 10px;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: color 0.15s ease, background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.wb-kb-reader-back:hover {
+  color: var(--t);
+  background: rgba(220, 155, 90, 0.08);
+  border-color: rgba(220, 155, 90, 0.3);
+}
+
+.wb-kb-reader-meta {
+  flex: 1;
+  min-width: 0;
+}
+
+.wb-kb-reader-title {
+  font: 700 clamp(var(--fs-lg), 1.4vw, var(--fs-2xl)) var(--display);
+  color: var(--t);
+  margin: 0 0 4px;
+  letter-spacing: -.01em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wb-kb-reader-sub {
+  font: clamp(var(--fs-2xs), 0.78vw, var(--fs-xs)) var(--mono);
+  color: var(--t3);
+  letter-spacing: .03em;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.375rem;
+  align-items: baseline;
+}
+
+.wb-kb-reader-state {
+  font: clamp(var(--fs-sm), 0.95vw, var(--fs-md)) var(--sans);
+  color: var(--t3);
+  text-align: center;
+  padding: 2.5rem 1rem;
+  border: 1px dashed rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.015);
+}
+
+.wb-kb-reader-error {
+  color: rgba(239, 138, 115, 0.9);
+  border-color: rgba(239, 102, 96, 0.25);
+  background: rgba(239, 102, 96, 0.04);
+}
+
+/* Reader body：阅读最佳宽度 ~70 字符；用 max-inline-size + auto margin 居中 */
+.wb-kb-reader-body {
+  max-inline-size: 72ch;
+  margin: 0 auto;
+  padding: 0.5rem 0.5rem 4rem;
+  font: clamp(var(--fs-sm), 1vw, var(--fs-md)) var(--sans);
+  color: var(--t);
+  line-height: 1.75;
+}
+
+.wb-kb-reader-body :deep(h1),
+.wb-kb-reader-body :deep(h2),
+.wb-kb-reader-body :deep(h3),
+.wb-kb-reader-body :deep(h4) {
+  font-family: var(--display);
+  color: var(--t);
+  margin: 1.5em 0 0.5em;
+  line-height: 1.3;
+  letter-spacing: -.01em;
+}
+.wb-kb-reader-body :deep(h1) { font-size: clamp(var(--fs-xl), 1.6vw, var(--fs-2xl)); }
+.wb-kb-reader-body :deep(h2) { font-size: clamp(var(--fs-lg), 1.3vw, var(--fs-xl)); }
+.wb-kb-reader-body :deep(h3) { font-size: clamp(var(--fs-md), 1.1vw, var(--fs-lg)); }
+.wb-kb-reader-body :deep(h4) { font-size: clamp(var(--fs-sm), 0.95vw, var(--fs-md)); }
+
+.wb-kb-reader-body :deep(p) {
+  margin: 0 0 1em;
+}
+
+.wb-kb-reader-body :deep(ul),
+.wb-kb-reader-body :deep(ol) {
+  margin: 0 0 1em;
+  padding-inline-start: 1.5em;
+}
+
+.wb-kb-reader-body :deep(li) {
+  margin-bottom: 0.375em;
+}
+
+.wb-kb-reader-body :deep(blockquote) {
+  margin: 1em 0;
+  padding: 0.5em 1em;
+  border-inline-start: 3px solid rgba(220, 155, 90, 0.4);
+  background: rgba(220, 155, 90, 0.03);
+  color: var(--t2);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+}
+
+.wb-kb-reader-body :deep(code) {
+  font-family: var(--mono);
+  font-size: 0.9em;
+  background: rgba(255, 255, 255, 0.06);
+  padding: 1px 4px;
+  border-radius: 3px;
+}
+
+.wb-kb-reader-body :deep(pre) {
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: var(--radius-sm);
+  padding: 0.875em 1em;
+  overflow-x: auto;
+  margin: 1em 0;
+}
+
+.wb-kb-reader-body :deep(pre code) {
+  background: transparent;
+  padding: 0;
+  font-size: 0.85em;
+  color: var(--t);
+}
+
+.wb-kb-reader-body :deep(table) {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 1em 0;
+  font-size: 0.9em;
+}
+
+.wb-kb-reader-body :deep(th),
+.wb-kb-reader-body :deep(td) {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  padding: 0.5em 0.75em;
+  text-align: start;
+}
+
+.wb-kb-reader-body :deep(th) {
+  background: rgba(255, 255, 255, 0.04);
+  font-weight: 600;
+}
+
+.wb-kb-reader-body :deep(a) {
+  color: rgba(220, 155, 90, 0.95);
+  text-decoration: none;
+  border-bottom: 1px solid rgba(220, 155, 90, 0.3);
+}
+
+.wb-kb-reader-body :deep(a:hover) {
+  border-bottom-color: rgba(220, 155, 90, 0.95);
+}
+
+.wb-kb-reader-body :deep(hr) {
+  border: none;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  margin: 2em 0;
 }
 
 .wb-block-head {
