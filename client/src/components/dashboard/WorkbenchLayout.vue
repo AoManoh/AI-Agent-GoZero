@@ -3,7 +3,7 @@
     WorkbenchLayout：5 个 /workbench 页面共享的视觉外壳。
     - 与 Home 同源的 aurora 背景层（冷月光 + 暖琥珀双 blob，mix-blend-mode: screen）
     - SiteHeader fixed 80px + 5 个 section nav + 主 CTA "+ 新建面试" + 头像
-    - main 留 80px 顶部空间避让 fixed header；业务页自己控制首屏节奏
+    - main 只留 80px 顶部空间避让 fixed header；不再额外添加全局 padding
     - AppFooter 复用，与 SiteHeader 镜像（80px / max-width 1320 / 1px 顶分隔）
     使用方式：
       <WorkbenchLayout>
@@ -61,7 +61,7 @@
       </template>
     </SiteHeader>
 
-    <main class="wb-main">
+    <main class="wb-main" :class="`wb-main-${contentMode}`">
       <slot />
     </main>
 
@@ -80,11 +80,19 @@ const route = useRoute();
 const router = useRouter();
 const { username, logout } = useAuth();
 
+defineProps({
+  contentMode: {
+    type: String,
+    default: "normal",
+    validator: (value) => ["normal", "immersive"].includes(value),
+  },
+});
+
 // section 高亮：精确匹配 /workbench；前缀匹配子路由。
 // 使用 startsWith 而非 includes 避免 /workbench/bank 误命中 /workbench/banking 类
 // 未来路由（当前不存在但保留语义安全）。
 const isHome = computed(() => route.path === "/workbench");
-const isNew = computed(() => route.path.startsWith("/workbench/new"));
+const isNew = computed(() => route.path.startsWith("/workbench/new") || route.path.startsWith("/chat"));
 const isBank = computed(() => route.path.startsWith("/workbench/bank"));
 const isKnowledge = computed(() => route.path.startsWith("/workbench/knowledge"));
 const isResume = computed(() => route.path.startsWith("/workbench/resume"));
@@ -285,11 +293,18 @@ const handleLogout = async () => {
 .wb-main {
   flex: 1;
   margin-top: 80px;
-  padding-top: 0;
   position: relative;
   /* z-index: 1 保证 main 内容层在 aurora (z-index: -1) 之上、
      ripple 一类的浮层之下。 */
   z-index: 1;
+}
+
+.wb-main-normal {
+  padding-top: 0;
+}
+
+.wb-main-immersive {
+  padding-top: 0;
 }
 
 /* === 响应式 === */
@@ -317,7 +332,10 @@ const handleLogout = async () => {
   .wb-cta {
     margin-left: 0;
   }
-  .wb-main {
+  .wb-main-normal {
+    padding-top: 0;
+  }
+  .wb-main-immersive {
     padding-top: 0;
   }
 }
