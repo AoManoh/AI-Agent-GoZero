@@ -97,12 +97,33 @@
             <div v-else-if="readerError" class="wb-kb-reader-state wb-kb-reader-error">
               {{ readerError }}
             </div>
-            <article
-              v-else-if="readerHtml"
-              class="wb-kb-reader-body"
-              v-html="readerHtml"
-            ></article>
-            <div v-else class="wb-kb-reader-state">这份文档没有可阅读的内容。</div>
+            <template v-else>
+              <article
+                v-if="readerHtml"
+                class="wb-kb-reader-body"
+                v-html="readerHtml"
+              ></article>
+              <div v-else class="wb-kb-reader-state">这份文档没有可阅读的内容。</div>
+              <!-- §7.1 F7 备选：阅读时也能临时查看切片质检（默认折叠，details/summary 原生交互） -->
+              <details
+                v-if="readerChunksList.length > 0"
+                class="wb-kb-reader-chunks"
+              >
+                <summary class="wb-kb-reader-chunks-summary">
+                  查看切片质检（共 {{ readerChunksList.length }} 条）
+                </summary>
+                <ol class="wb-kb-reader-chunks-list">
+                  <li
+                    v-for="(chunk, i) in readerChunksList"
+                    :key="`rc-${i}`"
+                    class="wb-kb-reader-chunks-item"
+                  >
+                    <span class="wb-kb-reader-chunks-num">#{{ i + 1 }}</span>
+                    <p class="wb-kb-reader-chunks-text">{{ chunk }}</p>
+                  </li>
+                </ol>
+              </details>
+            </template>
           </template>
 
           <!-- List 模式（默认） -->
@@ -338,7 +359,7 @@
 </template>
 
 <script setup>
-import { computed, nextTick, onMounted, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
 import WorkbenchLayout from "../components/dashboard/WorkbenchLayout.vue";
@@ -709,6 +730,26 @@ watch(activeKey, () => {
   if (viewMode.value === "reader") exitReaderMode();
 });
 
+// reader 模式 chunks 切片折叠面板（需求文档 §7.1 F7 备选：阅读时也能临时查看切片质检）
+//
+// 用 fullChunksByDoc 现成缓存，不再额外 fetch；首次打开自动展开，复用 details/summary 原生交互。
+const readerChunksList = computed(() => {
+  if (!selectedDoc.value) return [];
+  return fullChunksByDoc.value.get(selectedDoc.value.id) || [];
+});
+
+// reader 模式键盘快捷键：Esc 退出阅读
+//
+// 用 window 级 keydown 监听，避免 reader 容器 focus 不在按钮上时按键失效。
+// 仅在 viewMode='reader' 时响应，其他模式下保持系统默认行为（如关闭浏览器搜索框）。
+const handleReaderKeydown = (event) => {
+  if (viewMode.value !== "reader") return;
+  if (event.key === "Escape") {
+    event.preventDefault();
+    exitReaderMode();
+  }
+};
+
 // === 右栏双 tab：Chunks 预览 / Test query 召回（F4） ===
 //
 // 决策来源 §7.1 F4：
@@ -872,6 +913,12 @@ onMounted(() => {
   loadFolders();
   loadSidebarDocuments();
   loadDocuments();
+  // reader 模式 Esc 退出快捷键：window 级监听以避免 focus 不在按钮时失效
+  window.addEventListener("keydown", handleReaderKeydown);
+});
+
+onBeforeUnmount(() => {
+  window.removeEventListener("keydown", handleReaderKeydown);
 });
 
 // 返回 mono 文件类型标签，替代原 emoji 图标
@@ -1217,6 +1264,80 @@ const getDocStatusLabel = (status) => {
   border: none;
   border-top: 1px solid rgba(255, 255, 255, 0.08);
   margin: 2em 0;
+}
+
+/* Reader chunks 折叠面板：保持与 reader-body 同宽且居中，复用 details/summary */
+.wb-kb-reader-chunks {
+  max-inline-size: 72ch;
+  margin: 0 auto 4rem;
+  padding: 0 0.5rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  padding-top: 1rem;
+}
+
+.wb-kb-reader-chunks-summary {
+  font: 600 clamp(var(--fs-2xs), 0.8vw, var(--fs-xs)) var(--mono);
+  color: var(--t3);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: pointer;
+  user-select: none;
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  transition: color 0.15s ease, background-color 0.15s ease;
+  list-style: none;
+}
+
+.wb-kb-reader-chunks-summary::-webkit-details-marker { display: none; }
+.wb-kb-reader-chunks-summary::before {
+  content: "▸ ";
+  display: inline-block;
+  margin-right: 0.25rem;
+  transition: transform 0.15s ease;
+}
+
+.wb-kb-reader-chunks[open] .wb-kb-reader-chunks-summary::before {
+  transform: rotate(90deg);
+}
+
+.wb-kb-reader-chunks-summary:hover {
+  color: var(--t2);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.wb-kb-reader-chunks-list {
+  list-style: none;
+  margin: 0.875rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem;
+}
+
+.wb-kb-reader-chunks-item {
+  display: flex;
+  gap: 0.625rem;
+  padding: 0.625rem 0.75rem;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.015);
+}
+
+.wb-kb-reader-chunks-num {
+  font: 600 clamp(var(--fs-2xs), 0.78vw, var(--fs-xs)) var(--mono);
+  color: rgba(220, 155, 90, 0.7);
+  letter-spacing: 0.04em;
+  flex-shrink: 0;
+  padding-top: 2px;
+}
+
+.wb-kb-reader-chunks-text {
+  margin: 0;
+  font: clamp(var(--fs-sm), 0.95vw, var(--fs-md)) var(--sans);
+  color: var(--t2);
+  line-height: 1.65;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .wb-block-head {
