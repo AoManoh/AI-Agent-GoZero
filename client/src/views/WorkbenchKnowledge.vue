@@ -1,9 +1,22 @@
 <template>
   <!--
-    WorkbenchKnowledge：知识库管理（对应设计图 4）。
-    布局：左 tree (240px) + 中 list (1fr) + 右 detail (340px)
-    后端契约：当前 mock；后续接 GET /users/knowledge/categories + GET /users/knowledge/docs?categoryId=
-            上传走 /ai/knowledge/upload (已存在的 chat API)
+    WorkbenchKnowledge：私人知识库管理（v0.1 实现）。
+
+    布局（响应式三栏，约束 R）:
+      - xs/sm (<768px): 单列堆叠，左栏暂直接堆在中栏上方（v0.2 改为 drawer）
+      - md (768-1024px): 三栏紧凑（左 minmax(200px,220px) / 中 1fr / 右 minmax(280px,320px)）
+      - lg (1024-1440px): 三栏标准（左 minmax(240px,260px) / 中 1fr / 右 minmax(320px,360px)）
+      - xl (≥1440px): 三栏宽松（左 minmax(280px,300px) / 中 minmax(0,1200px) / 右 minmax(360px,400px)）
+
+    后端契约（2026-05-12 v0.1 已就位）:
+      - GET /api/ai/knowledge/documents → KnowledgeDocumentItem[]，含 visibility / sizeBytes / embeddingDimension / embeddingModel
+      - POST /api/ai/knowledge/upload → 任何登录用户可上传，admin 上传 visibility=public，普通 user → private（Q7=B 角色路由）
+      - GET /api/ai/knowledge/documents/:id/chunks → 单文档 chunks 数组
+
+    本期不实现（v0.2 范围）:
+      - folder CRUD、folderId 过滤、reader 模式（chunks concat + marked 渲染）、Test query tab
+
+    决策来源: docs/requirements/2026-05-12-workbench-knowledge-base-redesign.md
   -->
   <WorkbenchLayout>
     <div class="wb-kb-content">
@@ -19,7 +32,7 @@
           </div>
           <button type="button" class="wb-kb-upload-btn" @click="triggerUpload">
             <span class="wb-kb-upload-plus" aria-hidden="true">+</span>
-            <span>上传文档</span>
+            <span>上传到我的私人资料库</span>
           </button>
           <input
             ref="uploadInputRef"
@@ -33,45 +46,19 @@
       </section>
 
       <div class="wb-kb-shell">
-        <!-- 左：分类 tree -->
-        <aside class="wb-kb-tree">
-          <div class="wb-kb-tree-head">
-            <span class="wb-kb-tree-title">分类</span>
-            <button type="button" class="wb-kb-tree-add" title="新建分类" @click="addCategory">+</button>
-          </div>
-          <ul class="wb-kb-cat-list">
-            <li
-              v-for="cat in categories"
-              :key="cat.id"
-              class="wb-kb-cat"
-              :class="{ 'wb-kb-cat-active': activeCategoryId === cat.id }"
-              @click="activeCategoryId = cat.id"
-            >
-              <span class="wb-kb-cat-dot" :style="{ background: cat.color }" aria-hidden="true"></span>
-              <span class="wb-kb-cat-label">{{ cat.label }}</span>
-              <span class="wb-kb-cat-count">{{ getDocCount(cat.id) }}</span>
-            </li>
-          </ul>
-          <div class="wb-kb-tree-stats">
-            <div class="wb-kb-stat-line">
-              <span class="wb-kb-stat-num">{{ documents.length }}</span>
-              <span class="wb-kb-stat-lb">文档</span>
-            </div>
-            <div class="wb-kb-stat-line">
-              <span class="wb-kb-stat-num">{{ totalChunks }}</span>
-              <span class="wb-kb-stat-lb">片段</span>
-            </div>
-            <div class="wb-kb-stat-line">
-              <span class="wb-kb-stat-num">{{ totalVectorMb }}</span>
-              <span class="wb-kb-stat-lb">向量 MB</span>
-            </div>
-          </div>
-        </aside>
+        <!-- 左：visibility sidebar（v0.1=visibility 二分类，v0.2 切到 folder-tree） -->
+        <KnowledgeSidebar
+          mode="visibility"
+          :documents="documents"
+          :active-key="activeKey"
+          :has-private-access="hasPrivateAccess"
+          @select="handleSidebarSelect"
+        />
 
         <!-- 中：文档列表 -->
         <section class="wb-kb-list">
           <header class="wb-block-head">
-            <h3 class="wb-block-title">{{ activeCategoryLabel }}</h3>
+            <h3 class="wb-block-title">{{ activeScopeLabel }}</h3>
             <span class="wb-block-meta">{{ filteredDocs.length }} 份文档</span>
           </header>
 
@@ -87,35 +74,48 @@
               <div class="wb-kb-doc-meta">
                 <h4 class="wb-kb-doc-name">{{ doc.name }}</h4>
                 <div class="wb-kb-doc-info">
-                  <span>{{ doc.size }}</span>
-                  <span aria-hidden="true">·</span>
-                  <span>{{ doc.chunkCount }} 片段</span>
-                  <span aria-hidden="true">·</span>
-                  <span>{{ doc.uploadedAt }}</span>
+                  <template v-for="(item, i) in buildDocChips(doc)" :key="`chip-${doc.id}-${i}`">
+                    <span v-if="i > 0" class="wb-kb-doc-info-sep" aria-hidden="true">·</span>
+                    <span class="wb-kb-doc-info-chip">{{ item }}</span>
+                  </template>
                 </div>
               </div>
-              <span class="wb-kb-doc-status">
-                <span class="wb-kb-doc-dot" :class="`wb-status-${doc.status}`" aria-hidden="true"></span>
-                {{ getDocStatusLabel(doc.status) }}
-              </span>
+              <div class="wb-kb-doc-actions">
+                <button
+                  type="button"
+                  class="wb-kb-doc-reader-btn"
+                  :title="readerButtonHint"
+                  disabled
+                  aria-disabled="true"
+                  @click.stop
+                >
+                  全文阅读
+                </button>
+                <span class="wb-kb-doc-status">
+                  <span class="wb-kb-doc-dot" :class="`wb-status-${doc.status}`" aria-hidden="true"></span>
+                  {{ getDocStatusLabel(doc.status) }}
+                </span>
+              </div>
             </article>
           </div>
 
           <div v-else class="wb-empty">
-            <div class="wb-empty-title">这个分类还没有文档</div>
-            <div class="wb-empty-sub">上传 PDF / Markdown / TXT，AI 会自动切片并向量化。</div>
-            <button type="button" class="wb-empty-cta" @click="triggerUpload">+ 上传文档</button>
+            <div class="wb-empty-title">{{ emptyStateTitle }}</div>
+            <div class="wb-empty-sub">{{ emptyStateSub }}</div>
+            <button v-if="emptyStateCTA" type="button" class="wb-empty-cta" @click="triggerUpload">
+              + 上传文档
+            </button>
           </div>
         </section>
 
-        <!-- 右：详情 -->
+        <!-- 右：详情 + 片段预览 -->
         <aside class="wb-kb-detail">
           <div v-if="selectedDoc" class="wb-kb-detail-inner">
             <header class="wb-kb-detail-head">
               <div class="wb-kb-detail-icon" aria-hidden="true">{{ getDocTypeLabel(selectedDoc.type) }}</div>
               <div class="wb-kb-detail-meta">
                 <h4 class="wb-kb-detail-name">{{ selectedDoc.name }}</h4>
-                <div class="wb-kb-detail-info">{{ selectedDoc.uploadedAt }} · {{ selectedDoc.size }}</div>
+                <div class="wb-kb-detail-info">{{ selectedDoc.uploadedAt }} · {{ formatBytes(selectedDoc.sizeBytes) }}</div>
               </div>
             </header>
 
@@ -125,18 +125,23 @@
                 <span class="wb-kb-detail-stat-lb">片段</span>
               </div>
               <div class="wb-kb-detail-stat">
-                <span class="wb-kb-detail-stat-num">{{ selectedDoc.embedding }}</span>
+                <span class="wb-kb-detail-stat-num">{{ selectedDoc.embeddingDimension || "—" }}</span>
                 <span class="wb-kb-detail-stat-lb">维度</span>
               </div>
               <div class="wb-kb-detail-stat">
-                <span class="wb-kb-detail-stat-num">{{ selectedDoc.queryCount }}</span>
-                <span class="wb-kb-detail-stat-lb">命中</span>
+                <span class="wb-kb-detail-stat-num">v{{ selectedDoc.version || 1 }}</span>
+                <span class="wb-kb-detail-stat-lb">版本</span>
               </div>
             </div>
 
+            <div v-if="selectedDoc.embeddingModel" class="wb-kb-detail-meta-line">
+              <span class="wb-detail-label">向量模型</span>
+              <span class="wb-kb-detail-meta-value">{{ selectedDoc.embeddingModel }}</span>
+            </div>
+
             <div class="wb-kb-detail-block">
-              <div class="wb-detail-label">片段预览</div>
-              <div class="wb-kb-chunks">
+              <div class="wb-detail-label">片段预览（Chunks）</div>
+              <div v-if="selectedDoc.chunks?.length > 0" class="wb-kb-chunks">
                 <div
                   v-for="(chunk, i) in selectedDoc.chunks"
                   :key="`chunk-${i}`"
@@ -146,17 +151,19 @@
                   <p class="wb-kb-chunk-text">{{ chunk }}</p>
                 </div>
               </div>
-            </div>
-
-            <div class="wb-kb-detail-actions">
-              <button type="button" class="wb-kb-action-btn">重新切片</button>
-              <button type="button" class="wb-kb-action-btn wb-kb-action-danger">删除文档</button>
+              <div v-else-if="selectedDoc.status === 'processing'" class="wb-kb-chunks-empty">
+                文档正在解析中…
+              </div>
+              <div v-else-if="selectedDoc.status === 'failed'" class="wb-kb-chunks-empty">
+                文档解析失败，请重新上传
+              </div>
+              <div v-else class="wb-kb-chunks-empty">点击文档卡片以加载片段。</div>
             </div>
           </div>
 
           <div v-else class="wb-kb-detail-empty">
             <div class="wb-empty-title">选择一份文档</div>
-            <div class="wb-empty-sub">查看片段预览、向量统计与命中频率。</div>
+            <div class="wb-empty-sub">查看片段预览、向量维度和元信息。</div>
           </div>
         </aside>
       </div>
@@ -167,6 +174,7 @@
 <script setup>
 import { computed, onMounted, ref, watch } from "vue";
 import WorkbenchLayout from "../components/dashboard/WorkbenchLayout.vue";
+import KnowledgeSidebar from "../components/workbench/KnowledgeSidebar.vue";
 import { apiService } from "../composables/useApi";
 
 // === 上传 ===
@@ -181,7 +189,8 @@ const handleUpload = async (e) => {
     try {
       const formData = new FormData();
       formData.append("file", file);
-      // 后端 KnowledgeUpload 仅要求 file part；本地分类仅供前端 UI 使用。
+      // Q4=C 上下文感知（v0.1：folderId 参数尚未上线，留空；v0.2 注入 activeFolderId）
+      // formData.append("folderId", activeFolderId ?? "");
       await apiService.chat.knowledgeUpload(formData);
       anySuccess = true;
     } catch (error) {
@@ -197,8 +206,9 @@ const handleUpload = async (e) => {
   }
 };
 
+// 字节数格式化：暴露给模板使用 selectedDoc.sizeBytes
 const formatBytes = (bytes) => {
-  if (!bytes) return "—";
+  if (!bytes || bytes <= 0) return "—";
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
@@ -210,152 +220,51 @@ const inferFileType = (name) => {
   return ext[1] === "doc" ? "docx" : ext[1];
 };
 
-// === 分类 ===
-// color 与 WorkbenchNew 的方向语义色同源，做到跨页面色彩一致。
-const categories = ref([
-  { id: "c-go", label: "Go 后端", color: "#4cd6a8" },
-  { id: "c-vue", label: "前端", color: "#6eb6ff" },
-  { id: "c-arch", label: "系统设计", color: "#b599ff" },
-  { id: "c-system", label: "Linux / 网络", color: "rgba(255, 255, 255, 0.55)" },
-  { id: "c-personal", label: "个人项目笔记", color: "#ffd770" },
-]);
+// === visibility 二分类（Q5=B 决策派生） ===
+//
+// activeKey: 'public' | 'private'
+//   - 默认 'public'，用户切到「我的私人资料」后变 'private'
+//   - 未登录用户只能看 'public'，sidebar 不渲染 private 节点
+//
+// 不再保留前端 mock 5 分类（c-go/c-vue/c-arch/c-db/c-personal）— 完全消除原则 5 违规。
+const activeKey = ref("public");
 
-// 新建分类时随机分配语义色，避免引入手动选色 UI。
-const CATEGORY_COLOR_PALETTE = ["#4cd6a8", "#6eb6ff", "#b599ff", "#ffd770", "#ff9966"];
-
-const activeCategoryId = ref("c-go");
-
-const activeCategoryLabel = computed(() => {
-  return categories.value.find((c) => c.id === activeCategoryId.value)?.label || "全部";
-});
-
-const addCategory = () => {
-  const name = window.prompt("新建分类名称");
-  if (!name?.trim()) return;
-  const id = `c-${Date.now()}`;
-  const color = CATEGORY_COLOR_PALETTE[Math.floor(Math.random() * CATEGORY_COLOR_PALETTE.length)];
-  categories.value.push({ id, label: name.trim(), color });
-  activeCategoryId.value = id;
-};
-
-// === 文档（mock） ===
-const documents = ref([
-  {
-    id: "d-1",
-    categoryId: "c-go",
-    name: "Go 并发编程模式.pdf",
-    type: "pdf",
-    size: "2.4 MB",
-    chunkCount: 48,
-    uploadedAt: "3 天前",
-    status: "ready",
-    embedding: 1024,
-    queryCount: 26,
-    chunks: [
-      "Go 的并发模型基于 CSP（Communicating Sequential Processes）：goroutine 之间通过 channel 传递所有权而非共享内存。",
-      "select 语句允许 goroutine 同时等待多个 channel 操作，配合 default 分支可实现非阻塞通信。",
-      "context.Context 是跨 goroutine 传递取消信号、deadline 和 trace 的标准方式，应当作为函数首个参数传入。",
-    ],
-  },
-  {
-    id: "d-2",
-    categoryId: "c-go",
-    name: "GoZero 微服务实战.md",
-    type: "md",
-    size: "180 KB",
-    chunkCount: 32,
-    uploadedAt: "1 周前",
-    status: "ready",
-    embedding: 1024,
-    queryCount: 18,
-    chunks: [
-      "GoZero 通过 goctl 工具从 .api 文件生成完整的 HTTP 服务骨架，包括 handler / logic / svc / config 各层。",
-      "rpc 服务使用 etcd 作为服务注册中心，client 通过 etcd watch 自动感知 endpoint 变化并负载均衡。",
-    ],
-  },
-  {
-    id: "d-3",
-    categoryId: "c-vue",
-    name: "Vue 3 响应式源码笔记.md",
-    type: "md",
-    size: "92 KB",
-    chunkCount: 21,
-    uploadedAt: "2 天前",
-    status: "ready",
-    embedding: 1024,
-    queryCount: 12,
-    chunks: [
-      "Vue 3 使用 Proxy 实现响应式：reactive() 把对象转成 Proxy，所有 get/set 操作经过 trapper 拦截，触发 track / trigger。",
-      "ref() 把基本类型包成对象，用 .value 访问；template 中自动 unwrap，但在 reactive 里也会自动 unwrap。",
-    ],
-  },
-  {
-    id: "d-4",
-    categoryId: "c-arch",
-    name: "分布式事务方案对比.pdf",
-    type: "pdf",
-    size: "1.6 MB",
-    chunkCount: 36,
-    uploadedAt: "5 天前",
-    status: "ready",
-    embedding: 1024,
-    queryCount: 8,
-    chunks: [
-      "TCC（Try-Confirm-Cancel）依赖业务侧自己实现幂等三阶段，强一致但侵入业务；适合金融、电商核心。",
-      "Saga 把长事务拆成一系列本地事务 + 对应补偿事务；最终一致，对业务侵入小，但需要小心补偿失败场景。",
-    ],
-  },
-  {
-    id: "d-5",
-    categoryId: "c-system",
-    name: "Linux 网络栈速查.txt",
-    type: "txt",
-    size: "48 KB",
-    chunkCount: 12,
-    uploadedAt: "2 周前",
-    status: "ready",
-    embedding: 1024,
-    queryCount: 4,
-    chunks: [
-      "TCP 三次握手：SYN -> SYN+ACK -> ACK，连接进入 ESTABLISHED；四次挥手 FIN -> ACK -> FIN -> ACK 后进入 TIME_WAIT。",
-    ],
-  },
-  {
-    id: "d-6",
-    categoryId: "c-personal",
-    name: "GoZero-AI 项目复盘.md",
-    type: "md",
-    size: "240 KB",
-    chunkCount: 56,
-    uploadedAt: "昨天",
-    status: "processing",
-    embedding: 1024,
-    queryCount: 0,
-    chunks: [],
-  },
-]);
-
-const filteredDocs = computed(() => {
-  return documents.value.filter((d) => d.categoryId === activeCategoryId.value);
-});
-
-const getDocCount = (catId) => {
-  return documents.value.filter((d) => d.categoryId === catId).length;
-};
-
-const totalChunks = computed(() =>
-  documents.value.reduce((sum, d) => sum + (d.chunkCount || 0), 0)
+// 是否有私人资料访问权限：依据 documents 中是否出现过 visibility=private 的条目判定。
+// 真实落地是「登录态 + 已上传过私人文档」；未登录用户后端只返 public，sidebar 自动隐藏 private 节点。
+const hasPrivateAccess = computed(() =>
+  documents.value.some((d) => (d.visibility || d.scope) === "private")
 );
 
-const totalVectorMb = computed(() => {
-  // 粗略估算：每个 chunk × 1024 dim × 4 bytes (float32) / 1024 / 1024
-  const bytes = totalChunks.value * 1024 * 4;
-  return (bytes / (1024 * 1024)).toFixed(1);
+const handleSidebarSelect = (key) => {
+  activeKey.value = key;
+  // 切换 visibility 后，自动选中该分组下第一篇文档（如果有）
+  const firstDoc = documents.value.find((d) => matchVisibility(d, key));
+  selectedDocId.value = firstDoc ? firstDoc.id : "";
+};
+
+const matchVisibility = (doc, key) => {
+  const v = (doc.visibility || doc.scope || "").toLowerCase();
+  if (key === "public") return v === "public";
+  if (key === "private") return v === "private";
+  return true;
+};
+
+const activeScopeLabel = computed(() => {
+  if (activeKey.value === "private") return "我的私人资料";
+  return "公共知识";
 });
 
-const selectedDocId = ref("d-1");
+// === 文档（仅来自后端，无前端 mock） ===
+const documents = ref([]);
+
+const filteredDocs = computed(() =>
+  documents.value.filter((d) => matchVisibility(d, activeKey.value))
+);
+
+const selectedDocId = ref("");
 
 const selectedDoc = computed(() => {
+  if (!selectedDocId.value) return null;
   return documents.value.find((d) => d.id === selectedDocId.value) || null;
 });
 
@@ -366,14 +275,6 @@ const mapKnowledgeStatus = (raw) => {
   if (s.includes("ready") || s.includes("success") || s.includes("active")) return "ready";
   if (s.includes("fail") || s.includes("error")) return "failed";
   return "processing";
-};
-
-// 后端 scope ("public" / "private") → 本地默认分类
-const mapScopeToCategory = (scope) => {
-  if (!scope) return "c-go";
-  const s = String(scope).toLowerCase();
-  if (s === "private" || s === "user") return "c-personal";
-  return "c-go";
 };
 
 // 绝对时间戳 → 相对时间
@@ -393,36 +294,79 @@ const formatRelativeTime = (timestamp) => {
   return new Date(ts).toLocaleDateString("zh-CN");
 };
 
-// 拉取文档列表：后端返回 KnowledgeDocumentItem[] 。
+// 卡片底部 chip 排版（Q8=B）：
+//   "{embeddingDimension}d · {embeddingModel} · {sizeBytes 格式化} · {chunkCount} chunks · {uploadedAt}"
+//   字段缺失时跳过（embeddingDimension=0 / embeddingModel='' 时不渲染）
+const buildDocChips = (doc) => {
+  const chips = [];
+  if (doc.embeddingDimension > 0) chips.push(`${doc.embeddingDimension}d`);
+  if (doc.embeddingModel) chips.push(doc.embeddingModel);
+  if (doc.sizeBytes > 0) chips.push(formatBytes(doc.sizeBytes));
+  if (doc.chunkCount > 0) chips.push(`${doc.chunkCount} 片段`);
+  if (doc.uploadedAt) chips.push(doc.uploadedAt);
+  return chips;
+};
+
+// 中栏空态文案：依据 activeKey 给出不同提示
+const emptyStateTitle = computed(() => {
+  if (activeKey.value === "private") return "私人资料库还没有文档";
+  return "公共知识库为空";
+});
+
+const emptyStateSub = computed(() => {
+  if (activeKey.value === "private") {
+    return "上传 PDF 资料，AI 会自动切片并向量化，作为面试时的私人 RAG 数据源。";
+  }
+  return "公共知识库由管理员维护，当前没有可阅读的内容。";
+});
+
+// 仅在 private 视图下显示「上传」CTA（公共知识库由 admin 通过同端点上传，本子页 UI 不暴露 admin 切换 — Q7=C）
+const emptyStateCTA = computed(() => activeKey.value === "private");
+
+// 全文阅读按钮 hint（v0.2 启用）
+const readerButtonHint = "全文阅读模式将在 v0.2 启用（reader = chunks concat + marked 渲染）";
+
+// 拉取文档列表：后端返回 KnowledgeDocumentItem[]，含 visibility / sizeBytes / embeddingDimension / embeddingModel
 const loadDocuments = async () => {
   try {
     const res = await apiService.chat.knowledgeDocuments({ limit: 50 });
     const list = Array.isArray(res?.documents) ? res.documents : [];
-    if (list.length === 0) return; // 保留 mock
     documents.value = list.map((d) => ({
       id: String(d.documentId),
-      categoryId: mapScopeToCategory(d.scope),
+      // visibility/scope 同步保留，sidebar 与 filterDocs 都用它做分组
+      visibility: d.visibility || d.scope || "private",
+      scope: d.scope || d.visibility || "private",
       name: d.title || `文档 ${d.documentId}`,
       type: inferFileType(d.title || ""),
-      // 后端未返回原始字节数；用片段数作为可读代替。
-      size: d.chunkCount > 0 ? `${d.chunkCount} 片段` : "—",
+      sizeBytes: d.sizeBytes || 0,
       chunkCount: d.chunkCount || 0,
-      uploadedAt: formatRelativeTime(d.updatedAt || d.createdAt),
+      embeddingDimension: d.embeddingDimension || 0,
+      embeddingModel: d.embeddingModel || "",
+      version: d.version || 1,
       status: mapKnowledgeStatus(d.status),
-      embedding: 1024,
-      queryCount: 0, // 后端后续可拓展 hits 字段
-      // chunks 在选中时 lazy 拉，preview 先作为掩护首屏
+      uploadedAt: formatRelativeTime(d.updatedAt || d.createdAt),
+      // chunks 在选中时 lazy 拉；preview 先作为占位
       chunks: d.preview ? [d.preview] : [],
       chunksLoaded: false,
       summary: d.preview || "",
     }));
-    // 选中首项，避免依然指向已不存在的 mock id
-    if (documents.value[0] && !documents.value.find((d) => d.id === selectedDocId.value)) {
-      selectedDocId.value = documents.value[0].id;
-      activeCategoryId.value = documents.value[0].categoryId;
+
+    // 自动选中：默认显示有内容的分组的首篇文档
+    if (documents.value.length > 0) {
+      // 如果当前 activeKey 下没有 doc，自动切到有 doc 的分组
+      if (!documents.value.some((d) => matchVisibility(d, activeKey.value))) {
+        const fallback = hasPrivateAccess.value && documents.value.some((d) => d.visibility === "private")
+          ? "private"
+          : "public";
+        activeKey.value = fallback;
+      }
+      const firstDoc = documents.value.find((d) => matchVisibility(d, activeKey.value));
+      if (firstDoc) selectedDocId.value = firstDoc.id;
+    } else {
+      selectedDocId.value = "";
     }
   } catch (error) {
-    // 静默降级
+    // 静默降级：保持 documents.value=[] 触发空态
   }
 };
 
@@ -446,7 +390,7 @@ const loadDocumentChunks = async (id) => {
       chunksLoaded: true,
     };
   } catch (error) {
-    // 静默降级：保留 preview 嵌入的入默认 chunk
+    // 静默降级：保留 preview 嵌入的默认 chunk
   }
 };
 
@@ -458,7 +402,7 @@ onMounted(() => {
   loadDocuments();
 });
 
-// 返回 mono 文件类型标签，替代原 emoji 图标，与 Home 页 mono 字符语言对齐。
+// 返回 mono 文件类型标签，替代原 emoji 图标
 const getDocTypeLabel = (type) => {
   if (!type) return "FILE";
   const map = { pdf: "PDF", md: "MD", txt: "TXT", docx: "DOC" };
@@ -480,15 +424,26 @@ const getDocStatusLabel = (status) => {
 </script>
 
 <style scoped>
+/*
+  WorkbenchKnowledge 样式（v0.1 响应式重做，约束 R）
+
+  改造要点:
+    1. 容器宽度：max-width 用 clamp + 100% 流体收敛，不写死 1320px 决定布局
+    2. 三栏 grid-template-columns 用 minmax(min, max) + 1fr 表达，断点收敛到 640/768/1024/1440 标准
+    3. 内边距、间距改用 rem 与 clamp() 流体化，仅 1px 描边/圆角等视觉细节保留 px
+    4. 动态视口 100dvh 替代 100vh 避免移动端地址栏抖动
+    5. 删除原 .wb-kb-tree* / .wb-kb-cat* 样式（已被 KnowledgeSidebar 组件接管）
+*/
+
 .wb-kb-content {
-  max-width: 1320px;
+  max-width: min(1440px, 100%);
   margin: 0 auto;
-  padding: 0 44px 80px;
+  padding: 0 clamp(1rem, 3vw, 2.75rem) clamp(2.5rem, 5vw, 5rem);
 }
 
 /* === Hero === */
 .wb-kb-hero {
-  padding: 0 0 32px;
+  padding: 0 0 clamp(1.25rem, 2.5vw, 2rem);
 }
 
 .wb-eyebrow {
@@ -579,161 +534,28 @@ const getDocStatusLabel = (status) => {
   display: none;
 }
 
-/* === Shell：三列 === */
+/*
+  === Shell：响应式三栏底盘 ===
+
+  默认 (≥1024px lg)：左 minmax(240px,260px) / 中 1fr / 右 minmax(320px,360px)
+  窄屏断点：
+    - md (768-1024px): 三栏紧凑（左/右收窄）
+    - sm (640-768px): 双列（左 + 中合并堆叠，右栏跨整行下沉）
+    - xs (<640px): 单列，sidebar / 中栏 / 右栏依次堆叠
+
+  align-items: start 让三栏顶端对齐，避免左/右栏因 sticky 与中栏卡片高度不同造成视觉错位（C2.2 决策）。
+*/
 .wb-kb-shell {
   display: grid;
-  grid-template-columns: 220px minmax(0, 1fr) 320px;
-  gap: 16px;
+  grid-template-columns: minmax(240px, 260px) minmax(0, 1fr) minmax(320px, 360px);
+  gap: clamp(0.875rem, 1.5vw, 1.25rem);
   align-items: start;
 }
 
-/* === 左侧 tree === */
-.wb-kb-tree {
+/* 左栏 KnowledgeSidebar：sticky 滚动跟随 */
+.wb-kb-shell > :first-child {
   position: sticky;
-  top: 100px;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  padding: 18px 16px 20px;
-  background:
-    linear-gradient(180deg, rgba(16, 17, 22, 1) 0%, rgba(10, 11, 14, 1) 100%) padding-box,
-    linear-gradient(160deg, rgba(255, 255, 255, 0.10) 0%, rgba(255, 255, 255, 0.03) 100%) border-box;
-  border: 1px solid transparent;
-  border-radius: var(--radius-md);
-  isolation: isolate;
-}
-
-.wb-kb-tree-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding-bottom: 10px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-}
-
-.wb-kb-tree-title {
-  font: 600 12px var(--mono);
-  color: var(--t3);
-  letter-spacing: .08em;
-  text-transform: uppercase;
-}
-
-.wb-kb-tree-add {
-  width: 22px;
-  height: 22px;
-  font: 700 14px var(--sans);
-  line-height: 1;
-  color: var(--t3);
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 50%;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: color .2s ease, background-color .2s ease;
-}
-
-.wb-kb-tree-add:hover {
-  color: var(--t);
-  background: rgba(220, 155, 90, 0.08);
-  border-color: rgba(220, 155, 90, 0.3);
-}
-
-.wb-kb-cat-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.wb-kb-cat {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 8px 10px;
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-  font: 13px var(--sans);
-  color: var(--t2);
-  transition: color .2s ease, background-color .2s ease;
-}
-
-.wb-kb-cat:hover {
-  color: var(--t);
-  background: rgba(255, 255, 255, 0.03);
-}
-
-.wb-kb-cat-active {
-  color: var(--t);
-  background: rgba(220, 155, 90, 0.06);
-  position: relative;
-}
-
-.wb-kb-cat-active::before {
-  content: '';
-  position: absolute;
-  left: -16px;
-  top: 8px;
-  bottom: 8px;
-  width: 2px;
-  background: rgba(220, 155, 90, 0.95);
-  border-radius: 0 2px 2px 0;
-}
-
-.wb-kb-cat-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  flex-shrink: 0;
-  opacity: .85;
-}
-
-.wb-kb-cat-active .wb-kb-cat-dot {
-  opacity: 1;
-  box-shadow: 0 0 0 2px rgba(220, 155, 90, 0.18);
-}
-
-.wb-kb-cat-label {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.wb-kb-cat-count {
-  font: 11px var(--mono);
-  color: var(--t3);
-  letter-spacing: .03em;
-  flex-shrink: 0;
-}
-
-.wb-kb-tree-stats {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 12px 0 0;
-  border-top: 1px solid rgba(255, 255, 255, 0.06);
-}
-
-.wb-kb-stat-line {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-}
-
-.wb-kb-stat-num {
-  font: 600 14px var(--mono);
-  color: var(--t);
-}
-
-.wb-kb-stat-lb {
-  font: 11px var(--mono);
-  color: var(--t3);
-  letter-spacing: .04em;
+  top: 6.25rem;
 }
 
 /* === 中间文档列表 === */
@@ -741,7 +563,7 @@ const getDocStatusLabel = (status) => {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 0.75rem;
 }
 
 .wb-block-head {
@@ -774,8 +596,8 @@ const getDocStatusLabel = (status) => {
 .wb-kb-doc {
   display: flex;
   align-items: center;
-  gap: 14px;
-  padding: 14px 16px;
+  gap: clamp(0.625rem, 1vw, 0.875rem);
+  padding: clamp(0.75rem, 1.25vw, 0.875rem) clamp(0.875rem, 1.5vw, 1rem);
   background: rgba(255, 255, 255, 0.02);
   border: 1px solid rgba(255, 255, 255, 0.06);
   border-radius: var(--radius-md);
@@ -830,12 +652,53 @@ const getDocStatusLabel = (status) => {
 }
 
 .wb-kb-doc-info {
-  font: 11px var(--mono);
+  font: clamp(11px, 0.78vw, 12px) var(--mono);
   color: var(--t3);
   letter-spacing: .03em;
   display: flex;
-  gap: 6px;
+  gap: 0.375rem;
   flex-wrap: wrap;
+  align-items: baseline;
+}
+
+.wb-kb-doc-info-chip {
+  white-space: nowrap;
+}
+
+.wb-kb-doc-info-sep {
+  opacity: .5;
+  user-select: none;
+}
+
+/* 卡片右侧操作列：reader 按钮 + 状态徽标垂直堆叠 */
+.wb-kb-doc-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.375rem;
+  flex-shrink: 0;
+}
+
+.wb-kb-doc-reader-btn {
+  font: 600 clamp(11px, 0.78vw, 12px) var(--sans);
+  color: var(--t3);
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius-sm);
+  padding: 0.3125rem 0.625rem;
+  cursor: not-allowed;
+  transition: color .2s ease, border-color .2s ease, background-color .2s ease;
+  letter-spacing: 0.02em;
+}
+
+.wb-kb-doc-reader-btn:not(:disabled):hover {
+  color: var(--t);
+  background: rgba(220, 155, 90, 0.06);
+  border-color: rgba(220, 155, 90, 0.3);
+}
+
+.wb-kb-doc-reader-btn[disabled] {
+  opacity: 0.55;
 }
 
 .wb-kb-doc-status {
@@ -871,15 +734,15 @@ const getDocStatusLabel = (status) => {
 /* === 右侧详情 === */
 .wb-kb-detail {
   position: sticky;
-  top: 100px;
-  padding: 22px 22px 24px;
+  top: 6.25rem;
+  padding: clamp(1rem, 1.75vw, 1.375rem) clamp(1rem, 1.75vw, 1.375rem) clamp(1.125rem, 1.875vw, 1.5rem);
   background:
     linear-gradient(180deg, rgba(16, 17, 22, 1) 0%, rgba(10, 11, 14, 1) 100%) padding-box,
     linear-gradient(160deg, rgba(255, 255, 255, 0.10) 0%, rgba(255, 255, 255, 0.03) 100%) border-box;
   border: 1px solid transparent;
   border-radius: var(--radius-md);
   isolation: isolate;
-  max-height: calc(100vh - 120px);
+  max-height: calc(100dvh - 7.5rem);
   overflow-y: auto;
 }
 
@@ -912,7 +775,7 @@ const getDocStatusLabel = (status) => {
 }
 
 .wb-kb-detail-name {
-  font: 700 14px var(--display);
+  font: 700 clamp(14px, 1.1vw, 16px) var(--display);
   color: var(--t);
   margin: 0 0 4px;
   word-break: break-word;
@@ -940,7 +803,7 @@ const getDocStatusLabel = (status) => {
 }
 
 .wb-kb-detail-stat-num {
-  font: 700 18px var(--mono);
+  font: 700 clamp(16px, 1.3vw, 20px) var(--mono);
   color: var(--t);
   line-height: 1;
 }
@@ -993,39 +856,37 @@ const getDocStatusLabel = (status) => {
   margin: 0;
 }
 
-.wb-kb-detail-actions {
+/* embedding 模型行：在 stats 与 chunks 之间显示 */
+.wb-kb-detail-meta-line {
   display: flex;
-  gap: 8px;
-  margin-top: 18px;
-  padding-top: 14px;
-  border-top: 1px solid rgba(255, 255, 255, 0.05);
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.625rem;
+  padding: 0.75rem 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
 }
 
-.wb-kb-action-btn {
-  flex: 1;
-  font: 600 12px var(--sans);
+.wb-kb-detail-meta-value {
+  font: 600 clamp(11px, 0.78vw, 12px) var(--mono);
   color: var(--t2);
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  letter-spacing: 0.02em;
+  text-align: right;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* chunks 空态：当 selectedDoc 为 processing/failed 或还未加载时显示 */
+.wb-kb-chunks-empty {
+  font: 12px var(--mono);
+  color: var(--t3);
+  letter-spacing: 0.03em;
+  padding: 1rem 0.75rem;
+  text-align: center;
+  border: 1px dashed rgba(255, 255, 255, 0.08);
   border-radius: var(--radius-sm);
-  padding: 8px 10px;
-  cursor: pointer;
-  transition: color .2s ease, background-color .2s ease, border-color .2s ease;
-}
-
-.wb-kb-action-btn:hover {
-  color: var(--t);
-  border-color: rgba(255, 255, 255, 0.16);
-}
-
-.wb-kb-action-danger {
-  color: #ef8a73;
-}
-
-.wb-kb-action-danger:hover {
-  color: #ef6660;
-  border-color: rgba(239, 102, 96, 0.4);
-  background: rgba(239, 102, 96, 0.06);
+  background: rgba(255, 255, 255, 0.015);
 }
 
 .wb-kb-detail-empty {
@@ -1078,10 +939,28 @@ const getDocStatusLabel = (status) => {
   background: rgba(220, 155, 90, 0.08);
 }
 
-/* === 响应式 === */
-@media (max-width: 1200px) {
+/*
+  === 响应式断点（约束 R 标准）===
+  采用与 docs/requirements/2026-05-12-workbench-knowledge-base-redesign.md §响应式布局规范 一致的 5 断点：
+    - 375px (xs base)：超小手机，单列堆叠
+    - 768px (sm)：竖屏平板，左 + 中合并双列，右栏跨行
+    - 1024px (md)：横屏平板，三栏紧凑
+    - 1440px (lg)：桌面标准（默认）
+    - 1920px (xl)：大显示器（不展开，仅放宽边距）
+  全部使用 max-width 形式收敛，与现有项目其他子页保持一致。
+*/
+
+/* md (≤1440px)：三栏紧凑（默认 grid 已生效，仅细微收敛） */
+@media (max-width: 1440px) {
   .wb-kb-shell {
-    grid-template-columns: 200px minmax(0, 1fr);
+    grid-template-columns: minmax(220px, 240px) minmax(0, 1fr) minmax(300px, 340px);
+  }
+}
+
+/* sm (≤1024px)：两栏（左 + 中），右栏跨整行下沉 */
+@media (max-width: 1024px) {
+  .wb-kb-shell {
+    grid-template-columns: minmax(200px, 220px) minmax(0, 1fr);
   }
   .wb-kb-detail {
     grid-column: 1 / -1;
@@ -1090,21 +969,35 @@ const getDocStatusLabel = (status) => {
   }
 }
 
-@media (max-width: 900px) {
+/* xs (≤768px)：单列堆叠（sidebar / list / detail 依次） */
+@media (max-width: 768px) {
   .wb-kb-shell {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
-  .wb-kb-tree {
+  .wb-kb-shell > :first-child {
     position: static;
+    top: auto;
+  }
+  .wb-kb-detail {
+    position: static;
+    max-height: none;
   }
 }
 
-@media (max-width: 768px) {
-  .wb-kb-content {
-    padding: 0 20px 60px;
-  }
+/* 超小手机 (≤640px)：进一步收敛 padding 与字号 */
+@media (max-width: 640px) {
   .wb-kb-detail-stats {
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.5rem;
+  }
+  .wb-kb-doc {
+    flex-wrap: wrap;
+  }
+  .wb-kb-doc-actions {
+    width: 100%;
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: center;
   }
 }
 </style>
