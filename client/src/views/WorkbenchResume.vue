@@ -270,20 +270,44 @@
             </ol>
           </div>
 
-          <!-- S1 解析中 / S3 解析失败 占位，由 C7 接管状态机后细化进度 / 失败详情 -->
+          <!-- S1 解析中（C7 commit）：spinner 动画 + 实时计时 + 取消重传 -->
+          <div v-else-if="resumeState === 'S1'" class="wb-resume-mid-parsing">
+            <div class="wb-spinner" aria-hidden="true"></div>
+            <p class="wb-parsing-title">解析中…</p>
+            <p class="wb-parsing-meta">已耗时 {{ pollingElapsedSec }} 秒 / 预计 30 秒内完成</p>
+            <p v-if="pollingElapsedSec > 30" class="wb-parsing-warn">耗时超预期，后端可能负载高。已加入队列，{{ Math.max(0, 60 - pollingElapsedSec) }} 秒后超时重试。</p>
+          </div>
+
+          <!-- S3 解析失败：错误详情 + 重试 CTA -->
+          <div v-else-if="resumeState === 'S3'" class="wb-resume-mid-failed">
+            <div class="wb-resume-placeholder-icon wb-resume-placeholder-icon-error" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4">
+                <circle cx="12" cy="12" r="9" />
+                <line x1="12" y1="8" x2="12" y2="13" stroke-linecap="round" />
+                <circle cx="12" cy="16" r="0.5" fill="currentColor" />
+              </svg>
+            </div>
+            <p class="wb-failed-title">解析失败</p>
+            <p class="wb-failed-meta">请检查 PDF 是否为文本型（非扫描件），然后重新上传。</p>
+            <button
+              type="button"
+              class="wb-action-regenerate wb-action-retry"
+              @click="prepareResumeEvaluation(selectedResume.id, { force: true })"
+            >
+              <span class="wb-action-icon" aria-hidden="true">↻</span>
+              <span>重新生成 AI 画像</span>
+            </button>
+          </div>
+
+          <!-- 其他状态 fallback（理论上不应该到达，防御性） -->
           <div v-else class="wb-resume-mid-placeholder">
             <div class="wb-resume-placeholder-icon" aria-hidden="true">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4">
                 <rect x="4" y="3" width="16" height="18" rx="2" />
-                <line x1="8" y1="8" x2="16" y2="8" stroke-linecap="round" />
-                <line x1="8" y1="12" x2="16" y2="12" stroke-linecap="round" />
-                <line x1="8" y1="16" x2="13" y2="16" stroke-linecap="round" />
               </svg>
             </div>
-            <p v-if="resumeState === 'S1'">解析中…</p>
-            <p v-else-if="resumeState === 'S3'">解析失败</p>
-            <p v-else>已选中：<strong>{{ selectedResume?.name }}</strong></p>
-            <p class="wb-resume-placeholder-meta">当前状态 <code>{{ resumeState }}</code>；C7 commit 接入 polling 后细化</p>
+            <p>已选中：<strong>{{ selectedResume?.name }}</strong></p>
+            <p class="wb-resume-placeholder-meta">状态 <code>{{ resumeState }}</code></p>
           </div>
         </main>
 
@@ -500,7 +524,9 @@ const uploadFile = async (file) => {
     const targetId = res?.artifactId || resumes.value[0]?.id || "";
     if (targetId) {
       selectedId.value = targetId;
+      // C7: 启动 polling。prepareResumeEvaluation 并发在运行，polling 会重拉状态直到 ready。
       void prepareResumeEvaluation(targetId, { force: true });
+      startResumePolling(targetId);
     }
   } catch (error) {
     uploadError.value = error?.message || "上传失败，请稍后再试";
@@ -906,12 +932,13 @@ const loadResumeChunks = async (id) => {
 };
 
 // 选中某份简历后 lazy 拉 analysis 覆盖 skills/projects。
-const loadResumeAnalysis = async (id) => {
+// C7: 加 force 参数破缓存，polling 需要频繁重拉。
+const loadResumeAnalysis = async (id, options = {}) => {
   if (!id) return;
   const idx = resumes.value.findIndex((r) => r.id === id);
   if (idx < 0) return;
   const target = resumes.value[idx];
-  if (target.evaluationLoaded) return; // 已拉过不重复
+  if (target.evaluationLoaded && !options.force) return; // 已拉过不重复（polling force=true 跳过检查）
 
   try {
     const res = await apiService.user.resumeArtifactAnalysis(id, { limit: 6 });
@@ -946,11 +973,92 @@ const prepareResumeEvaluation = async (id, options = {}) => {
   }
 };
 
-// 选中变化时拉取详情 + chunks（C5 增加 chunks 拉取）
+// === C7: S1 polling 定时刷评估状态 ===
+// 上传后简历状态会从 parsing → parsed；evaluation 从 evaluating → ready。
+// 本 module 负责在该到达终态前每 2.5s 重拉 analysis，推动状态机。超过 60s 超时降级。
+const POLLING_INTERVAL_MS = 2500;
+const POLLING_MAX_MS = 60_000;
+let pollingTimer = null;
+const pollingStartTs = ref(0);
+const pollingElapsedSec = ref(0);
+let pollingElapsedTimer = null;
+
+const stopResumePolling = () => {
+  if (pollingTimer) {
+    clearInterval(pollingTimer);
+    pollingTimer = null;
+  }
+  if (pollingElapsedTimer) {
+    clearInterval(pollingElapsedTimer);
+    pollingElapsedTimer = null;
+  }
+  pollingStartTs.value = 0;
+  pollingElapsedSec.value = 0;
+};
+
+const startResumePolling = (id) => {
+  if (!id) return;
+  stopResumePolling(); // 幂等：切换简历时重启 polling
+
+  pollingStartTs.value = Date.now();
+  // 1Hz 计时器驱动 UI 已耗时计数
+  pollingElapsedTimer = setInterval(() => {
+    pollingElapsedSec.value = Math.floor((Date.now() - pollingStartTs.value) / 1000);
+  }, 1000);
+
+  pollingTimer = setInterval(async () => {
+    const target = resumes.value.find((r) => r.id === id);
+    if (!target) {
+      stopResumePolling();
+      return;
+    }
+
+    // 超时降级：60s 后仍未进终态，设 failed 使中栏跳到 S3。
+    if (Date.now() - pollingStartTs.value > POLLING_MAX_MS) {
+      console.warn('[resume] polling timeout for', id, '- dropping to failed state');
+      stopResumePolling();
+      updateResume(id, {
+        evaluationStatus: 'failed',
+        suggestions: ['评估超时，请点 重新生成 AI 画像 重试'],
+      });
+      return;
+    }
+
+    // 拉最新 analysis（force=true 跳过 evaluationLoaded 缓存）
+    await loadResumeAnalysis(id, { force: true });
+
+    // 拉完后重新取 target（resumes 已被刷新）
+    const refreshed = resumes.value.find((r) => r.id === id);
+    if (!refreshed) {
+      stopResumePolling();
+      return;
+    }
+
+    // 终态：ready 或 failed 都停 polling。
+    if (refreshed.evaluationStatus === 'ready') {
+      stopResumePolling();
+      // 代付 chunks 拉取（如果还没拉过）
+      loadResumeChunks(id);
+      return;
+    }
+    if (refreshed.evaluationStatus === 'failed' || refreshed.status === 'failed') {
+      stopResumePolling();
+      return;
+    }
+  }, POLLING_INTERVAL_MS);
+};
+
+// 选中变化时拉取详情 + chunks + 必要时起 polling
 watch(selectedId, (id) => {
   if (!id) return;
+  stopResumePolling();
   loadResumeAnalysis(id);
   loadResumeChunks(id);
+  // C7：切到一份还在解析中 / 评估中的简历，自动起 polling
+  const target = resumes.value.find((r) => r.id === id);
+  if (target && (target.status === 'parsing' || target.evaluationStatus === 'evaluating')) {
+    startResumePolling(id);
+  }
 });
 
 // C3: onMounted 黑 selector 外部点击监听 + 按顺序拉列表 → 选中默认简历 → 同步 URL
@@ -973,6 +1081,8 @@ onMounted(async () => {
 
 onUnmounted(() => {
   document.removeEventListener('click', handleClickOutsideSelector);
+  // C7: 防止组件销毁后 polling 泄漏
+  stopResumePolling();
 });
 
 const getStatusLabel = (status) => {
@@ -2234,6 +2344,100 @@ const formatScore = (score) => {
   color: var(--t2);
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+/* ============ 中栏 S1 解析中 / S3 解析失败（C7 commit）============ */
+/* S1 状态：spinner 动画 + 实时计时 + 超预期警告；S3 状态：错误 icon + 详情 + 重试 CTA。 */
+.wb-resume-mid-parsing {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: 12px;
+  min-height: 360px;
+  padding: 40px 20px;
+  background:
+    linear-gradient(180deg, rgba(18, 19, 24, 0.85) 0%, rgba(11, 12, 16, 0.85) 100%) padding-box,
+    linear-gradient(160deg, rgba(220, 155, 90, 0.20) 0%, rgba(255, 255, 255, 0.025) 100%) border-box;
+  border: 1px solid transparent;
+  border-radius: var(--radius-lg);
+  isolation: isolate;
+}
+
+.wb-spinner {
+  width: 36px;
+  height: 36px;
+  border: 3px solid rgba(220, 155, 90, 0.20);
+  border-top-color: rgba(220, 155, 90, 0.95);
+  border-radius: 50%;
+  animation: wb-spin 0.9s linear infinite;
+}
+
+@keyframes wb-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.wb-parsing-title {
+  margin: 0;
+  font: 600 14px var(--sans);
+  color: var(--t);
+}
+
+.wb-parsing-meta {
+  margin: 0;
+  font: 12px var(--mono);
+  color: var(--t3);
+  letter-spacing: .03em;
+}
+
+.wb-parsing-warn {
+  margin: 0;
+  font: 11px/1.55 var(--sans);
+  color: rgba(230, 165, 100, 0.90);
+  max-width: 360px;
+}
+
+/* S3 解析失败 */
+.wb-resume-mid-failed {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: 14px;
+  min-height: 360px;
+  padding: 40px 24px;
+  background:
+    linear-gradient(180deg, rgba(18, 19, 24, 0.85) 0%, rgba(11, 12, 16, 0.85) 100%) padding-box,
+    linear-gradient(160deg, rgba(220, 100, 80, 0.18) 0%, rgba(255, 255, 255, 0.025) 100%) border-box;
+  border: 1px solid transparent;
+  border-radius: var(--radius-lg);
+  isolation: isolate;
+}
+
+.wb-resume-placeholder-icon-error {
+  color: rgba(220, 100, 80, 0.85);
+  width: 40px;
+  height: 40px;
+}
+
+.wb-failed-title {
+  margin: 0;
+  font: 600 14px var(--sans);
+  color: rgba(255, 195, 180, 0.95);
+}
+
+.wb-failed-meta {
+  margin: 0;
+  font: 12px/1.55 var(--sans);
+  color: var(--t3);
+  max-width: 380px;
+}
+
+.wb-action-retry {
+  margin-top: 4px;
 }
 
 /* === Empty === */
