@@ -1,4 +1,6 @@
 :root {
+  /* 基础字号锚点：明确设为 16px，避免依赖浏览器默认值；rem 系列 token 全部基于此 */
+  font-size: 16px;
   font-family: "Inter", "DM Sans", "Noto Sans SC", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   line-height: 1.5;
   font-weight: 400;
@@ -37,6 +39,32 @@
   --radius-lg: 12px;    /* 大容器、对话窗口、auth-card */
   --radius-pill: 999px; /* 完整胶囊形 */
   --radius-circle: 50%; /* 圆形头像、点 */
+
+  /*
+   * 字号 design token 系统（2026-05-12 引入，F1 commit）。
+   *
+   * 设计目标：
+   *   1. 27 寸 1080p / 1440p 普屏 100% 缩放下正文不再吃力（每档 +1px，+8.3% 视觉）
+   *   2. 用 rem 表达，未来根字号调整可全局响应（无障碍 / 主题切换前置）
+   *   3. 每个 token 都标注典型用途，避免组件随手写 px 又产生散落
+   *
+   * 迁移策略：
+   *   - F1 仅引入 token，不改任何组件 → 视觉零变化
+   *   - F2-F5 按模块逐步把组件 px 迁移到 token，每模块独立 commit 可回滚
+   *   - 严禁回归 px 硬编码（除非确有微观对齐需求，需在注释里说明）
+   *
+   * 横向参考：Linear 14-15px 正文 / Notion 14px / Cursor 13-15px / Chakra UI scale
+   */
+  --fs-3xs: 0.6875rem; /* 11px - chip / disclaimer / status dot 标签下限（原 10px） */
+  --fs-2xs: 0.75rem;   /* 12px - meta info / mono 元数据（原 11px） */
+  --fs-xs:  0.8125rem; /* 13px - 次要正文 / 列表项 meta（原 12px） */
+  --fs-sm:  0.875rem;  /* 14px - 普通列表项 / 卡片描述（原 13px） */
+  --fs-md:  1rem;      /* 16px - ⭐ 正文基线 / 段落 / 重要内容（原 14-15px） */
+  --fs-lg:  1.0625rem; /* 17px - 副标题 / hero sub / 段首引言（原 15-17px） */
+  --fs-xl:  1.125rem;  /* 18px - 模块标题 / qcard title（原 17-18px） */
+  --fs-2xl: 1.25rem;   /* 20px - 二级标题 / 强调数字（原 18-22px） */
+  --fs-3xl: 1.5rem;    /* 24px - 一级标题 / hero h2（原 22-26px） */
+  --fs-display: clamp(2rem, 2.8vw, 2.625rem); /* 32-42px 营销级 H1（原 30-42px） */
 }
 
 /*
