@@ -457,7 +457,7 @@ onBeforeUnmount(() => {
    .btn-ng / .btn-ns 保留为 Home 私有，通过 SiteHeader actions slot 传入，
    Vue scoped CSS 下 slot 内容仍属父组件作用域，样式仍能作用于当前 button。 */
 .btn-ng {
-  font: 14px var(--sans);
+  font: var(--fs-md) var(--sans);
   color: var(--t);
   background: none;
   border: none;
@@ -471,7 +471,7 @@ onBeforeUnmount(() => {
   opacity: 1;
 }
 .btn-ns {
-  font: 600 14px var(--sans);
+  font: 600 var(--fs-md) var(--sans);
   color: var(--bg, #020204);
   background: var(--t);
   border: none;
@@ -519,7 +519,7 @@ onBeforeUnmount(() => {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  font: 13px var(--mono);
+  font: var(--fs-sm) var(--mono);
   color: var(--t2);
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: var(--radius-pill);
@@ -601,7 +601,7 @@ onBeforeUnmount(() => {
 }
 
 .hero-sub {
-  font-size: 17px;
+  font-size: var(--fs-xl);
   color: var(--t2);
   line-height: 1.75;
   margin-bottom: 44px;
@@ -622,7 +622,7 @@ onBeforeUnmount(() => {
   display: inline-flex;
   align-items: center;
   gap: 9px;
-  font: 600 17px var(--sans);
+  font: 600 var(--fs-xl) var(--sans);
   color: var(--bg, #020204);
   background: var(--t);
   border: none;
@@ -703,7 +703,7 @@ onBeforeUnmount(() => {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  font: 500 16px var(--sans);
+  font: 500 var(--fs-md) var(--sans);
   color: var(--t2);
   background: rgba(255, 255, 255, 0.03);
   border: 1px solid rgba(255, 255, 255, 0.08);
@@ -824,7 +824,7 @@ onBeforeUnmount(() => {
 .wd.g { background: #27c93f; }
 
 .win-lbl {
-  font: 13px var(--mono);
+  font: var(--fs-sm) var(--mono);
   color: var(--t2);
   margin: 0 auto;
   max-width: calc(100% - 80px);
@@ -895,7 +895,7 @@ onBeforeUnmount(() => {
   vertical-align: top;
   border-radius: var(--radius-md);
   padding: 12px 16px;
-  font-size: 14px;
+  font-size: var(--fs-md);
   line-height: 1.65;
   max-width: 85%;
   /* 只在长英文 token 撑破边界时才断词，不用 overflow-wrap:anywhere，
@@ -920,7 +920,7 @@ onBeforeUnmount(() => {
 }
 
 :deep(.dlbl) {
-  font: 11px var(--mono);
+  font: var(--fs-2xs) var(--mono);
   color: rgba(255,255,255,.4);
   letter-spacing: .07em;
   text-transform: uppercase;
@@ -949,7 +949,7 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   gap: 8px;
-  font: 12px var(--mono);
+  font: var(--fs-xs) var(--mono);
   color: rgba(255,255,255,.65);
 }
 
@@ -1050,7 +1050,7 @@ onBeforeUnmount(() => {
   /* 参考图：序号靠在卡片左上角，暖琥珀色（与右下 aurora-b 同调）。
      不是全白 0.5 alpha 。 */
   align-self: flex-start;
-  font: 600 14px var(--mono);
+  font: 600 var(--fs-md) var(--mono);
   color: rgba(220, 155, 90, 0.9);
   letter-spacing: .08em;
 }
@@ -1087,7 +1087,7 @@ onBeforeUnmount(() => {
 }
 
 .step-desc {
-  font-size: 13px;
+  font-size: var(--fs-sm);
   line-height: 1.75;
   color: var(--t2);
   margin: 0;
@@ -1186,7 +1186,7 @@ onBeforeUnmount(() => {
 }
 
 .met-l {
-  font-size: 15px;
+  font-size: var(--fs-lg);
   color: var(--t2);
   margin-top: 4px;
 }
@@ -1227,7 +1227,7 @@ onBeforeUnmount(() => {
 }
 
 .feat-pill {
-  font: 13px var(--mono);
+  font: var(--fs-sm) var(--mono);
   color: var(--t2);
   border: 1px solid rgba(255, 255, 255, 0.07);
   border-radius: var(--radius-pill);
@@ -1245,7 +1245,7 @@ onBeforeUnmount(() => {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  font: 12px var(--mono);
+  font: var(--fs-xs) var(--mono);
   color: var(--t2);
   letter-spacing: .04em;
   width: fit-content;

@@ -268,7 +268,7 @@ async function handleSubmit() {
   border-radius: var(--radius-sm);
   /* HTML input 默认不继承父字体，显式声明与 .auth-button / 全局 body 同 sans 字族，
      避免 fallback 到 Arial 与 .auth-title (var(--display)) 形成字族断裂 */
-  font: 1rem var(--sans);
+  font: var(--fs-md) var(--sans);
   transition: border-color 0.2s, box-shadow 0.2s;
 }
 
@@ -294,7 +294,7 @@ async function handleSubmit() {
   border-radius: var(--radius-md);
   background: var(--t);
   color: var(--bg, #020204);
-  font: 600 1.1rem var(--sans);
+  font: 600 var(--fs-lg) var(--sans);
   cursor: pointer;
   margin-top: 10px;
   transition: opacity 0.2s ease, transform 0.2s ease;

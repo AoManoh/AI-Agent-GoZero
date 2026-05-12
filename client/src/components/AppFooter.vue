@@ -53,7 +53,7 @@ const currentYear = computed(() => new Date().getFullYear());
 .copyright {
   font-family: var(--sans);
   color: var(--t3);
-  font-size: 0.9rem;
+  font-size: var(--fs-sm);
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -76,7 +76,7 @@ const currentYear = computed(() => new Date().getFullYear());
   }
 
   .copyright {
-    font-size: 0.85rem;
+    font-size: var(--fs-xs);
   }
 }
 </style>
