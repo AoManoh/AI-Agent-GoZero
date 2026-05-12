@@ -26,6 +26,7 @@ package handler
 
 import (
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/zeromicro/go-zero/core/logx"
@@ -103,6 +104,12 @@ func KnowledgeUploadHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
 			return
 		}
 
+		folderID, err := parseKnowledgeUploadFolderID(r.FormValue("folderId"))
+		if err != nil {
+			httpx.ErrorCtx(r.Context(), w, err)
+			return
+		}
+
 		// 步骤3更新: 调用 mcp 微服务提取 PDF 文本
 		// ExtractTextFromPDF使用 mcp 解析PDF文档
 		// 提取出的content是纯文本，去除了格式和图片信息
@@ -133,10 +140,11 @@ func KnowledgeUploadHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
 		// 调用业务逻辑处理文档分块、向量化和存储
 		// KnowledgeUploadInput 包装提取的标题和内容
 		resp, err := l.KnowledgeUpload(&types.KnowledgeUploadInput{
-			Title:   title,   // PDF文件名，用作文档标题
-			Content: content, // 提取的文本内容，将被分块处理
-			Source:  title,   // PDF 文件名同时作为知识来源
-			UserID:  userID,  // 公共知识管理员 ID
+			Title:    title,   // PDF文件名，用作文档标题
+			Content:  content, // 提取的文本内容，将被分块处理
+			Source:   title,   // PDF 文件名同时作为知识来源
+			UserID:   userID,  // 当前登录用户 ID
+			FolderID: folderID,
 		})
 
 		// 步骤6: 处理业务逻辑响应并返回给前端
@@ -152,6 +160,21 @@ func KnowledgeUploadHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
 			httpx.OkJson(w, resp)
 		}
 	}
+}
+
+func parseKnowledgeUploadFolderID(raw string) (*int64, error) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return nil, nil
+	}
+	id, err := strconv.ParseInt(trimmed, 10, 64)
+	if err != nil || id < 0 {
+		return nil, statuserr.New(http.StatusBadRequest, "知识目录 ID 无效")
+	}
+	if id == 0 {
+		return nil, nil
+	}
+	return &id, nil
 }
 
 // requireKnowledgeUploaderUserID 校验 PDF 上传知识的请求者必须是已登录用户。

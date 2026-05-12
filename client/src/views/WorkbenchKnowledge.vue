@@ -10,11 +10,12 @@
 
     后端契约（2026-05-12 v0.1 已就位）:
       - GET /api/ai/knowledge/documents → KnowledgeDocumentItem[]，含 visibility / sizeBytes / embeddingDimension / embeddingModel
-      - POST /api/ai/knowledge/upload → 任何登录用户可上传，admin 上传 visibility=public，普通 user → private（Q7=B 角色路由）
+      - GET /api/ai/knowledge/folders → 当前用户目录树
+      - POST /api/ai/knowledge/upload → 任何登录用户可上传，admin 上传 visibility=public，普通 user → private（Q7=B 角色路由），可选 folderId
       - GET /api/ai/knowledge/documents/:id/chunks → 单文档 chunks 数组
 
-    本期不实现（v0.2 范围）:
-      - folder CRUD、folderId 过滤、reader 模式（chunks concat + marked 渲染）、Test query tab
+    本期仍不实现:
+      - reader 模式（chunks concat + marked 渲染）
 
     决策来源: docs/requirements/2026-05-12-workbench-knowledge-base-redesign.md
   -->
@@ -37,7 +38,7 @@
           <input
             ref="uploadInputRef"
             type="file"
-            accept=".pdf,.md,.txt,.docx"
+            accept=".pdf"
             multiple
             class="wb-kb-file-input"
             @change="handleUpload"
@@ -46,13 +47,18 @@
       </section>
 
       <div class="wb-kb-shell">
-        <!-- 左：visibility sidebar（v0.1=visibility 二分类，v0.2 切到 folder-tree） -->
+        <!-- 左：知识范围 + 目录树（含 v0.2 folder CRUD） -->
         <KnowledgeSidebar
-          mode="visibility"
-          :documents="documents"
+          mode="folder-tree"
+          :documents="sidebarDocuments"
+          :folders="folders"
           :active-key="activeKey"
           :has-private-access="hasPrivateAccess"
+          :busy="folderMutating"
           @select="handleSidebarSelect"
+          @create-folder="handleCreateFolder"
+          @rename-folder="handleRenameFolder"
+          @delete-folder="handleDeleteFolder"
         />
 
         <!-- 中：文档列表 -->
@@ -81,6 +87,30 @@
                 </div>
               </div>
               <div class="wb-kb-doc-actions">
+                <!-- v0.2：仅私人文档显示「移动到目录」select；公共文档由 admin 管理，不走此 UI -->
+                <label
+                  v-if="(doc.visibility || doc.scope) === 'private'"
+                  class="wb-kb-doc-move"
+                  :title="docMoveHint"
+                  @click.stop
+                >
+                  <span class="wb-kb-doc-move-icon" aria-hidden="true">📁</span>
+                  <select
+                    class="wb-kb-doc-move-select"
+                    :value="String(doc.folderId || 0)"
+                    :disabled="docMoving === doc.id"
+                    @change="handleMoveDocument(doc, $event.target.value)"
+                  >
+                    <option value="0">未归类</option>
+                    <option
+                      v-for="folder in folders"
+                      :key="folder.id"
+                      :value="String(folder.id)"
+                    >
+                      {{ folder.name }}
+                    </option>
+                  </select>
+                </label>
                 <button
                   type="button"
                   class="wb-kb-doc-reader-btn"
@@ -268,10 +298,14 @@ const handleUpload = async (e) => {
   let anySuccess = false;
   for (const file of files) {
     try {
+      if (!String(file.name || "").toLowerCase().endsWith(".pdf")) {
+        throw new Error("当前仅支持 PDF 文件");
+      }
       const formData = new FormData();
       formData.append("file", file);
-      // Q4=C 上下文感知（v0.1：folderId 参数尚未上线，留空；v0.2 注入 activeFolderId）
-      // formData.append("folderId", activeFolderId ?? "");
+      if (activeFolderId.value > 0) {
+        formData.append("folderId", String(activeFolderId.value));
+      }
       await apiService.chat.knowledgeUpload(formData);
       anySuccess = true;
     } catch (error) {
@@ -283,7 +317,7 @@ const handleUpload = async (e) => {
   }
   // 只要有成功上传，重拉文档列表以后端返回为准。
   if (anySuccess) {
-    await loadDocuments();
+    await Promise.all([loadFolders(), loadSidebarDocuments(), loadDocuments()]);
   }
 };
 
@@ -301,42 +335,148 @@ const inferFileType = (name) => {
   return ext[1] === "doc" ? "docx" : ext[1];
 };
 
-// === visibility 二分类（Q5=B 决策派生） ===
+// === 知识范围与目录树 ===
 //
-// activeKey: 'public' | 'private'
-//   - 默认 'public'，用户切到「我的私人资料」后变 'private'
-//   - 未登录用户只能看 'public'，sidebar 不渲染 private 节点
-//
-// 不再保留前端 mock 5 分类（c-go/c-vue/c-arch/c-db/c-personal）— 完全消除原则 5 违规。
+// activeKey:
+//   - 'public'：公共知识
+//   - 'private'：我的私人资料，跨目录查看
+//   - 'unfiled'：私人资料中 folder_id 为空的未归类文档
+//   - 'folder:{id}'：指定目录
 const activeKey = ref("public");
 
-// 是否有私人资料访问权限：依据 documents 中是否出现过 visibility=private 的条目判定。
-// 真实落地是「登录态 + 已上传过私人文档」；未登录用户后端只返 public，sidebar 自动隐藏 private 节点。
-const hasPrivateAccess = computed(() =>
-  documents.value.some((d) => (d.visibility || d.scope) === "private")
-);
+const hasPrivateAccess = computed(() => true);
 
 const handleSidebarSelect = (key) => {
   activeKey.value = key;
-  // 切换 visibility 后，自动选中该分组下第一篇文档（如果有）
-  const firstDoc = documents.value.find((d) => matchVisibility(d, key));
-  selectedDocId.value = firstDoc ? firstDoc.id : "";
+};
+
+// === v0.2 Folder CRUD handlers ===
+//
+// folderMutating 互斥锁：任一 create/rename/delete 进行中时禁用 sidebar 内全部操作按钮，
+// 避免并发请求与目录列表的 race condition。每个 handler 在进入时拉锁、finally 释放，
+// 成功后并行 reload folders + sidebarDocuments + 主列表（如目标目录被影响）。
+const folderMutating = ref(false);
+
+const handleCreateFolder = async ({ name }) => {
+  if (folderMutating.value) return;
+  folderMutating.value = true;
+  try {
+    await apiService.chat.knowledgeCreateFolder({ name });
+    await Promise.all([loadFolders(), loadSidebarDocuments()]);
+  } catch (error) {
+    console.error("创建文件夹失败:", error);
+    window.alert(`创建文件夹失败：${error?.message || "请稍后重试"}`);
+  } finally {
+    folderMutating.value = false;
+  }
+};
+
+const handleRenameFolder = async ({ id, name }) => {
+  if (folderMutating.value) return;
+  folderMutating.value = true;
+  try {
+    await apiService.chat.knowledgeUpdateFolder(id, { name });
+    await Promise.all([loadFolders(), loadSidebarDocuments()]);
+  } catch (error) {
+    console.error("重命名文件夹失败:", error);
+    window.alert(`重命名文件夹失败：${error?.message || "请稍后重试"}`);
+  } finally {
+    folderMutating.value = false;
+  }
+};
+
+const handleDeleteFolder = async ({ id }) => {
+  if (folderMutating.value) return;
+  folderMutating.value = true;
+  try {
+    await apiService.chat.knowledgeDeleteFolder(id);
+    // 如果当前选中的是被删除的目录，回退到「我的私人资料」
+    if (activeKey.value === `folder:${id}`) {
+      activeKey.value = "private";
+    }
+    await Promise.all([loadFolders(), loadSidebarDocuments(), loadDocuments()]);
+  } catch (error) {
+    console.error("删除文件夹失败:", error);
+    // 后端返回 "目录下仍有子目录/文档" 等友好提示，直接展示给用户
+    window.alert(`删除文件夹失败：${error?.message || "目录可能不为空，请先清空目录后再删除"}`);
+  } finally {
+    folderMutating.value = false;
+  }
+};
+
+// === 文档移动到目录（v0.2）===
+//
+// docMoving 记录当前正在移动的文档 ID，避免用户快速切换 select 时产生并发请求。
+// select 选中即触发，乐观等后端 200 + reload；失败时 alert 提示并保持 select 显示旧值（因为 value 绑定 doc.folderId，reload 会纠正）。
+const docMoving = ref("");
+const docMoveHint = "移动到目录（目录必须先在左栏创建）";
+
+const handleMoveDocument = async (doc, newFolderIdRaw) => {
+  const newFolderId = Number(newFolderIdRaw || 0);
+  const currentFolderId = Number(doc.folderId || 0);
+  if (newFolderId === currentFolderId) return; // 无变化
+  if (docMoving.value) return;
+
+  docMoving.value = doc.id;
+  try {
+    await apiService.chat.knowledgeMoveDocumentFolder(Number(doc.id), { folderId: newFolderId });
+    await Promise.all([loadFolders(), loadSidebarDocuments(), loadDocuments()]);
+  } catch (error) {
+    console.error("移动文档失败:", error);
+    window.alert(`移动文档失败：${error?.message || "请稍后重试"}`);
+  } finally {
+    docMoving.value = "";
+  }
 };
 
 const matchVisibility = (doc, key) => {
   const v = (doc.visibility || doc.scope || "").toLowerCase();
   if (key === "public") return v === "public";
   if (key === "private") return v === "private";
+  if (key === "unfiled") return v === "private" && !Number(doc.folderId || 0);
+  if (key.startsWith("folder:")) {
+    return v === "private" && Number(doc.folderId || 0) === Number(key.slice("folder:".length));
+  }
   return true;
 };
 
 const activeScopeLabel = computed(() => {
   if (activeKey.value === "private") return "我的私人资料";
+  if (activeKey.value === "unfiled") return "未归类";
+  if (activeKey.value.startsWith("folder:")) {
+    const id = Number(activeKey.value.slice("folder:".length));
+    const folder = folders.value.find((item) => Number(item.id) === id);
+    return folder?.name || "目录";
+  }
   return "公共知识";
 });
 
+const activeFolderId = computed(() => {
+  if (!activeKey.value.startsWith("folder:")) return 0;
+  const id = Number(activeKey.value.slice("folder:".length));
+  return Number.isFinite(id) && id > 0 ? id : 0;
+});
+
+const buildScopeParams = () => {
+  if (activeKey.value === "public") {
+    return { visibility: "public" };
+  }
+  if (activeKey.value === "private") {
+    return { visibility: "private" };
+  }
+  if (activeKey.value === "unfiled") {
+    return { visibility: "private", folderScoped: true, folderId: 0 };
+  }
+  if (activeFolderId.value > 0) {
+    return { visibility: "private", folderScoped: true, folderId: activeFolderId.value };
+  }
+  return {};
+};
+
 // === 文档（仅来自后端，无前端 mock） ===
 const documents = ref([]);
+const sidebarDocuments = ref([]);
+const folders = ref([]);
 
 const filteredDocs = computed(() =>
   documents.value.filter((d) => matchVisibility(d, activeKey.value))
@@ -391,21 +531,23 @@ const buildDocChips = (doc) => {
 // 中栏空态文案：依据 activeKey 给出不同提示
 const emptyStateTitle = computed(() => {
   if (activeKey.value === "private") return "私人资料库还没有文档";
+  if (activeKey.value === "unfiled") return "还没有未归类文档";
+  if (activeKey.value.startsWith("folder:")) return "这个目录还没有文档";
   return "公共知识库为空";
 });
 
 const emptyStateSub = computed(() => {
-  if (activeKey.value === "private") {
+  if (activeKey.value !== "public") {
     return "上传 PDF 资料，AI 会自动切片并向量化，作为面试时的私人 RAG 数据源。";
   }
   return "公共知识库由管理员维护，当前没有可阅读的内容。";
 });
 
 // 仅在 private 视图下显示「上传」CTA（公共知识库由 admin 通过同端点上传，本子页 UI 不暴露 admin 切换 — Q7=C）
-const emptyStateCTA = computed(() => activeKey.value === "private");
+const emptyStateCTA = computed(() => activeKey.value !== "public");
 
-// 全文阅读按钮 hint（v0.2 启用）
-const readerButtonHint = "全文阅读模式将在 v0.2 启用（reader = chunks concat + marked 渲染）";
+// 全文阅读按钮 hint（后续 reader 模式启用）
+const readerButtonHint = "全文阅读模式将在后续启用（reader = chunks concat + marked 渲染）";
 
 // === 右栏双 tab：Chunks 预览 / Test query 召回（F4） ===
 //
@@ -436,6 +578,7 @@ const runTestQuery = async () => {
     const res = await apiService.chat.knowledgeTestQuery({
       query: q,
       topK: testTopK.value,
+      ...buildScopeParams(),
     });
     testResults.value = Array.isArray(res?.results) ? res.results : [];
     testQueriedOnce.value = true;
@@ -450,6 +593,8 @@ const runTestQuery = async () => {
 
 // 切换 visibility 时清空上次 test query 结果，避免显示与新分组不匹配的旧结果
 watch(activeKey, () => {
+  selectedDocId.value = "";
+  loadDocuments();
   if (testQueriedOnce.value) {
     testResults.value = [];
     testQueriedOnce.value = false;
@@ -471,40 +616,35 @@ const getScoreLevel = (score) => {
   return "low";
 };
 
-// 拉取文档列表：后端返回 KnowledgeDocumentItem[]，含 visibility / sizeBytes / embeddingDimension / embeddingModel
+const mapKnowledgeDocument = (d) => ({
+  id: String(d.documentId),
+  folderId: Number(d.folderId || 0),
+  // visibility/scope 同步保留，sidebar 与 filterDocs 都用它做分组
+  visibility: d.visibility || d.scope || "private",
+  scope: d.scope || d.visibility || "private",
+  name: d.title || `文档 ${d.documentId}`,
+  type: inferFileType(d.title || ""),
+  sizeBytes: d.sizeBytes || 0,
+  chunkCount: d.chunkCount || 0,
+  embeddingDimension: d.embeddingDimension || 0,
+  embeddingModel: d.embeddingModel || "",
+  version: d.version || 1,
+  status: mapKnowledgeStatus(d.status),
+  uploadedAt: formatRelativeTime(d.updatedAt || d.createdAt),
+  // chunks 在选中时 lazy 拉；preview 先作为占位
+  chunks: d.preview ? [d.preview] : [],
+  chunksLoaded: false,
+  summary: d.preview || "",
+});
+
+// 拉取文档列表：后端返回 KnowledgeDocumentItem[]，含 visibility / folderId / sizeBytes / embeddingDimension / embeddingModel
 const loadDocuments = async () => {
   try {
-    const res = await apiService.chat.knowledgeDocuments({ limit: 50 });
+    const res = await apiService.chat.knowledgeDocuments({ limit: 50, ...buildScopeParams() });
     const list = Array.isArray(res?.documents) ? res.documents : [];
-    documents.value = list.map((d) => ({
-      id: String(d.documentId),
-      // visibility/scope 同步保留，sidebar 与 filterDocs 都用它做分组
-      visibility: d.visibility || d.scope || "private",
-      scope: d.scope || d.visibility || "private",
-      name: d.title || `文档 ${d.documentId}`,
-      type: inferFileType(d.title || ""),
-      sizeBytes: d.sizeBytes || 0,
-      chunkCount: d.chunkCount || 0,
-      embeddingDimension: d.embeddingDimension || 0,
-      embeddingModel: d.embeddingModel || "",
-      version: d.version || 1,
-      status: mapKnowledgeStatus(d.status),
-      uploadedAt: formatRelativeTime(d.updatedAt || d.createdAt),
-      // chunks 在选中时 lazy 拉；preview 先作为占位
-      chunks: d.preview ? [d.preview] : [],
-      chunksLoaded: false,
-      summary: d.preview || "",
-    }));
+    documents.value = list.map(mapKnowledgeDocument);
 
-    // 自动选中：默认显示有内容的分组的首篇文档
     if (documents.value.length > 0) {
-      // 如果当前 activeKey 下没有 doc，自动切到有 doc 的分组
-      if (!documents.value.some((d) => matchVisibility(d, activeKey.value))) {
-        const fallback = hasPrivateAccess.value && documents.value.some((d) => d.visibility === "private")
-          ? "private"
-          : "public";
-        activeKey.value = fallback;
-      }
       const firstDoc = documents.value.find((d) => matchVisibility(d, activeKey.value));
       if (firstDoc) selectedDocId.value = firstDoc.id;
     } else {
@@ -512,6 +652,25 @@ const loadDocuments = async () => {
     }
   } catch (error) {
     // 静默降级：保持 documents.value=[] 触发空态
+  }
+};
+
+const loadSidebarDocuments = async () => {
+  try {
+    const res = await apiService.chat.knowledgeDocuments({ limit: 100 });
+    const list = Array.isArray(res?.documents) ? res.documents : [];
+    sidebarDocuments.value = list.map(mapKnowledgeDocument);
+  } catch (error) {
+    sidebarDocuments.value = [];
+  }
+};
+
+const loadFolders = async () => {
+  try {
+    const res = await apiService.chat.knowledgeFolders();
+    folders.value = Array.isArray(res?.folders) ? res.folders : [];
+  } catch (error) {
+    folders.value = [];
   }
 };
 
@@ -544,6 +703,8 @@ watch(selectedDocId, (id) => {
 });
 
 onMounted(() => {
+  loadFolders();
+  loadSidebarDocuments();
   loadDocuments();
 });
 
@@ -595,7 +756,7 @@ const getDocStatusLabel = (status) => {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  font: 12px var(--mono);
+  font: var(--fs-xs) var(--mono);
   color: var(--t2);
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: var(--radius-pill);
@@ -641,7 +802,7 @@ const getDocStatusLabel = (status) => {
 }
 
 .wb-kb-sub {
-  font-size: 15px;
+  font-size: var(--fs-lg);
   color: var(--t3);
   line-height: 1.7;
   margin: 0;
@@ -652,7 +813,7 @@ const getDocStatusLabel = (status) => {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  font: 600 14px var(--sans);
+  font: 600 var(--fs-md) var(--sans);
   color: var(--bg);
   background: var(--t);
   border: none;
@@ -671,7 +832,7 @@ const getDocStatusLabel = (status) => {
 
 .wb-kb-upload-plus {
   font-weight: 700;
-  font-size: 16px;
+  font-size: var(--fs-md);
   line-height: 1;
 }
 
@@ -720,14 +881,14 @@ const getDocStatusLabel = (status) => {
 }
 
 .wb-block-title {
-  font: 700 17px var(--display);
+  font: 700 var(--fs-xl) var(--display);
   color: var(--t);
   margin: 0;
   letter-spacing: -.01em;
 }
 
 .wb-block-meta {
-  font: 12px var(--mono);
+  font: var(--fs-xs) var(--mono);
   color: var(--t3);
   letter-spacing: .04em;
 }
@@ -763,7 +924,7 @@ const getDocStatusLabel = (status) => {
 }
 
 .wb-kb-doc-icon {
-  font: 600 11px var(--mono);
+  font: 600 var(--fs-2xs) var(--mono);
   letter-spacing: .08em;
   color: var(--t2);
   width: 40px;
@@ -788,7 +949,7 @@ const getDocStatusLabel = (status) => {
 }
 
 .wb-kb-doc-name {
-  font: 600 14px var(--sans);
+  font: 600 var(--fs-md) var(--sans);
   color: var(--t);
   margin: 0 0 4px;
   overflow: hidden;
@@ -797,7 +958,7 @@ const getDocStatusLabel = (status) => {
 }
 
 .wb-kb-doc-info {
-  font: clamp(11px, 0.78vw, 12px) var(--mono);
+  font: clamp(var(--fs-2xs), 0.78vw, var(--fs-xs)) var(--mono);
   color: var(--t3);
   letter-spacing: .03em;
   display: flex;
@@ -825,7 +986,7 @@ const getDocStatusLabel = (status) => {
 }
 
 .wb-kb-doc-reader-btn {
-  font: 600 clamp(11px, 0.78vw, 12px) var(--sans);
+  font: 600 clamp(var(--fs-2xs), 0.78vw, var(--fs-xs)) var(--sans);
   color: var(--t3);
   background: rgba(255, 255, 255, 0.03);
   border: 1px solid rgba(255, 255, 255, 0.08);
@@ -846,11 +1007,61 @@ const getDocStatusLabel = (status) => {
   opacity: 0.55;
 }
 
+/* v0.2 移动到目录 select：label 包 icon + native select，保留键盘可访问性 */
+.wb-kb-doc-move {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 3px 6px 3px 8px;
+  font: 500 clamp(var(--fs-2xs), 0.78vw, var(--fs-xs)) var(--sans);
+  color: var(--t2);
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: color 0.15s ease, background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.wb-kb-doc-move:hover {
+  color: var(--t);
+  border-color: rgba(220, 155, 90, 0.3);
+  background: rgba(220, 155, 90, 0.06);
+}
+
+.wb-kb-doc-move-icon {
+  font-size: 11px;
+  opacity: 0.85;
+}
+
+.wb-kb-doc-move-select {
+  font: inherit;
+  color: inherit;
+  background: transparent;
+  border: none;
+  outline: none;
+  cursor: pointer;
+  min-width: 0;
+  max-width: 7.5rem;
+  padding: 0 0.125rem;
+  appearance: none;
+}
+
+.wb-kb-doc-move-select:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+/* select 下拉里的 option：浏览器会按 native 主题渲染，统一写 dark 背景避免白底 */
+.wb-kb-doc-move-select option {
+  background: #16181d;
+  color: var(--t);
+}
+
 .wb-kb-doc-status {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  font: 11px var(--mono);
+  font: var(--fs-2xs) var(--mono);
   color: var(--t3);
   letter-spacing: .04em;
   flex-shrink: 0;
@@ -904,7 +1115,7 @@ const getDocStatusLabel = (status) => {
 
 .wb-kb-tab {
   flex: 1;
-  font: 600 clamp(11px, 0.85vw, 13px) var(--sans);
+  font: 600 clamp(var(--fs-2xs), 0.85vw, var(--fs-sm)) var(--sans);
   color: var(--t3);
   background: transparent;
   border: none;
@@ -941,7 +1152,7 @@ const getDocStatusLabel = (status) => {
 }
 
 .wb-kb-detail-icon {
-  font: 700 12px var(--mono);
+  font: 700 var(--fs-xs) var(--mono);
   letter-spacing: .1em;
   color: rgba(220, 155, 90, 0.95);
   width: 48px;
@@ -961,14 +1172,14 @@ const getDocStatusLabel = (status) => {
 }
 
 .wb-kb-detail-name {
-  font: 700 clamp(14px, 1.1vw, 16px) var(--display);
+  font: 700 clamp(var(--fs-md), 1.1vw, var(--fs-lg)) var(--display);
   color: var(--t);
   margin: 0 0 4px;
   word-break: break-word;
 }
 
 .wb-kb-detail-info {
-  font: 11px var(--mono);
+  font: var(--fs-2xs) var(--mono);
   color: var(--t3);
   letter-spacing: .03em;
 }
@@ -989,13 +1200,13 @@ const getDocStatusLabel = (status) => {
 }
 
 .wb-kb-detail-stat-num {
-  font: 700 clamp(16px, 1.3vw, 20px) var(--mono);
+  font: 700 clamp(var(--fs-md), 1.3vw, var(--fs-2xl)) var(--mono);
   color: var(--t);
   line-height: 1;
 }
 
 .wb-kb-detail-stat-lb {
-  font: 11px var(--mono);
+  font: var(--fs-2xs) var(--mono);
   color: var(--t3);
   letter-spacing: .03em;
 }
@@ -1008,7 +1219,7 @@ const getDocStatusLabel = (status) => {
 }
 
 .wb-detail-label {
-  font: 11px var(--mono);
+  font: var(--fs-2xs) var(--mono);
   color: var(--t3);
   letter-spacing: .06em;
   text-transform: uppercase;
@@ -1029,14 +1240,14 @@ const getDocStatusLabel = (status) => {
 }
 
 .wb-kb-chunk-num {
-  font: 10px var(--mono);
+  font: var(--fs-3xs) var(--mono);
   color: rgba(220, 155, 90, 0.85);
   letter-spacing: .06em;
   margin-bottom: 4px;
 }
 
 .wb-kb-chunk-text {
-  font-size: 12px;
+  font-size: var(--fs-xs);
   color: var(--t2);
   line-height: 1.7;
   margin: 0;
@@ -1053,7 +1264,7 @@ const getDocStatusLabel = (status) => {
 }
 
 .wb-kb-detail-meta-value {
-  font: 600 clamp(11px, 0.78vw, 12px) var(--mono);
+  font: 600 clamp(var(--fs-2xs), 0.78vw, var(--fs-xs)) var(--mono);
   color: var(--t2);
   letter-spacing: 0.02em;
   text-align: right;
@@ -1065,7 +1276,7 @@ const getDocStatusLabel = (status) => {
 
 /* chunks 空态：当 selectedDoc 为 processing/failed 或还未加载时显示 */
 .wb-kb-chunks-empty {
-  font: 12px var(--mono);
+  font: var(--fs-xs) var(--mono);
   color: var(--t3);
   letter-spacing: 0.03em;
   padding: 1rem 0.75rem;
@@ -1093,7 +1304,7 @@ const getDocStatusLabel = (status) => {
 .wb-kb-test-input {
   flex: 1;
   min-width: 0;
-  font: clamp(12px, 0.9vw, 14px) var(--sans);
+  font: clamp(var(--fs-xs), 0.9vw, var(--fs-md)) var(--sans);
   color: var(--t);
   background: rgba(255, 255, 255, 0.03);
   border: 1px solid rgba(255, 255, 255, 0.1);
@@ -1118,7 +1329,7 @@ const getDocStatusLabel = (status) => {
 }
 
 .wb-kb-test-btn {
-  font: 600 clamp(12px, 0.9vw, 13px) var(--sans);
+  font: 600 clamp(var(--fs-xs), 0.9vw, var(--fs-sm)) var(--sans);
   color: var(--bg);
   background: rgba(220, 155, 90, 0.95);
   border: none;
@@ -1143,7 +1354,7 @@ const getDocStatusLabel = (status) => {
   align-items: center;
   flex-wrap: wrap;
   gap: 0.375rem;
-  font: clamp(10px, 0.7vw, 11px) var(--mono);
+  font: clamp(var(--fs-3xs), 0.7vw, var(--fs-2xs)) var(--mono);
   color: var(--t3);
   letter-spacing: 0.04em;
 }
@@ -1162,7 +1373,7 @@ const getDocStatusLabel = (status) => {
 }
 
 .wb-kb-test-result-title {
-  font: 600 clamp(12px, 0.9vw, 13px) var(--sans);
+  font: 600 clamp(var(--fs-xs), 0.9vw, var(--fs-sm)) var(--sans);
   color: var(--t2);
   margin: 0 0 0.25rem;
   overflow: hidden;
@@ -1172,7 +1383,7 @@ const getDocStatusLabel = (status) => {
 
 /* score chip 三色阈值（≥0.7 高 / 0.3-0.7 中 / <0.3 低） */
 .wb-kb-score-chip {
-  font: 700 11px var(--mono);
+  font: 700 var(--fs-2xs) var(--mono);
   letter-spacing: 0.04em;
   padding: 2px 8px;
   border-radius: 999px;
@@ -1223,18 +1434,18 @@ const getDocStatusLabel = (status) => {
 }
 
 .wb-empty-title {
-  font: 700 16px var(--display);
+  font: 700 var(--fs-md) var(--display);
   color: var(--t);
 }
 
 .wb-empty-sub {
-  font-size: 13px;
+  font-size: var(--fs-sm);
   color: var(--t3);
   margin-bottom: 12px;
 }
 
 .wb-empty-cta {
-  font: 600 13px var(--sans);
+  font: 600 var(--fs-sm) var(--sans);
   color: rgba(220, 155, 90, 0.95);
   background: none;
   border: 1px solid rgba(220, 155, 90, 0.3);

@@ -623,7 +623,7 @@ onMounted(async () => {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  font: 12px var(--mono);
+  font: var(--fs-xs) var(--mono);
   color: var(--t2);
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: var(--radius-pill);
@@ -656,7 +656,7 @@ onMounted(async () => {
 }
 
 .wb-bank-sub {
-  font-size: 15px;
+  font-size: var(--fs-lg);
   color: var(--t3);
   line-height: 1.7;
   margin: 0;
@@ -693,7 +693,7 @@ onMounted(async () => {
 }
 
 .wb-filter-title {
-  font: 600 12px var(--mono);
+  font: 600 var(--fs-xs) var(--mono);
   color: var(--t3);
   letter-spacing: .08em;
   text-transform: uppercase;
@@ -749,7 +749,7 @@ onMounted(async () => {
 
 .wb-filter-label {
   flex: 1;
-  font: 13px var(--sans);
+  font: var(--fs-sm) var(--sans);
   color: var(--t2);
   min-width: 0;
 }
@@ -759,7 +759,7 @@ onMounted(async () => {
 }
 
 .wb-filter-count {
-  font: 11px var(--mono);
+  font: var(--fs-2xs) var(--mono);
   color: var(--t3);
   letter-spacing: .04em;
   flex-shrink: 0;
@@ -767,7 +767,7 @@ onMounted(async () => {
 
 .wb-filter-reset {
   margin-top: 4px;
-  font: 12px var(--sans);
+  font: var(--fs-xs) var(--sans);
   color: rgba(220, 155, 90, 0.95);
   background: none;
   border: 1px solid rgba(220, 155, 90, 0.3);
@@ -820,7 +820,7 @@ onMounted(async () => {
 .wb-search-input {
   width: 100%;
   padding: 10px 14px 10px 40px;
-  font: 14px var(--sans);
+  font: var(--fs-md) var(--sans);
   color: var(--t);
   background: rgba(255, 255, 255, 0.03);
   border: 1px solid rgba(255, 255, 255, 0.08);
@@ -845,14 +845,14 @@ onMounted(async () => {
 }
 
 .wb-sort-label {
-  font: 11px var(--mono);
+  font: var(--fs-2xs) var(--mono);
   color: var(--t3);
   letter-spacing: .06em;
   text-transform: uppercase;
 }
 
 .wb-sort-btn {
-  font: 13px var(--sans);
+  font: var(--fs-sm) var(--sans);
   color: var(--t3);
   background: none;
   border: 1px solid rgba(255, 255, 255, 0.08);
@@ -913,7 +913,7 @@ onMounted(async () => {
 }
 
 .wb-q-tag {
-  font: 11px var(--mono);
+  font: var(--fs-2xs) var(--mono);
   padding: 3px 9px;
   border-radius: var(--radius-pill);
   letter-spacing: .04em;
@@ -966,7 +966,7 @@ onMounted(async () => {
 }
 
 .wb-q-diff {
-  font: 11px var(--mono);
+  font: var(--fs-2xs) var(--mono);
   padding: 3px 9px;
   border-radius: var(--radius-pill);
   letter-spacing: .04em;
@@ -1000,7 +1000,7 @@ onMounted(async () => {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  font: 11px var(--mono);
+  font: var(--fs-2xs) var(--mono);
   color: var(--t3);
   letter-spacing: .04em;
   margin-left: auto;
@@ -1018,7 +1018,7 @@ onMounted(async () => {
 }
 
 .wb-q-title {
-  font: 700 17px var(--display);
+  font: 700 var(--fs-xl) var(--display);
   color: var(--t);
   margin: 0 0 8px;
   letter-spacing: -.01em;
@@ -1026,7 +1026,7 @@ onMounted(async () => {
 }
 
 .wb-q-desc {
-  font-size: 13px;
+  font-size: var(--fs-sm);
   color: var(--t3);
   line-height: 1.65;
   margin: 0 0 14px;
@@ -1047,7 +1047,7 @@ onMounted(async () => {
 }
 
 .wb-q-tag-chip {
-  font: 11px var(--mono);
+  font: var(--fs-2xs) var(--mono);
   color: var(--t3);
   background: rgba(255, 255, 255, 0.03);
   border: 1px solid rgba(255, 255, 255, 0.06);
@@ -1057,7 +1057,7 @@ onMounted(async () => {
 }
 
 .wb-q-action {
-  font: 600 12px var(--sans);
+  font: 600 var(--fs-xs) var(--sans);
   color: var(--t);
   background: rgba(255, 255, 255, 0.05);
   border: 1px solid rgba(255, 255, 255, 0.1);
@@ -1092,14 +1092,14 @@ onMounted(async () => {
 }
 
 .wb-detail-label {
-  font: 11px var(--mono);
+  font: var(--fs-2xs) var(--mono);
   color: var(--t3);
   letter-spacing: .06em;
   text-transform: uppercase;
 }
 
 .wb-q-detail-text {
-  font-size: 13px;
+  font-size: var(--fs-sm);
   color: var(--t2);
   line-height: 1.7;
   margin: 0;
@@ -1116,7 +1116,7 @@ onMounted(async () => {
 
 .wb-q-points li,
 .wb-q-followups li {
-  font: 13px var(--sans);
+  font: var(--fs-sm) var(--sans);
   color: var(--t2);
   line-height: 1.7;
 }
@@ -1142,18 +1142,18 @@ onMounted(async () => {
 }
 
 .wb-empty-title {
-  font: 700 16px var(--display);
+  font: 700 var(--fs-md) var(--display);
   color: var(--t);
 }
 
 .wb-empty-sub {
-  font-size: 13px;
+  font-size: var(--fs-sm);
   color: var(--t3);
   margin-bottom: 12px;
 }
 
 .wb-empty-cta {
-  font: 600 13px var(--sans);
+  font: 600 var(--fs-sm) var(--sans);
   color: rgba(220, 155, 90, 0.95);
   background: none;
   border: 1px solid rgba(220, 155, 90, 0.3);

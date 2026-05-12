@@ -22,6 +22,7 @@ DROP TABLE IF EXISTS "public"."resume_documents";
 DROP TABLE IF EXISTS "public"."chat_sessions";
 DROP TABLE IF EXISTS "public"."vector_store";
 DROP TABLE IF EXISTS "public"."knowledge_base";
+DROP TABLE IF EXISTS "public"."knowledge_folders";
 DROP TABLE IF EXISTS "public"."users";
 
 CREATE TABLE "public"."users" (
@@ -55,10 +56,29 @@ CREATE INDEX idx_vector_store_user_id_type ON vector_store (user_id, doc_type);
 CREATE INDEX idx_vector_store_chat_user_type ON vector_store (chat_id, user_id, doc_type);
 CREATE INDEX idx_vector_store_created_at ON vector_store (created_at DESC);
 
+-- 创建知识库目录表
+CREATE TABLE "public"."knowledge_folders" (
+                                             "id" BIGSERIAL PRIMARY KEY,
+                                             "user_id" BIGINT NOT NULL REFERENCES "public"."users"("id") ON DELETE CASCADE,
+                                             "parent_id" BIGINT REFERENCES "public"."knowledge_folders"("id") ON DELETE SET NULL,
+                                             "name" VARCHAR(80) NOT NULL,
+                                             "path" VARCHAR(500) NOT NULL DEFAULT '',
+                                             "depth" INTEGER NOT NULL DEFAULT 0 CHECK ("depth" >= 0 AND "depth" <= 2),
+                                             "sort_order" INTEGER NOT NULL DEFAULT 0,
+                                             "created_at" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                                             "updated_at" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                                             CHECK (btrim("name") <> ''),
+                                             CHECK ("parent_id" IS NULL OR "parent_id" <> "id")
+);
+
+CREATE INDEX idx_knowledge_folders_user_parent_sort ON knowledge_folders (user_id, parent_id, sort_order, id);
+CREATE UNIQUE INDEX idx_knowledge_folders_user_parent_name ON knowledge_folders (user_id, COALESCE(parent_id, 0), lower(name));
+
 -- 创建知识库内容表
 CREATE TABLE "public"."knowledge_base" (
                                            "id" BIGSERIAL PRIMARY KEY,
                                            "user_id" BIGINT NOT NULL DEFAULT 1 REFERENCES "public"."users"("id") ON DELETE CASCADE,
+                                           "folder_id" BIGINT REFERENCES "public"."knowledge_folders"("id") ON DELETE SET NULL,
                                            "title" VARCHAR(255) NOT NULL,
                                            "content" TEXT NOT NULL,
                                            "embedding" vector(1536) NOT NULL,
@@ -74,6 +94,7 @@ CREATE TABLE "public"."knowledge_base" (
 -- 创建索引
 CREATE INDEX idx_knowledge_base_title ON knowledge_base (title);
 CREATE INDEX idx_knowledge_base_user_id ON knowledge_base (user_id);
+CREATE INDEX idx_knowledge_base_folder_id ON knowledge_base (folder_id);
 CREATE INDEX idx_knowledge_base_visibility_status ON knowledge_base (visibility, status, updated_at DESC);
 CREATE INDEX idx_kb_document_identity ON knowledge_base (user_id, title, source, version);
 
@@ -149,6 +170,9 @@ CREATE TABLE "public"."chat_sessions" (
                                           "completed_at" TIMESTAMPTZ,
                                           "duration_seconds" INTEGER NOT NULL DEFAULT 0,
                                           "resume_artifact_id" VARCHAR(64) NOT NULL DEFAULT '',
+                                          "scenario_type" VARCHAR(32) NOT NULL DEFAULT 'formal_interview' CHECK ("scenario_type" IN ('formal_interview', 'question_practice')),
+                                          "starter_source" VARCHAR(32) NOT NULL DEFAULT 'none' CHECK ("starter_source" IN ('none', 'bank', 'resume_plan', 'manual')),
+                                          "starter_question_key" VARCHAR(128) NOT NULL DEFAULT '',
                                           "message_count" INTEGER NOT NULL DEFAULT 0,
                                           "is_active" BOOLEAN NOT NULL DEFAULT true
 );

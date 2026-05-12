@@ -181,7 +181,7 @@ const handleLogout = async () => {
 }
 
 .wb-nav-link {
-  font: 500 14px var(--sans);
+  font: 500 var(--fs-md) var(--sans);
   color: var(--t3);
   text-decoration: none;
   padding: 8px 14px;
@@ -222,7 +222,7 @@ const handleLogout = async () => {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  font: 600 14px var(--sans);
+  font: 600 var(--fs-md) var(--sans);
   color: var(--bg);
   background: var(--t);
   border: none;
@@ -245,7 +245,7 @@ const handleLogout = async () => {
 
 .wb-cta-plus {
   font-weight: 700;
-  font-size: 16px;
+  font-size: var(--fs-md);
   line-height: 1;
 }
 
@@ -259,7 +259,7 @@ const handleLogout = async () => {
   background: rgba(255, 255, 255, 0.06);
   border: 1px solid rgba(255, 255, 255, 0.12);
   color: var(--t);
-  font: 600 13px var(--sans);
+  font: 600 var(--fs-sm) var(--sans);
   cursor: pointer;
   margin-left: 10px;
   display: flex;
@@ -296,7 +296,7 @@ const handleLogout = async () => {
 @media (max-width: 1024px) {
   .wb-nav-link {
     padding: 6px 10px;
-    font-size: 13px;
+    font-size: var(--fs-sm);
   }
   .wb-cta {
     padding: 7px 14px;

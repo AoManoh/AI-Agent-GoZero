@@ -2,19 +2,11 @@
   <!--
     KnowledgeSidebar：私人知识库子页左栏抽象组件。
 
-    v0.1（mode='visibility'，当前实现）:
-      - section1「知识范围」: 显示公共知识 / 我的私人资料 二分类，count 来自父组件传入的 documents 客户端聚合
-      - section2「文件夹（v0.2 上线）」: 灰色 disabled 状态展示 5 个建议 folder 名（lazy-init 设计示意），不可点击
-      - 顶部 stats 显示 documents 总数 / chunks 总数 / 向量维度
-
-    v0.2（mode='folder-tree'，预留）:
-      - 由父组件后续切换到该模式后内部渲染递归 folder 树（含「未归类」虚拟节点 + 拖拽排序）
-      - 当前阶段仅占位 props/事件契约，避免 v0.2 切换时父组件变更
-
     Props/事件契约（保持稳定，v0.1 / v0.2 共用）:
       - mode: 'visibility' | 'folder-tree'
       - documents: KnowledgeDocumentItem[] - 后端返回的完整文档列表（v0.1 用于 visibility 聚合）
-      - activeKey: 当前激活节点 key（'public' | 'private' | folderId 字符串）
+      - folders: KnowledgeFolderItem[] - 后端返回的当前用户目录列表
+      - activeKey: 当前激活节点 key（'public' | 'private' | 'unfiled' | 'folder:{id}'）
       - @select="(key) => ..." - 用户点击节点时上抛 key
 
     决策来源:
@@ -50,22 +42,138 @@
       </ul>
     </section>
 
-    <!-- section2: 文件夹（v0.2 上线，灰色 disabled 占位） -->
-    <section v-if="hasPrivateAccess" class="kb-sidebar-section kb-sidebar-section-disabled">
+    <!-- section2: 文件夹（v0.2 真实目录树 + CRUD） -->
+    <section v-if="hasPrivateAccess" class="kb-sidebar-section">
       <header class="kb-sidebar-section-head">
         <span class="kb-sidebar-section-title">文件夹</span>
-        <span class="kb-sidebar-section-tag">v0.2 上线</span>
+        <button
+          v-if="!creatingFolder"
+          class="kb-sidebar-icon-btn"
+          type="button"
+          title="新建文件夹"
+          aria-label="新建文件夹"
+          @click="startCreateFolder"
+        >
+          +
+        </button>
       </header>
+      <!-- 新建 folder 的 inline input：点 + 展开，Enter 提交，Esc 取消 -->
+      <form
+        v-if="creatingFolder"
+        class="kb-sidebar-inline-form"
+        @submit.prevent="submitCreateFolder"
+      >
+        <input
+          ref="createInputRef"
+          v-model="createDraft"
+          class="kb-sidebar-inline-input"
+          type="text"
+          placeholder="文件夹名"
+          maxlength="60"
+          :disabled="busy"
+          @keydown.esc.prevent="cancelCreateFolder"
+        />
+        <button
+          class="kb-sidebar-inline-btn kb-sidebar-inline-primary"
+          type="submit"
+          :disabled="busy || !createDraft.trim()"
+          aria-label="确认新建"
+        >
+          ✓
+        </button>
+        <button
+          class="kb-sidebar-inline-btn"
+          type="button"
+          :disabled="busy"
+          aria-label="取消新建"
+          @click="cancelCreateFolder"
+        >
+          ✕
+        </button>
+      </form>
       <ul class="kb-sidebar-list">
         <li
-          v-for="placeholder in folderPlaceholders"
-          :key="placeholder"
-          class="kb-sidebar-item kb-sidebar-item-disabled"
-          :title="`${placeholder} · 文件夹功能将在 v0.2 启用`"
+          class="kb-sidebar-item"
+          :class="{ 'kb-sidebar-item-active': activeKey === 'unfiled' }"
+          @click="$emit('select', 'unfiled')"
         >
-          <span class="kb-sidebar-folder-icon" aria-hidden="true">▸</span>
-          <span class="kb-sidebar-label">{{ placeholder }}</span>
+          <span class="kb-sidebar-folder-icon" aria-hidden="true">•</span>
+          <span class="kb-sidebar-label">未归类</span>
+          <span class="kb-sidebar-count">{{ unfiledCount }}</span>
         </li>
+        <template v-for="folder in orderedFolders" :key="folder.id">
+          <!-- 改名模式：item 整行被 inline input 替代，避免 click 与 input 冲突 -->
+          <li
+            v-if="renamingId === folder.id"
+            class="kb-sidebar-item kb-sidebar-item-renaming"
+            :style="{ paddingLeft: `${0.625 + folder.depth * 0.875}rem` }"
+          >
+            <span class="kb-sidebar-folder-icon" aria-hidden="true">▸</span>
+            <form class="kb-sidebar-rename-form" @submit.prevent="submitRenameFolder(folder)">
+              <input
+                ref="renameInputRef"
+                v-model="renameDraft"
+                class="kb-sidebar-inline-input kb-sidebar-rename-input"
+                type="text"
+                maxlength="60"
+                :disabled="busy"
+                @keydown.esc.prevent="cancelRenameFolder"
+                @click.stop
+              />
+              <button
+                class="kb-sidebar-inline-btn kb-sidebar-inline-primary"
+                type="submit"
+                :disabled="busy || !renameDraft.trim() || renameDraft.trim() === folder.name"
+                aria-label="确认改名"
+                @click.stop
+              >
+                ✓
+              </button>
+              <button
+                class="kb-sidebar-inline-btn"
+                type="button"
+                :disabled="busy"
+                aria-label="取消改名"
+                @click.stop="cancelRenameFolder"
+              >
+                ✕
+              </button>
+            </form>
+          </li>
+          <li
+            v-else
+            class="kb-sidebar-item kb-sidebar-item-folder"
+            :class="{ 'kb-sidebar-item-active': activeKey === folder.key }"
+            :style="{ paddingLeft: `${0.625 + folder.depth * 0.875}rem` }"
+            @click="$emit('select', folder.key)"
+          >
+            <span class="kb-sidebar-folder-icon" aria-hidden="true">▸</span>
+            <span class="kb-sidebar-label">{{ folder.name }}</span>
+            <span class="kb-sidebar-count">{{ folder.documentCount || 0 }}</span>
+            <span class="kb-sidebar-folder-actions" @click.stop>
+              <button
+                class="kb-sidebar-icon-btn kb-sidebar-action-btn"
+                type="button"
+                :title="`改名「${folder.name}」`"
+                :aria-label="`改名「${folder.name}」`"
+                :disabled="busy"
+                @click.stop="startRenameFolder(folder)"
+              >
+                ✎
+              </button>
+              <button
+                class="kb-sidebar-icon-btn kb-sidebar-action-btn kb-sidebar-action-danger"
+                type="button"
+                :title="`删除「${folder.name}」`"
+                :aria-label="`删除「${folder.name}」`"
+                :disabled="busy"
+                @click.stop="confirmDeleteFolder(folder)"
+              >
+                ×
+              </button>
+            </span>
+          </li>
+        </template>
       </ul>
     </section>
 
@@ -88,7 +196,7 @@
 </template>
 
 <script setup>
-import { computed } from "vue";
+import { computed, nextTick, ref } from "vue";
 
 const props = defineProps({
   mode: {
@@ -100,6 +208,10 @@ const props = defineProps({
     type: Array,
     default: () => [],
   },
+  folders: {
+    type: Array,
+    default: () => [],
+  },
   activeKey: {
     type: String,
     default: "public",
@@ -108,19 +220,86 @@ const props = defineProps({
     type: Boolean,
     default: true,
   },
+  // busy: folder mutation 进行中互斥锁。父组件在 apiService 调用前后切换，
+  // sidebar 据此 disable 所有按钮防止重复提交（emit 不能 await，所以必须由父组件控制）。
+  busy: {
+    type: Boolean,
+    default: false,
+  },
 });
 
-defineEmits(["select"]);
+const emit = defineEmits(["select", "create-folder", "rename-folder", "delete-folder"]);
 
-// section2 占位文件夹名：与 X=X3 决策的 5 个建议 folder（岗位画像 / 面试题库 / 项目经历 / 业务知识 / 个人复盘）一致，
-// v0.2 lazy-init 真实 folder 后这里会被替换为递归 folder 树。
-const folderPlaceholders = [
-  "岗位画像",
-  "面试题库",
-  "项目经历",
-  "业务知识",
-  "个人复盘",
-];
+// === Folder CRUD inline state ===
+//
+// 状态扁平：creatingFolder / renamingId 互斥（startCreate 时取消 rename，反之亦然）。
+// 提交后立即收起 inline UI（创建/改名 emit 后乐观关闭），不等待父组件 ack；
+// 失败时父组件可显示 alert，但 inline 状态已收起，避免悬挂。
+const creatingFolder = ref(false);
+const createDraft = ref("");
+const createInputRef = ref(null);
+const renamingId = ref(0);
+const renameDraft = ref("");
+const renameInputRef = ref(null);
+
+const startCreateFolder = async () => {
+  if (props.busy) return;
+  cancelRenameFolder();
+  creatingFolder.value = true;
+  createDraft.value = "";
+  await nextTick();
+  createInputRef.value?.focus();
+};
+
+const cancelCreateFolder = () => {
+  if (props.busy) return;
+  creatingFolder.value = false;
+  createDraft.value = "";
+};
+
+const submitCreateFolder = () => {
+  const name = createDraft.value.trim();
+  if (!name || props.busy) return;
+  emit("create-folder", { name });
+  // 乐观关闭 inline form：父组件 reload folders 后会拉到新条目
+  creatingFolder.value = false;
+  createDraft.value = "";
+};
+
+const startRenameFolder = async (folder) => {
+  if (props.busy) return;
+  cancelCreateFolder();
+  renamingId.value = Number(folder.id);
+  renameDraft.value = folder.name || "";
+  await nextTick();
+  // renameInputRef 在 v-for 中可能是数组（取第一个，因为同一时刻只渲染一个 rename input）
+  const input = Array.isArray(renameInputRef.value) ? renameInputRef.value[0] : renameInputRef.value;
+  input?.focus();
+  input?.select?.();
+};
+
+const cancelRenameFolder = () => {
+  if (props.busy) return;
+  renamingId.value = 0;
+  renameDraft.value = "";
+};
+
+const submitRenameFolder = (folder) => {
+  const name = renameDraft.value.trim();
+  if (!name || name === folder.name || props.busy) return;
+  emit("rename-folder", { id: Number(folder.id), name });
+  renamingId.value = 0;
+  renameDraft.value = "";
+};
+
+const confirmDeleteFolder = (folder) => {
+  if (props.busy) return;
+  // 用 native confirm 简化：v0.2 范围内不引入 modal 组件依赖；
+  // 后端 DeleteKnowledgeFolder 已强制空目录约束，含子目录或文档时返回友好错误，由父组件 alert 提示。
+  const ok = window.confirm(`确认删除文件夹「${folder.name}」吗？\n\n注意：目录必须为空（无子目录、无文档）才能删除。`);
+  if (!ok) return;
+  emit("delete-folder", { id: Number(folder.id) });
+};
 
 // 客户端聚合 visibility，避免向后端新增专门的聚合端点（v0.1 1 天交付边界）。
 const publicCount = computed(() =>
@@ -130,6 +309,45 @@ const publicCount = computed(() =>
 const privateCount = computed(() =>
   props.documents.filter((d) => (d.visibility || d.scope) === "private").length
 );
+
+const unfiledCount = computed(() =>
+  props.documents.filter((d) => (d.visibility || d.scope) === "private" && !Number(d.folderId || 0)).length
+);
+
+const orderedFolders = computed(() => {
+  const byParent = new Map();
+  for (const folder of props.folders) {
+    const parentId = Number(folder.parentId || 0);
+    if (!byParent.has(parentId)) byParent.set(parentId, []);
+    byParent.get(parentId).push(folder);
+  }
+  for (const group of byParent.values()) {
+    group.sort((a, b) => {
+      const sortDiff = Number(a.sortOrder || 0) - Number(b.sortOrder || 0);
+      if (sortDiff !== 0) return sortDiff;
+      return String(a.name || "").localeCompare(String(b.name || ""), "zh-CN");
+    });
+  }
+
+  const output = [];
+  const visited = new Set();
+  const walk = (parentId, depth) => {
+    for (const folder of byParent.get(parentId) || []) {
+      const id = Number(folder.id || 0);
+      if (!id || visited.has(id)) continue;
+      visited.add(id);
+      output.push({
+        ...folder,
+        id,
+        key: `folder:${id}`,
+        depth,
+      });
+      walk(id, depth + 1);
+    }
+  };
+  walk(0, 0);
+  return output;
+});
 
 const totalChunks = computed(() =>
   props.documents.reduce((sum, d) => sum + (d.chunkCount || 0), 0)
@@ -177,14 +395,14 @@ const embeddingLabel = computed(() => {
 }
 
 .kb-sidebar-section-title {
-  font: 600 clamp(11px, 0.78vw, 12px) var(--mono);
+  font: 600 clamp(var(--fs-2xs), 0.78vw, var(--fs-xs)) var(--mono);
   color: var(--t3);
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
 
 .kb-sidebar-section-tag {
-  font: 500 clamp(10px, 0.7vw, 11px) var(--mono);
+  font: 500 clamp(var(--fs-3xs), 0.7vw, var(--fs-2xs)) var(--mono);
   color: rgba(220, 155, 90, 0.6);
   letter-spacing: 0.04em;
   padding: 2px 6px;
@@ -209,7 +427,7 @@ const embeddingLabel = computed(() => {
   padding: 0.5rem 0.625rem;
   border-radius: var(--radius-sm);
   cursor: pointer;
-  font: clamp(13px, 0.95vw, 15px) var(--sans);
+  font: clamp(var(--fs-sm), 0.95vw, var(--fs-lg)) var(--sans);
   color: var(--t2);
   transition: color 0.2s ease, background-color 0.2s ease;
   min-width: 0;
@@ -265,7 +483,7 @@ const embeddingLabel = computed(() => {
 }
 
 .kb-sidebar-folder-icon {
-  font: 12px var(--mono);
+  font: var(--fs-xs) var(--mono);
   color: var(--t3);
   flex-shrink: 0;
 }
@@ -279,7 +497,7 @@ const embeddingLabel = computed(() => {
 }
 
 .kb-sidebar-count {
-  font: clamp(11px, 0.78vw, 12px) var(--mono);
+  font: clamp(var(--fs-2xs), 0.78vw, var(--fs-xs)) var(--mono);
   color: var(--t3);
   letter-spacing: 0.03em;
   flex-shrink: 0;
@@ -300,13 +518,152 @@ const embeddingLabel = computed(() => {
 }
 
 .kb-sidebar-stat-num {
-  font: 600 clamp(13px, 0.95vw, 15px) var(--mono);
+  font: 600 clamp(var(--fs-sm), 0.95vw, var(--fs-lg)) var(--mono);
   color: var(--t);
 }
 
 .kb-sidebar-stat-lb {
-  font: clamp(11px, 0.78vw, 12px) var(--mono);
+  font: clamp(var(--fs-2xs), 0.78vw, var(--fs-xs)) var(--mono);
   color: var(--t3);
   letter-spacing: 0.04em;
+}
+
+/* === Folder CRUD: 新建按钮 + 行内编辑表单 + folder hover 操作（v0.2） === */
+.kb-sidebar-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--t2);
+  font: 600 14px var(--sans);
+  line-height: 1;
+  cursor: pointer;
+  transition: color 0.15s ease, background-color 0.15s ease, border-color 0.15s ease;
+  flex-shrink: 0;
+}
+
+.kb-sidebar-icon-btn:hover:not(:disabled) {
+  color: var(--t);
+  background: rgba(220, 155, 90, 0.12);
+  border-color: rgba(220, 155, 90, 0.35);
+}
+
+.kb-sidebar-icon-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* 行内 form：新建 / 改名共用一套样式 */
+.kb-sidebar-inline-form {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.375rem 0.5rem;
+  border: 1px solid rgba(220, 155, 90, 0.25);
+  border-radius: var(--radius-sm);
+  background: rgba(220, 155, 90, 0.04);
+}
+
+.kb-sidebar-inline-input {
+  flex: 1;
+  min-width: 0;
+  font: var(--fs-sm) var(--sans);
+  color: var(--t);
+  background: transparent;
+  border: none;
+  outline: none;
+  padding: 2px 4px;
+}
+
+.kb-sidebar-inline-input::placeholder {
+  color: var(--t3);
+}
+
+.kb-sidebar-inline-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--t2);
+  font: 600 12px var(--sans);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: all 0.15s ease;
+}
+
+.kb-sidebar-inline-btn:hover:not(:disabled) {
+  color: var(--t);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.kb-sidebar-inline-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.kb-sidebar-inline-primary {
+  border-color: rgba(220, 155, 90, 0.4);
+  color: rgba(220, 155, 90, 0.95);
+}
+
+.kb-sidebar-inline-primary:hover:not(:disabled) {
+  background: rgba(220, 155, 90, 0.15);
+  border-color: rgba(220, 155, 90, 0.6);
+}
+
+/* 改名 inline form：嵌在 folder item 里，去掉外部 padding */
+.kb-sidebar-rename-form {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 0.375rem;
+  min-width: 0;
+}
+
+.kb-sidebar-rename-input {
+  font: clamp(var(--fs-sm), 0.95vw, var(--fs-lg)) var(--sans);
+}
+
+.kb-sidebar-item-renaming {
+  background: rgba(220, 155, 90, 0.06);
+}
+
+/* folder hover 显示操作按钮 */
+.kb-sidebar-folder-actions {
+  display: none;
+  align-items: center;
+  gap: 0.25rem;
+  margin-left: 0.25rem;
+  flex-shrink: 0;
+}
+
+.kb-sidebar-item-folder:hover .kb-sidebar-folder-actions,
+.kb-sidebar-item-folder:focus-within .kb-sidebar-folder-actions {
+  display: inline-flex;
+}
+
+.kb-sidebar-action-btn {
+  width: 20px;
+  height: 20px;
+  font-size: 11px;
+}
+
+.kb-sidebar-action-danger {
+  color: rgba(239, 138, 115, 0.85);
+}
+
+.kb-sidebar-action-danger:hover:not(:disabled) {
+  color: rgba(239, 138, 115, 1);
+  background: rgba(239, 102, 96, 0.12);
+  border-color: rgba(239, 102, 96, 0.4);
 }
 </style>

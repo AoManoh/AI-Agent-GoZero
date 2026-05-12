@@ -22,14 +22,17 @@ package logic
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/zeromicro/go-zero/core/logx"
 
 	"GoZero-AI/api/chat/internal/svc"
 	"GoZero-AI/api/chat/internal/types"
 	"GoZero-AI/api/chat/internal/utils"
+	"GoZero-AI/internal/statuserr"
 )
 
 // KnowledgeUploadLogic RAG知识库上传业务逻辑处理器
@@ -139,8 +142,11 @@ func (l *KnowledgeUploadLogic) KnowledgeUpload(req *types.KnowledgeUploadInput) 
 	// 步骤2: 批量存储知识块到向量数据库
 	// 遍历每个分块，逐一进行向量化和存储处理
 	// 采用原子操作，要么全部成功，要么全部失败。禁止上传一半失败，数据库里留下僵尸数据的情况
-	if err := l.svcCtx.VectorStore.SaveKnowledgeBatchForUserContextWithMeta(l.ctx, req.Title, chunks, req.UserID, req.Source); err != nil {
+	if err := l.svcCtx.VectorStore.SaveKnowledgeBatchForUserContextWithMetaInFolder(l.ctx, req.Title, chunks, req.UserID, req.Source, req.FolderID); err != nil {
 		logx.Errorf("保存知识失败: %v", err)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, statuserr.NotFound("知识目录不存在或无权访问")
+		}
 		return nil, err
 	}
 
@@ -167,6 +173,9 @@ func validateKnowledgeUploadInput(req *types.KnowledgeUploadInput) error {
 	}
 	if req.UserID <= 0 {
 		return fmt.Errorf("知识所有者不能为空")
+	}
+	if req.FolderID != nil && *req.FolderID <= 0 {
+		return fmt.Errorf("知识目录 ID 无效")
 	}
 
 	return nil

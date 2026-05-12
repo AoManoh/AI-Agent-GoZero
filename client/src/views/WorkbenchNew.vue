@@ -503,7 +503,7 @@ onMounted(() => {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  font: 12px var(--mono);
+  font: var(--fs-xs) var(--mono);
   color: var(--t2);
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: var(--radius-pill);
@@ -536,7 +536,7 @@ onMounted(() => {
 }
 
 .wb-new-sub {
-  font-size: 15px;
+  font-size: var(--fs-lg);
   color: var(--t3);
   line-height: 1.7;
   margin: 0;
@@ -561,13 +561,13 @@ onMounted(() => {
   border-radius: var(--radius-pill);
   background: rgba(255, 255, 255, 0.02);
   border: 1px solid rgba(255, 255, 255, 0.06);
-  font: 13px var(--sans);
+  font: var(--fs-sm) var(--sans);
   color: var(--t3);
   transition: color .25s ease, background-color .25s ease, border-color .25s ease;
 }
 
 .wb-step-num {
-  font: 600 12px var(--mono);
+  font: 600 var(--fs-xs) var(--mono);
   color: var(--t3);
   letter-spacing: .04em;
   padding: 3px 8px;
@@ -614,14 +614,14 @@ onMounted(() => {
   display: inline-flex;
   align-items: center;
   gap: 10px;
-  font: 600 16px var(--display);
+  font: 600 var(--fs-md) var(--display);
   color: var(--t);
   margin-bottom: 16px;
   letter-spacing: -.01em;
 }
 
 .wb-block-tag {
-  font: 600 11px var(--mono);
+  font: 600 var(--fs-2xs) var(--mono);
   color: rgba(220, 155, 90, 0.95);
   background: rgba(220, 155, 90, 0.08);
   border: 1px solid rgba(220, 155, 90, 0.25);
@@ -631,7 +631,7 @@ onMounted(() => {
 }
 
 .wb-block-hint {
-  font: 12px var(--mono);
+  font: var(--fs-xs) var(--mono);
   color: var(--t3);
   font-weight: 400;
   margin-left: 4px;
@@ -688,13 +688,13 @@ onMounted(() => {
 }
 
 .wb-dir-name {
-  font: 700 16px var(--display);
+  font: 700 var(--fs-md) var(--display);
   color: var(--t);
   letter-spacing: -.01em;
 }
 
 .wb-dir-tags {
-  font: 11px var(--mono);
+  font: var(--fs-2xs) var(--mono);
   color: var(--t3);
   letter-spacing: .04em;
 }
@@ -768,7 +768,7 @@ onMounted(() => {
 }
 
 .wb-resume-name {
-  font: 600 13px var(--sans);
+  font: 600 var(--fs-sm) var(--sans);
   color: var(--t);
   margin-bottom: 2px;
   overflow: hidden;
@@ -777,13 +777,13 @@ onMounted(() => {
 }
 
 .wb-resume-info {
-  font: 11px var(--mono);
+  font: var(--fs-2xs) var(--mono);
   color: var(--t3);
   letter-spacing: .03em;
 }
 
 .wb-resume-tag {
-  font: 10px var(--mono);
+  font: var(--fs-3xs) var(--mono);
   color: rgba(220, 155, 90, 0.95);
   background: rgba(220, 155, 90, 0.1);
   border: 1px solid rgba(220, 155, 90, 0.3);
@@ -829,7 +829,7 @@ onMounted(() => {
 }
 
 .wb-diff-name {
-  font: 700 14px var(--display);
+  font: 700 var(--fs-md) var(--display);
   color: var(--t);
 }
 
@@ -838,7 +838,7 @@ onMounted(() => {
 }
 
 .wb-diff-desc {
-  font: 11px var(--mono);
+  font: var(--fs-2xs) var(--mono);
   color: var(--t3);
   letter-spacing: .03em;
   text-align: center;
@@ -907,7 +907,7 @@ onMounted(() => {
 }
 
 .wb-focus-label {
-  font: 14px var(--sans);
+  font: var(--fs-md) var(--sans);
   color: var(--t2);
 }
 
@@ -956,14 +956,14 @@ onMounted(() => {
 }
 
 .wb-summary-label {
-  font: 11px var(--mono);
+  font: var(--fs-2xs) var(--mono);
   color: var(--t3);
   letter-spacing: .06em;
   text-transform: uppercase;
 }
 
 .wb-summary-value {
-  font: 600 14px var(--sans);
+  font: 600 var(--fs-md) var(--sans);
   color: var(--t);
 }
 
@@ -977,7 +977,7 @@ onMounted(() => {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  font: 600 15px var(--sans);
+  font: 600 var(--fs-lg) var(--sans);
   color: var(--bg);
   background: var(--t);
   border: none;

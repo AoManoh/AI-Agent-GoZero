@@ -31,6 +31,72 @@ DO $$
         END IF;
     END $$;
 
+-- ----------------------------
+-- 步骤 1.1: 创建知识库目录表
+-- ----------------------------
+CREATE TABLE IF NOT EXISTS "public"."knowledge_folders" (
+                                                            "id" BIGSERIAL PRIMARY KEY,
+                                                            "user_id" BIGINT NOT NULL REFERENCES "public"."users"("id") ON DELETE CASCADE,
+                                                            "parent_id" BIGINT REFERENCES "public"."knowledge_folders"("id") ON DELETE SET NULL,
+                                                            "name" VARCHAR(80) NOT NULL,
+                                                            "path" VARCHAR(500) NOT NULL DEFAULT '',
+                                                            "depth" INTEGER NOT NULL DEFAULT 0 CHECK ("depth" >= 0 AND "depth" <= 2),
+                                                            "sort_order" INTEGER NOT NULL DEFAULT 0,
+                                                            "created_at" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                                                            "updated_at" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                                                            CHECK (btrim("name") <> ''),
+                                                            CHECK ("parent_id" IS NULL OR "parent_id" <> "id")
+);
+
+ALTER TABLE "public"."knowledge_folders" ADD COLUMN IF NOT EXISTS "path" VARCHAR(500) NOT NULL DEFAULT '';
+ALTER TABLE "public"."knowledge_folders" ADD COLUMN IF NOT EXISTS "depth" INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE "public"."knowledge_folders" ALTER COLUMN "name" TYPE VARCHAR(80);
+UPDATE "public"."knowledge_folders"
+SET "path" = CASE WHEN btrim(coalesce("path", '')) = '' THEN '/' || btrim("name") ELSE "path" END,
+    "depth" = GREATEST(0, LEAST("depth", 2))
+WHERE btrim(coalesce("path", '')) = '' OR "depth" < 0 OR "depth" > 2;
+
+DO $$
+    DECLARE
+        parent_constraint text;
+    BEGIN
+        SELECT c.conname
+        INTO parent_constraint
+        FROM pg_constraint c
+        JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = ANY(c.conkey)
+        WHERE c.conrelid = '"public"."knowledge_folders"'::regclass
+          AND c.contype = 'f'
+          AND a.attname = 'parent_id'
+        LIMIT 1;
+        IF parent_constraint IS NOT NULL THEN
+            EXECUTE format('ALTER TABLE "public"."knowledge_folders" DROP CONSTRAINT %I', parent_constraint);
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_knowledge_folders_parent_id') THEN
+            ALTER TABLE "public"."knowledge_folders"
+                ADD CONSTRAINT fk_knowledge_folders_parent_id
+                    FOREIGN KEY (parent_id) REFERENCES "public"."knowledge_folders"(id) ON DELETE SET NULL;
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'chk_knowledge_folders_depth') THEN
+            ALTER TABLE "public"."knowledge_folders"
+                ADD CONSTRAINT chk_knowledge_folders_depth CHECK ("depth" >= 0 AND "depth" <= 2);
+        END IF;
+    END $$;
+
+CREATE INDEX IF NOT EXISTS idx_knowledge_folders_user_parent_sort ON "public"."knowledge_folders" (user_id, parent_id, sort_order, id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_knowledge_folders_user_parent_name ON "public"."knowledge_folders" (user_id, COALESCE(parent_id, 0), lower(name));
+CREATE INDEX IF NOT EXISTS idx_knowledge_folders_user_path ON "public"."knowledge_folders" (user_id, path);
+
+COMMENT ON TABLE "public"."knowledge_folders" IS '存储用户私有知识库目录树';
+COMMENT ON COLUMN "public"."knowledge_folders"."id" IS '知识库目录的唯一标识符 (主键)';
+COMMENT ON COLUMN "public"."knowledge_folders"."user_id" IS '目录所属用户 ID';
+COMMENT ON COLUMN "public"."knowledge_folders"."parent_id" IS '父目录 ID，NULL 表示根目录';
+COMMENT ON COLUMN "public"."knowledge_folders"."name" IS '目录名称';
+COMMENT ON COLUMN "public"."knowledge_folders"."path" IS '目录完整路径，例如 /岗位画像/Java 后端，由后端维护';
+COMMENT ON COLUMN "public"."knowledge_folders"."depth" IS '目录深度：0=顶级，1=二级，2=三级';
+COMMENT ON COLUMN "public"."knowledge_folders"."sort_order" IS '同级目录排序权重';
+COMMENT ON COLUMN "public"."knowledge_folders"."created_at" IS '目录创建时间戳';
+COMMENT ON COLUMN "public"."knowledge_folders"."updated_at" IS '目录最近更新时间';
+
 
 -- ----------------------------
 -- 步骤 2: 升级 `knowledge_base` 表
@@ -40,6 +106,7 @@ ALTER TABLE "public"."knowledge_base" ADD COLUMN IF NOT EXISTS "user_id" BIGINT;
 UPDATE "public"."knowledge_base" SET "user_id" = 1 WHERE "user_id" IS NULL;
 ALTER TABLE "public"."knowledge_base" ALTER COLUMN "user_id" SET DEFAULT 1;
 ALTER TABLE "public"."knowledge_base" ALTER COLUMN "user_id" SET NOT NULL;
+ALTER TABLE "public"."knowledge_base" ADD COLUMN IF NOT EXISTS "folder_id" BIGINT;
 
 -- 2.2: 将 embedding 字段从 JSONB 转换为 vector
 DO $$
@@ -120,6 +187,26 @@ DO $$
         END IF;
     END $$;
 
+DO $$
+    DECLARE
+        kb_folder_constraint text;
+    BEGIN
+        SELECT c.conname
+        INTO kb_folder_constraint
+        FROM pg_constraint c
+        JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = ANY(c.conkey)
+        WHERE c.conrelid = '"public"."knowledge_base"'::regclass
+          AND c.contype = 'f'
+          AND a.attname = 'folder_id'
+        LIMIT 1;
+        IF kb_folder_constraint IS NOT NULL THEN
+            EXECUTE format('ALTER TABLE "public"."knowledge_base" DROP CONSTRAINT %I', kb_folder_constraint);
+        END IF;
+        ALTER TABLE "public"."knowledge_base"
+            ADD CONSTRAINT fk_kb_folder_id
+                FOREIGN KEY (folder_id) REFERENCES "public"."knowledge_folders"(id) ON DELETE SET NULL;
+    END $$;
+
 -- 2.4: 更新索引 (使用 DROP IF EXISTS + CREATE 模式)
 DROP INDEX IF EXISTS idx_knowledge_base_title;
 DROP INDEX IF EXISTS idx_kb_user_id;
@@ -142,6 +229,7 @@ UPDATE "public"."knowledge_base"
 SET "updated_at" = COALESCE("updated_at", "created_at", now())
 WHERE "updated_at" IS NULL;
 CREATE INDEX idx_kb_user_id ON "public"."knowledge_base" (user_id);
+CREATE INDEX IF NOT EXISTS idx_kb_folder_id ON "public"."knowledge_base" (folder_id);
 DROP INDEX IF EXISTS idx_kb_document_identity;
 CREATE INDEX idx_kb_document_identity ON "public"."knowledge_base" (user_id, title, source, version);
 DROP INDEX IF EXISTS idx_kb_visibility_status;
@@ -169,6 +257,7 @@ DO $$
 COMMENT ON TABLE "public"."knowledge_base" IS '存储可复用的RAG数据源，包括公共和私有知识';
 COMMENT ON COLUMN "public"."knowledge_base"."id" IS '知识条目的唯一标识符 (主键)';
 COMMENT ON COLUMN "public"."knowledge_base"."user_id" IS '知识的所有者ID。业务约定 user_id = 1 为管理员上传的公共知识。';
+COMMENT ON COLUMN "public"."knowledge_base"."folder_id" IS '知识条目所属目录 ID，NULL 表示未归类；删除目录时应用层先提升文档，DB 层 ON DELETE SET NULL 兜底。';
 COMMENT ON COLUMN "public"."knowledge_base"."title" IS '知识条目的标题，便于管理和识别';
 COMMENT ON COLUMN "public"."knowledge_base"."content" IS '知识条目的原始文本内容';
 COMMENT ON COLUMN "public"."knowledge_base"."embedding" IS '由文本内容生成的高维向量，用于相似度检索';
@@ -375,6 +464,37 @@ ALTER TABLE "public"."chat_sessions" ADD COLUMN IF NOT EXISTS "started_at" TIMES
 ALTER TABLE "public"."chat_sessions" ADD COLUMN IF NOT EXISTS "completed_at" TIMESTAMPTZ;
 ALTER TABLE "public"."chat_sessions" ADD COLUMN IF NOT EXISTS "duration_seconds" INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE "public"."chat_sessions" ADD COLUMN IF NOT EXISTS "resume_artifact_id" VARCHAR(64) NOT NULL DEFAULT '';
+ALTER TABLE "public"."chat_sessions" ADD COLUMN IF NOT EXISTS "scenario_type" VARCHAR(32) NOT NULL DEFAULT 'formal_interview';
+ALTER TABLE "public"."chat_sessions" ADD COLUMN IF NOT EXISTS "starter_source" VARCHAR(32) NOT NULL DEFAULT 'none';
+ALTER TABLE "public"."chat_sessions" ADD COLUMN IF NOT EXISTS "starter_question_key" VARCHAR(128) NOT NULL DEFAULT '';
+UPDATE "public"."chat_sessions"
+SET "scenario_type" = 'formal_interview'
+WHERE "scenario_type" IS NULL OR "scenario_type" NOT IN ('formal_interview', 'question_practice');
+UPDATE "public"."chat_sessions"
+SET "starter_source" = 'none'
+WHERE "starter_source" IS NULL OR "starter_source" NOT IN ('none', 'bank', 'resume_plan', 'manual');
+UPDATE "public"."chat_sessions"
+SET "starter_question_key" = ''
+WHERE "starter_question_key" IS NULL;
+ALTER TABLE "public"."chat_sessions" ALTER COLUMN "scenario_type" SET NOT NULL;
+ALTER TABLE "public"."chat_sessions" ALTER COLUMN "scenario_type" SET DEFAULT 'formal_interview';
+ALTER TABLE "public"."chat_sessions" ALTER COLUMN "starter_source" SET NOT NULL;
+ALTER TABLE "public"."chat_sessions" ALTER COLUMN "starter_source" SET DEFAULT 'none';
+ALTER TABLE "public"."chat_sessions" ALTER COLUMN "starter_question_key" SET NOT NULL;
+ALTER TABLE "public"."chat_sessions" ALTER COLUMN "starter_question_key" SET DEFAULT '';
+DO $$
+    BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'chk_chat_sessions_scenario_type') THEN
+            ALTER TABLE "public"."chat_sessions"
+                ADD CONSTRAINT chk_chat_sessions_scenario_type
+                    CHECK ("scenario_type" IN ('formal_interview', 'question_practice'));
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'chk_chat_sessions_starter_source') THEN
+            ALTER TABLE "public"."chat_sessions"
+                ADD CONSTRAINT chk_chat_sessions_starter_source
+                    CHECK ("starter_source" IN ('none', 'bank', 'resume_plan', 'manual'));
+        END IF;
+    END $$;
 DROP INDEX IF EXISTS idx_chat_sessions_user_last_message;
 CREATE INDEX idx_chat_sessions_user_last_message ON "public"."chat_sessions" (user_id, last_message_at DESC);
 DROP INDEX IF EXISTS idx_chat_sessions_user_active;
@@ -407,6 +527,9 @@ COMMENT ON COLUMN "public"."chat_sessions"."started_at" IS '面试开始时间';
 COMMENT ON COLUMN "public"."chat_sessions"."completed_at" IS '面试完成时间';
 COMMENT ON COLUMN "public"."chat_sessions"."duration_seconds" IS '面试持续时长，单位秒';
 COMMENT ON COLUMN "public"."chat_sessions"."resume_artifact_id" IS '本会话绑定的独立简历资产ID，旧会话可为空';
+COMMENT ON COLUMN "public"."chat_sessions"."scenario_type" IS '会话运行场景，formal_interview=正式模拟面试，question_practice=题库练习';
+COMMENT ON COLUMN "public"."chat_sessions"."starter_source" IS '会话首题来源，none/bank/resume_plan/manual';
+COMMENT ON COLUMN "public"."chat_sessions"."starter_question_key" IS '会话首题稳定键快照；题库练习用于绑定题目，简历首题仅作追踪';
 COMMENT ON COLUMN "public"."chat_sessions"."message_count" IS '会话消息条数，用于工作台统计';
 COMMENT ON COLUMN "public"."chat_sessions"."is_active" IS '会话是否仍处于活跃状态';
 

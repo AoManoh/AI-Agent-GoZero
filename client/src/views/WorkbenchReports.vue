@@ -167,7 +167,7 @@ onMounted(async () => {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  font: 12px var(--mono);
+  font: var(--fs-xs) var(--mono);
   color: rgba(243, 230, 210, 0.78);
   border: 1px solid rgba(240, 180, 60, 0.18);
   border-radius: var(--radius-pill);
@@ -229,7 +229,7 @@ onMounted(async () => {
 }
 
 .reports-sub {
-  font-size: 15px;
+  font-size: var(--fs-lg);
   line-height: 1.65;
   color: var(--hero-text-muted);
   max-width: 680px;
@@ -265,7 +265,7 @@ onMounted(async () => {
 }
 
 .reports-card-eyebrow {
-  font: 11px var(--mono);
+  font: var(--fs-2xs) var(--mono);
   color: rgba(240, 180, 60, 0.95);
   letter-spacing: .24em;
   text-transform: uppercase;
@@ -279,7 +279,7 @@ onMounted(async () => {
 }
 
 .reports-card-desc {
-  font-size: 14px;
+  font-size: var(--fs-md);
   line-height: 1.7;
   color: var(--hero-text-muted);
   margin: 0;
@@ -296,7 +296,7 @@ onMounted(async () => {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  font: 600 14px var(--sans);
+  font: 600 var(--fs-md) var(--sans);
   text-decoration: none;
   padding: 12px 20px;
   border-radius: var(--radius-md);
@@ -335,7 +335,7 @@ onMounted(async () => {
 }
 
 .reports-roadmap-title {
-  font: 11px var(--mono);
+  font: var(--fs-2xs) var(--mono);
   color: var(--hero-text-soft);
   letter-spacing: .24em;
   text-transform: uppercase;
@@ -384,18 +384,18 @@ onMounted(async () => {
 }
 
 .reports-roadmap-text strong {
-  font: 600 14px var(--sans);
+  font: 600 var(--fs-md) var(--sans);
   color: var(--hero-text-warm);
 }
 
 .reports-roadmap-text span {
-  font-size: 12.5px;
+  font-size: var(--fs-sm);
   line-height: 1.55;
   color: var(--hero-text-muted);
 }
 
 .reports-back {
-  font: 500 13px var(--sans);
+  font: 500 var(--fs-sm) var(--sans);
   color: var(--hero-text-soft);
   text-decoration: none;
   margin-top: 8px;

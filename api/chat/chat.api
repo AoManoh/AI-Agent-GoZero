@@ -24,7 +24,8 @@ type InterviewAppChatReq {
 // 运行时要求 multipart/form-data 中包含名为 `file` 的 PDF 文件 part；
 // 该文件 part 由 handler 手工读取，因此这里只保留占位字段用于表达外部契约。
 type KnowledgeUploadReq {
-	File string `form:"file"`
+	File     string `form:"file"`
+	FolderId int64  `form:"folderId,optional"`
 }
 
 // KnowledgeTextUploadReq 外部工具资料包导入请求结构体
@@ -43,7 +44,86 @@ type KnowledgeUploadRes {
 
 // KnowledgeDocumentsReq 知识库文档列表请求
 type KnowledgeDocumentsReq {
-	Limit int64 `form:"limit,optional"`
+	Limit        int64  `form:"limit,optional"`
+	FolderId     int64  `form:"folderId,optional"`
+	FolderScoped bool   `form:"folderScoped,optional"`
+	Visibility   string `form:"visibility,optional"`
+}
+
+// KnowledgeFoldersReq 知识库目录列表请求
+type KnowledgeFoldersReq {}
+
+// KnowledgeFolderItem 知识库目录项
+type KnowledgeFolderItem {
+	Id            int64                 `json:"id"`
+	ParentId      int64                 `json:"parentId,optional"`
+	Name          string                `json:"name"`
+	Path          string                `json:"path"`
+	Depth         int64                 `json:"depth"`
+	SortOrder     int64                 `json:"sortOrder"`
+	DocumentCount int64                 `json:"documentCount"`
+	ChunkCount    int64                 `json:"chunkCount"`
+	Children      []KnowledgeFolderItem `json:"children,optional"`
+	CreatedAt     string                `json:"createdAt"`
+	UpdatedAt     string                `json:"updatedAt"`
+}
+
+// KnowledgeFoldersResp 知识库目录列表响应
+type KnowledgeFoldersResp {
+	Folders      []KnowledgeFolderItem `json:"folders"`
+	UnfiledCount int64                 `json:"unfiledCount"`
+	Total        int64                 `json:"total"`
+	TotalCount   int64                 `json:"totalCount"`
+	Initialized  bool                  `json:"initialized"`
+	Meta         KnowledgeManagerMeta  `json:"meta"`
+}
+
+// KnowledgeCreateFolderReq 创建知识库目录请求
+type KnowledgeCreateFolderReq {
+	Name      string `json:"name"`
+	ParentId  int64  `json:"parentId,optional"`
+	SortOrder int64  `json:"sortOrder,optional"`
+}
+
+// KnowledgeUpdateFolderReq 更新知识库目录请求
+type KnowledgeUpdateFolderReq {
+	Id           int64  `path:"id"`
+	Name         string `json:"name,optional"`
+	ParentId     int64  `json:"parentId,optional"`
+	SortOrder    int64  `json:"sortOrder,optional"`
+	SetParent    bool   `json:"setParent,optional"`
+	SetSortOrder bool   `json:"setSortOrder,optional"`
+}
+
+// KnowledgeDeleteFolderReq 删除知识库目录请求
+type KnowledgeDeleteFolderReq {
+	Id int64 `path:"id"`
+}
+
+// KnowledgeMoveDocumentFolderReq 移动知识库文档目录请求
+type KnowledgeMoveDocumentFolderReq {
+	Id       int64 `path:"id"`
+	FolderId int64 `json:"folderId,optional"`
+}
+
+// KnowledgeFolderMutationResp 知识库目录变更响应
+type KnowledgeFolderMutationResp {
+	Folder KnowledgeFolderItem  `json:"folder"`
+	Meta   KnowledgeManagerMeta `json:"meta"`
+}
+
+// KnowledgeFolderDeleteResp 知识库目录删除响应
+type KnowledgeFolderDeleteResp {
+	MovedDocCount       int64                `json:"movedDocCount"`
+	PromotedFolderCount int64                `json:"promotedFolderCount"`
+	ParentName          string               `json:"parentName"`
+	Meta                KnowledgeManagerMeta `json:"meta"`
+}
+
+// KnowledgeDocumentMutationResp 知识库文档变更响应
+type KnowledgeDocumentMutationResp {
+	Document KnowledgeDocumentItem `json:"document"`
+	Meta     KnowledgeManagerMeta  `json:"meta"`
 }
 
 // KnowledgeManagerMeta 知识库管理响应元信息
@@ -60,6 +140,7 @@ type KnowledgeManagerMeta {
 // 拒绝产品图的 "1024d"（设计稿示意，与真实 vector(1536) 不符）和 "召回 87 次"（DB 无 query_hits 列，挪到 v0.3+ 可观察性升级）。
 type KnowledgeDocumentItem {
 	DocumentId         int64  `json:"documentId"`
+	FolderId           int64  `json:"folderId"`
 	Title              string `json:"title"`
 	Scope              string `json:"scope"`
 	Source             string `json:"source,optional"`
@@ -107,8 +188,11 @@ type KnowledgeDocumentChunksResp {
 
 // KnowledgeTestQueryReq 知识库测试召回请求
 type KnowledgeTestQueryReq {
-	Query string `json:"query"`
-	TopK  int64  `json:"topK,optional"`
+	Query        string `json:"query"`
+	TopK         int64  `json:"topK,optional"`
+	FolderId     int64  `json:"folderId,optional"`
+	FolderScoped bool   `json:"folderScoped,optional"`
+	Visibility   string `json:"visibility,optional"`
 }
 
 // KnowledgeTestQueryResp 知识库测试召回响应
@@ -133,9 +217,29 @@ service chat {
 	@handler KnowledgeTextUpload
 	post /api/ai/knowledge/text (KnowledgeTextUploadReq) returns (KnowledgeUploadRes)
 
+	@doc "知识库目录列表接口，要求登录态 Bearer token"
+	@handler KnowledgeFolders
+	get /api/ai/knowledge/folders (KnowledgeFoldersReq) returns (KnowledgeFoldersResp)
+
+	@doc "知识库目录创建接口，要求登录态 Bearer token"
+	@handler KnowledgeCreateFolder
+	post /api/ai/knowledge/folders (KnowledgeCreateFolderReq) returns (KnowledgeFolderMutationResp)
+
+	@doc "知识库目录更新接口，要求登录态 Bearer token"
+	@handler KnowledgeUpdateFolder
+	patch /api/ai/knowledge/folders/:id (KnowledgeUpdateFolderReq) returns (KnowledgeFolderMutationResp)
+
+	@doc "知识库目录删除接口，要求登录态 Bearer token；删除后文档和直接子目录提升到父级"
+	@handler KnowledgeDeleteFolder
+	delete /api/ai/knowledge/folders/:id (KnowledgeDeleteFolderReq) returns (KnowledgeFolderDeleteResp)
+
 	@doc "知识库文档列表接口，匿名只读公共知识，登录后包含当前用户知识"
 	@handler KnowledgeDocuments
 	get /api/ai/knowledge/documents (KnowledgeDocumentsReq) returns (KnowledgeDocumentsResp)
+
+	@doc "知识库文档移动目录接口，要求登录态 Bearer token，folderId=0 表示移出目录"
+	@handler KnowledgeMoveDocumentFolder
+	patch /api/ai/knowledge/documents/:id/folder (KnowledgeMoveDocumentFolderReq) returns (KnowledgeDocumentMutationResp)
 
 	@doc "知识库文档分块预览接口"
 	@handler KnowledgeDocumentChunks
@@ -145,4 +249,3 @@ service chat {
 	@handler KnowledgeTestQuery
 	post /api/ai/knowledge/test-query (KnowledgeTestQueryReq) returns (KnowledgeTestQueryResp)
 }
-

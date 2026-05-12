@@ -1026,7 +1026,7 @@ onMounted(async () => {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  font: 12px var(--mono);
+  font: var(--fs-xs) var(--mono);
   /* 文字从 var(--t2) 中性灰白 → 暖米调：与 amber dot 同体系，
      让「本周·W19」看起来是一个集成的 amber 状态指示器而不是中性文字+颜色标。 */
   color: rgba(243, 230, 210, 0.78);
@@ -1126,7 +1126,7 @@ onMounted(async () => {
 }
 
 .wb-sub {
-  font-size: 16px;
+  font-size: var(--fs-md);
   color: var(--t3);
   line-height: 1.7;
   margin: 0 0 32px;
@@ -1185,7 +1185,7 @@ onMounted(async () => {
 }
 
 .wb-metric-lb {
-  font-size: 12px;
+  font-size: var(--fs-xs);
   color: var(--t3);
   letter-spacing: .02em;
   white-space: nowrap;
@@ -1256,7 +1256,7 @@ onMounted(async () => {
    editorial 质感关键：letter-spacing 加到 .24em（原 .12em 太紧），
    font-weight 从 600 缓到 500，代价是在深色背景上这种肥鲑赢中作肥文本需要颜色颜颜亮。 */
 .wb-card-eyebrow {
-  font: 500 12px var(--mono);
+  font: 500 var(--fs-xs) var(--mono);
   letter-spacing: .24em;
   text-transform: uppercase;
   color: var(--hero-amber);
@@ -1280,7 +1280,7 @@ onMounted(async () => {
   padding: 13px 24px;
   background: var(--hero-amber);
   color: #1a140d;
-  font: 600 15px var(--sans);
+  font: 600 var(--fs-lg) var(--sans);
   letter-spacing: .01em;
   border-radius: 12px;
   text-decoration: none;
@@ -1305,7 +1305,7 @@ onMounted(async () => {
   gap: 8px;
   padding: 10px 4px;
   color: var(--hero-text-muted);
-  font: 500 16px var(--sans);
+  font: 500 var(--fs-md) var(--sans);
   letter-spacing: .01em;
   text-decoration: none;
   transition: color .2s ease, gap .2s ease;
@@ -1335,7 +1335,7 @@ onMounted(async () => {
   align-items: center;
   gap: 14px;
   padding: 11px 0;
-  font-size: 14px;
+  font-size: var(--fs-md);
   color: var(--t2);
 }
 
@@ -1361,7 +1361,7 @@ onMounted(async () => {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font: 600 12px var(--mono);
+  font: 600 var(--fs-xs) var(--mono);
   color: var(--t3);
   /* 圈需要遮住背后竹线的中间部分，则透明背景干扰 */
   position: relative;
@@ -1410,12 +1410,12 @@ onMounted(async () => {
 }
 
 .wb-continue-dim {
-  font-size: 12px;
+  font-size: var(--fs-xs);
   color: var(--t3);
 }
 
 .wb-continue-topic {
-  font: 600 16px var(--sans);
+  font: 600 var(--fs-md) var(--sans);
   color: var(--t);
   line-height: 1.4;
   margin-bottom: 10px;
@@ -1457,7 +1457,7 @@ onMounted(async () => {
 }
 
 .wb-review-title {
-  font: 600 14px var(--sans);
+  font: 600 var(--fs-md) var(--sans);
   color: var(--t2);
   line-height: 1.4;
   margin-bottom: 12px;
@@ -1485,7 +1485,7 @@ onMounted(async () => {
 }
 
 .wb-next-desc {
-  font-size: 15px;
+  font-size: var(--fs-lg);
   color: var(--hero-text-muted);
   line-height: 1.7;
   margin: 0 0 18px;
@@ -1498,13 +1498,13 @@ onMounted(async () => {
 
 /* ============ S0 fallback ============ */
 .wb-fallback-title {
-  font: 600 18px var(--display);
+  font: 600 var(--fs-xl) var(--display);
   color: var(--t);
   margin-bottom: 8px;
 }
 
 .wb-fallback-desc {
-  font-size: 14px;
+  font-size: var(--fs-md);
   color: var(--t3);
   line-height: 1.65;
   margin: 0;
@@ -1516,7 +1516,7 @@ onMounted(async () => {
   display: inline-flex;
   align-items: center;
   padding: 6px 14px;
-  font: 500 13px var(--sans);
+  font: 500 var(--fs-sm) var(--sans);
   color: var(--hero-text-muted);
   background: transparent;
   border: 1px solid rgba(255, 255, 255, 0.10);
@@ -1566,7 +1566,7 @@ onMounted(async () => {
 }
 
 .wb-stat-lb {
-  font-size: 12px;
+  font-size: var(--fs-xs);
   color: var(--t3);
   letter-spacing: .02em;
 }
@@ -1683,7 +1683,7 @@ onMounted(async () => {
 }
 
 .wb-qcard-tag {
-  font: 11px var(--mono);
+  font: var(--fs-2xs) var(--mono);
   color: var(--t3);
   letter-spacing: .04em;
   padding: 3px 9px;
@@ -1721,7 +1721,7 @@ onMounted(async () => {
 }
 
 .wb-qcard-title {
-  font: 700 18px var(--display);
+  font: 700 var(--fs-xl) var(--display);
   color: var(--t);
   margin: 0;
   letter-spacing: -.01em;
@@ -1733,7 +1733,7 @@ onMounted(async () => {
 }
 
 .wb-qcard-desc {
-  font-size: 13px;
+  font-size: var(--fs-sm);
   color: var(--t3);
   line-height: 1.6;
   margin: 0;
@@ -1758,13 +1758,13 @@ onMounted(async () => {
 }
 
 .wb-qcard-meta {
-  font: 12px var(--mono);
+  font: var(--fs-xs) var(--mono);
   color: var(--t3);
   letter-spacing: .03em;
 }
 
 .wb-qcard-link {
-  font: 600 13px var(--sans);
+  font: 600 var(--fs-sm) var(--sans);
   color: var(--t);
   text-decoration: none;
   padding: 6px 12px;
@@ -1841,14 +1841,14 @@ onMounted(async () => {
 }
 
 .wb-block-title {
-  font: 700 17px var(--display);
+  font: 700 var(--fs-xl) var(--display);
   color: var(--t);
   margin: 0;
   letter-spacing: -.01em;
 }
 
 .wb-more {
-  font: 12px var(--mono);
+  font: var(--fs-xs) var(--mono);
   color: var(--t3);
   text-decoration: none;
   letter-spacing: .04em;
@@ -1860,7 +1860,7 @@ onMounted(async () => {
 }
 
 .wb-radar-meta {
-  font: 11px var(--mono);
+  font: var(--fs-2xs) var(--mono);
   color: var(--t3);
   letter-spacing: .04em;
   text-transform: uppercase;
@@ -1894,7 +1894,7 @@ onMounted(async () => {
 }
 
 .wb-th {
-  font: 11px var(--mono);
+  font: var(--fs-2xs) var(--mono);
   color: var(--t3);
   letter-spacing: .06em;
   text-transform: uppercase;
@@ -1918,7 +1918,7 @@ onMounted(async () => {
 }
 
 .wb-td {
-  font-size: 13px;
+  font-size: var(--fs-sm);
   color: var(--t2);
   /* min-width: 0 + ellipsis 防止 grid 子项被内容撑爆（陷阱 #12 / #16） */
   min-width: 0;
@@ -1936,7 +1936,7 @@ onMounted(async () => {
 .wb-diff {
   display: inline-flex;
   align-items: center;
-  font: 11px var(--mono);
+  font: var(--fs-2xs) var(--mono);
   padding: 2px 8px;
   border-radius: var(--radius-pill);
   letter-spacing: .04em;
@@ -1965,7 +1965,7 @@ onMounted(async () => {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  font: 600 13px var(--mono);
+  font: 600 var(--fs-sm) var(--mono);
   color: var(--t);
 }
 
@@ -2007,18 +2007,18 @@ onMounted(async () => {
 }
 
 .wb-empty-title {
-  font: 600 16px var(--display);
+  font: 600 var(--fs-md) var(--display);
   color: var(--t);
 }
 
 .wb-empty-sub {
-  font-size: 13px;
+  font-size: var(--fs-sm);
   color: var(--t3);
   margin-bottom: 14px;
 }
 
 .wb-empty-cta {
-  font: 600 13px var(--sans);
+  font: 600 var(--fs-sm) var(--sans);
   color: var(--bg);
   background: var(--t);
   text-decoration: none;
@@ -2071,7 +2071,7 @@ onMounted(async () => {
 }
 
 .wb-radar-label {
-  font: 11px var(--mono);
+  font: var(--fs-2xs) var(--mono);
   fill: var(--t2);
   letter-spacing: .04em;
   /* SVG 的 text 不被 select 影响布局，但加 user-select: none 防止误选 */
@@ -2085,7 +2085,7 @@ onMounted(async () => {
 }
 
 .wb-weaks-title {
-  font: 11px var(--mono);
+  font: var(--fs-2xs) var(--mono);
   color: var(--t3);
   letter-spacing: .06em;
   text-transform: uppercase;
@@ -2099,7 +2099,7 @@ onMounted(async () => {
 }
 
 .wb-weak {
-  font: 12px var(--sans);
+  font: var(--fs-xs) var(--sans);
   color: rgba(220, 155, 90, 0.95);
   padding: 4px 10px;
   border-radius: var(--radius-pill);
@@ -2150,7 +2150,7 @@ onMounted(async () => {
 
 /* 维度标签保留，但 muted；让用户知道未来雷达会展示哪 5 维 */
 .wb-radar-empty-label {
-  font: 500 11px var(--sans);
+  font: 500 var(--fs-2xs) var(--sans);
   fill: rgba(255, 255, 255, 0.40);
   letter-spacing: .02em;
   user-select: none;
@@ -2166,13 +2166,13 @@ onMounted(async () => {
 }
 
 .wb-radar-empty-title {
-  font: 600 14px var(--display);
+  font: 600 var(--fs-md) var(--display);
   color: var(--t2);
   letter-spacing: .01em;
 }
 
 .wb-radar-empty-sub {
-  font-size: 12.5px;
+  font-size: var(--fs-sm);
   color: var(--t3);
   line-height: 1.55;
 }

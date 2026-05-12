@@ -33,6 +33,36 @@ type KnowledgeDocumentsLogic struct {
 	svcCtx *svc.ServiceContext
 }
 
+type KnowledgeFoldersLogic struct {
+	logx.Logger
+	ctx    context.Context
+	svcCtx *svc.ServiceContext
+}
+
+type KnowledgeCreateFolderLogic struct {
+	logx.Logger
+	ctx    context.Context
+	svcCtx *svc.ServiceContext
+}
+
+type KnowledgeUpdateFolderLogic struct {
+	logx.Logger
+	ctx    context.Context
+	svcCtx *svc.ServiceContext
+}
+
+type KnowledgeDeleteFolderLogic struct {
+	logx.Logger
+	ctx    context.Context
+	svcCtx *svc.ServiceContext
+}
+
+type KnowledgeMoveDocumentFolderLogic struct {
+	logx.Logger
+	ctx    context.Context
+	svcCtx *svc.ServiceContext
+}
+
 type KnowledgeDocumentChunksLogic struct {
 	logx.Logger
 	ctx    context.Context
@@ -47,6 +77,46 @@ type KnowledgeTestQueryLogic struct {
 
 func NewKnowledgeDocumentsLogic(ctx context.Context, svcCtx *svc.ServiceContext) *KnowledgeDocumentsLogic {
 	return &KnowledgeDocumentsLogic{
+		Logger: logx.WithContext(ctx),
+		ctx:    ctx,
+		svcCtx: svcCtx,
+	}
+}
+
+func NewKnowledgeFoldersLogic(ctx context.Context, svcCtx *svc.ServiceContext) *KnowledgeFoldersLogic {
+	return &KnowledgeFoldersLogic{
+		Logger: logx.WithContext(ctx),
+		ctx:    ctx,
+		svcCtx: svcCtx,
+	}
+}
+
+func NewKnowledgeCreateFolderLogic(ctx context.Context, svcCtx *svc.ServiceContext) *KnowledgeCreateFolderLogic {
+	return &KnowledgeCreateFolderLogic{
+		Logger: logx.WithContext(ctx),
+		ctx:    ctx,
+		svcCtx: svcCtx,
+	}
+}
+
+func NewKnowledgeUpdateFolderLogic(ctx context.Context, svcCtx *svc.ServiceContext) *KnowledgeUpdateFolderLogic {
+	return &KnowledgeUpdateFolderLogic{
+		Logger: logx.WithContext(ctx),
+		ctx:    ctx,
+		svcCtx: svcCtx,
+	}
+}
+
+func NewKnowledgeDeleteFolderLogic(ctx context.Context, svcCtx *svc.ServiceContext) *KnowledgeDeleteFolderLogic {
+	return &KnowledgeDeleteFolderLogic{
+		Logger: logx.WithContext(ctx),
+		ctx:    ctx,
+		svcCtx: svcCtx,
+	}
+}
+
+func NewKnowledgeMoveDocumentFolderLogic(ctx context.Context, svcCtx *svc.ServiceContext) *KnowledgeMoveDocumentFolderLogic {
+	return &KnowledgeMoveDocumentFolderLogic{
 		Logger: logx.WithContext(ctx),
 		ctx:    ctx,
 		svcCtx: svcCtx,
@@ -72,8 +142,13 @@ func NewKnowledgeTestQueryLogic(ctx context.Context, svcCtx *svc.ServiceContext)
 func (l *KnowledgeDocumentsLogic) KnowledgeDocuments(req *types.KnowledgeDocumentsReq) (*types.KnowledgeDocumentsResp, error) {
 	userID := optionalKnowledgeUserID(l.ctx)
 	limit := boundedKnowledgeLimit(req.Limit, 20, 100)
+	filter, err := l.buildKnowledgeScopeFilter(userID, req.Visibility, req.FolderScoped, req.FolderId)
+	if err != nil {
+		return nil, err
+	}
+	filter.Limit = limit
 
-	documents, err := l.svcCtx.VectorStore.ListKnowledgeDocuments(l.ctx, userID, limit)
+	documents, err := l.svcCtx.VectorStore.ListKnowledgeDocumentsFiltered(l.ctx, filter)
 	if err != nil {
 		return nil, statuserr.ServiceUnavailable("知识库文档暂不可用，请稍后重试")
 	}
@@ -88,6 +163,132 @@ func (l *KnowledgeDocumentsLogic) KnowledgeDocuments(req *types.KnowledgeDocumen
 		Documents: items,
 		Total:     int64(len(items)),
 		Meta:      buildKnowledgeManagerMeta(userID),
+	}, nil
+}
+
+func (l *KnowledgeFoldersLogic) KnowledgeFolders(*types.KnowledgeFoldersReq) (*types.KnowledgeFoldersResp, error) {
+	userID, err := requiredKnowledgeUserID(l.ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	folders, err := l.svcCtx.VectorStore.ListKnowledgeFolders(l.ctx, userID)
+	if err != nil {
+		return nil, statuserr.ServiceUnavailable("知识库目录暂不可用，请稍后重试")
+	}
+
+	items := make([]types.KnowledgeFolderItem, 0, len(folders))
+	for _, folder := range folders {
+		items = append(items, buildKnowledgeFolderItem(folder))
+	}
+
+	return &types.KnowledgeFoldersResp{
+		Folders: items,
+		Total:   int64(len(items)),
+		Meta:    buildKnowledgeManagerMeta(&userID),
+	}, nil
+}
+
+func (l *KnowledgeCreateFolderLogic) KnowledgeCreateFolder(req *types.KnowledgeCreateFolderReq) (*types.KnowledgeFolderMutationResp, error) {
+	userID, err := requiredKnowledgeUserID(l.ctx)
+	if err != nil {
+		return nil, err
+	}
+	if err := validateKnowledgeFolderName(req.Name); err != nil {
+		return nil, err
+	}
+	if req.ParentId < 0 {
+		return nil, statuserr.New(http.StatusBadRequest, "父目录 ID 无效")
+	}
+
+	folder, err := l.svcCtx.VectorStore.CreateKnowledgeFolder(l.ctx, svc.KnowledgeCreateFolderInput{
+		UserID:    userID,
+		Name:      req.Name,
+		ParentID:  req.ParentId,
+		SortOrder: req.SortOrder,
+	})
+	if err != nil {
+		return nil, mapKnowledgeMutationError(err, "父目录不存在或无权访问")
+	}
+
+	return &types.KnowledgeFolderMutationResp{
+		Folder: buildKnowledgeFolderItem(folder),
+		Meta:   buildKnowledgeManagerMeta(&userID),
+	}, nil
+}
+
+func (l *KnowledgeUpdateFolderLogic) KnowledgeUpdateFolder(req *types.KnowledgeUpdateFolderReq) (*types.KnowledgeFolderMutationResp, error) {
+	userID, err := requiredKnowledgeUserID(l.ctx)
+	if err != nil {
+		return nil, err
+	}
+	if req.Id <= 0 {
+		return nil, statuserr.New(http.StatusBadRequest, "知识目录 ID 无效")
+	}
+	if strings.TrimSpace(req.Name) != "" {
+		if err := validateKnowledgeFolderName(req.Name); err != nil {
+			return nil, err
+		}
+	}
+	if req.ParentId < 0 {
+		return nil, statuserr.New(http.StatusBadRequest, "父目录 ID 无效")
+	}
+
+	folder, err := l.svcCtx.VectorStore.UpdateKnowledgeFolder(l.ctx, svc.KnowledgeUpdateFolderInput{
+		UserID:       userID,
+		ID:           req.Id,
+		Name:         req.Name,
+		ParentID:     req.ParentId,
+		SortOrder:    req.SortOrder,
+		SetParent:    req.SetParent,
+		SetSortOrder: req.SetSortOrder,
+	})
+	if err != nil {
+		return nil, mapKnowledgeMutationError(err, "知识目录不存在或无权访问")
+	}
+
+	return &types.KnowledgeFolderMutationResp{
+		Folder: buildKnowledgeFolderItem(folder),
+		Meta:   buildKnowledgeManagerMeta(&userID),
+	}, nil
+}
+
+func (l *KnowledgeDeleteFolderLogic) KnowledgeDeleteFolder(req *types.KnowledgeDeleteFolderReq) error {
+	userID, err := requiredKnowledgeUserID(l.ctx)
+	if err != nil {
+		return err
+	}
+	if req.Id <= 0 {
+		return statuserr.New(http.StatusBadRequest, "知识目录 ID 无效")
+	}
+
+	if err := l.svcCtx.VectorStore.DeleteKnowledgeFolder(l.ctx, req.Id, userID); err != nil {
+		return mapKnowledgeMutationError(err, "知识目录不存在或无权访问")
+	}
+
+	return nil
+}
+
+func (l *KnowledgeMoveDocumentFolderLogic) KnowledgeMoveDocumentFolder(req *types.KnowledgeMoveDocumentFolderReq) (*types.KnowledgeDocumentMutationResp, error) {
+	userID, err := requiredKnowledgeUserID(l.ctx)
+	if err != nil {
+		return nil, err
+	}
+	if req.Id <= 0 {
+		return nil, statuserr.New(http.StatusBadRequest, "知识库文档 ID 无效")
+	}
+	if req.FolderId < 0 {
+		return nil, statuserr.New(http.StatusBadRequest, "知识目录 ID 无效")
+	}
+
+	document, err := l.svcCtx.VectorStore.MoveKnowledgeDocumentFolder(l.ctx, req.Id, userID, req.FolderId)
+	if err != nil {
+		return nil, mapKnowledgeMutationError(err, "知识库文档或目录不存在，或无权访问")
+	}
+
+	return &types.KnowledgeDocumentMutationResp{
+		Document: buildKnowledgeDocumentItem(document, l.svcCtx.Config.EmbeddingModel()),
+		Meta:     buildKnowledgeManagerMeta(&userID),
 	}, nil
 }
 
@@ -131,7 +332,11 @@ func (l *KnowledgeTestQueryLogic) KnowledgeTestQuery(req *types.KnowledgeTestQue
 
 	userID := optionalKnowledgeUserID(l.ctx)
 	topK := boundedKnowledgeLimit(req.TopK, 5, 10)
-	results, err := l.svcCtx.VectorStore.SearchKnowledge(l.ctx, query, topK, userID)
+	filter, err := l.buildKnowledgeScopeFilter(userID, req.Visibility, req.FolderScoped, req.FolderId)
+	if err != nil {
+		return nil, err
+	}
+	results, err := l.svcCtx.VectorStore.SearchKnowledgeFiltered(l.ctx, query, topK, filter)
 	if err != nil {
 		return nil, statuserr.ServiceUnavailable("知识库测试召回暂不可用，请稍后重试")
 	}
@@ -161,6 +366,14 @@ func optionalKnowledgeUserID(ctx context.Context) *int64 {
 	return nil
 }
 
+func requiredKnowledgeUserID(ctx context.Context) (int64, error) {
+	if userID, ok := chatAuth.UserIDFromContext(ctx); ok && userID > 0 {
+		return userID, nil
+	}
+
+	return 0, statuserr.Unauthorized("请先登录后操作知识库")
+}
+
 func buildKnowledgeManagerMeta(userID *int64) types.KnowledgeManagerMeta {
 	scope := "public"
 	if userID != nil {
@@ -168,11 +381,56 @@ func buildKnowledgeManagerMeta(userID *int64) types.KnowledgeManagerMeta {
 	}
 
 	return types.KnowledgeManagerMeta{
-		SchemaVersion: "knowledge-manager-v1",
+		SchemaVersion: "knowledge-manager-v2",
 		Available:     true,
 		Scope:         scope,
 		GeneratedAt:   time.Now().Format(chatTimeLayout),
 	}
+}
+
+func (l *KnowledgeDocumentsLogic) buildKnowledgeScopeFilter(userID *int64, visibility string, folderScoped bool, folderID int64) (svc.KnowledgeScopeFilter, error) {
+	return buildKnowledgeScopeFilter(l.ctx, l.svcCtx, userID, visibility, folderScoped, folderID)
+}
+
+func (l *KnowledgeTestQueryLogic) buildKnowledgeScopeFilter(userID *int64, visibility string, folderScoped bool, folderID int64) (svc.KnowledgeScopeFilter, error) {
+	return buildKnowledgeScopeFilter(l.ctx, l.svcCtx, userID, visibility, folderScoped, folderID)
+}
+
+func buildKnowledgeScopeFilter(ctx context.Context, svcCtx *svc.ServiceContext, userID *int64, visibility string, folderScoped bool, folderID int64) (svc.KnowledgeScopeFilter, error) {
+	normalizedVisibility := strings.ToLower(strings.TrimSpace(visibility))
+	if normalizedVisibility != "" && normalizedVisibility != "public" && normalizedVisibility != "private" {
+		return svc.KnowledgeScopeFilter{}, statuserr.New(http.StatusBadRequest, "知识可见性无效")
+	}
+	if folderID < 0 {
+		return svc.KnowledgeScopeFilter{}, statuserr.New(http.StatusBadRequest, "知识目录 ID 无效")
+	}
+	if folderScoped {
+		if userID == nil {
+			return svc.KnowledgeScopeFilter{}, statuserr.Unauthorized("请先登录后访问目录知识")
+		}
+		if normalizedVisibility != "" && normalizedVisibility != "private" {
+			return svc.KnowledgeScopeFilter{}, statuserr.New(http.StatusBadRequest, "目录范围仅支持私人知识")
+		}
+		if folderID > 0 {
+			if _, err := svcCtx.VectorStore.LoadKnowledgeFolder(ctx, folderID, *userID); err != nil {
+				if errors.Is(err, pgx.ErrNoRows) {
+					return svc.KnowledgeScopeFilter{}, statuserr.NotFound("知识目录不存在或无权访问")
+				}
+				return svc.KnowledgeScopeFilter{}, statuserr.ServiceUnavailable("知识目录暂不可用，请稍后重试")
+			}
+		}
+		normalizedVisibility = "private"
+	}
+	if normalizedVisibility == "private" && userID == nil {
+		return svc.KnowledgeScopeFilter{}, statuserr.Unauthorized("请先登录后访问私人知识")
+	}
+
+	return svc.KnowledgeScopeFilter{
+		UserID:       userID,
+		Visibility:   normalizedVisibility,
+		FolderScoped: folderScoped,
+		FolderID:     folderID,
+	}, nil
 }
 
 // buildKnowledgeDocumentItem 把后端 svc 层的 KnowledgeDocument 聚合数据转换为 types 层 API 响应项。
@@ -190,7 +448,7 @@ func buildKnowledgeDocumentItem(document svc.KnowledgeDocument, embeddingModel s
 		scope = "private"
 	}
 
-	return types.KnowledgeDocumentItem{
+	item := types.KnowledgeDocumentItem{
 		DocumentId:         document.DocumentID,
 		Title:              document.Title,
 		Scope:              scope,
@@ -207,6 +465,54 @@ func buildKnowledgeDocumentItem(document svc.KnowledgeDocument, embeddingModel s
 		CreatedAt:          document.CreatedAt.Format(chatTimeLayout),
 		UpdatedAt:          document.UpdatedAt.Format(chatTimeLayout),
 	}
+	if document.FolderID.Valid {
+		item.FolderId = document.FolderID.Int64
+	}
+
+	return item
+}
+
+func buildKnowledgeFolderItem(folder svc.KnowledgeFolder) types.KnowledgeFolderItem {
+	item := types.KnowledgeFolderItem{
+		Id:            folder.ID,
+		Name:          folder.Name,
+		SortOrder:     folder.SortOrder,
+		DocumentCount: folder.DocumentCount,
+		ChunkCount:    folder.ChunkCount,
+		CreatedAt:     folder.CreatedAt.Format(chatTimeLayout),
+		UpdatedAt:     folder.UpdatedAt.Format(chatTimeLayout),
+	}
+	if folder.ParentID.Valid {
+		item.ParentId = folder.ParentID.Int64
+	}
+
+	return item
+}
+
+func validateKnowledgeFolderName(name string) error {
+	trimmed := strings.TrimSpace(name)
+	if trimmed == "" {
+		return statuserr.New(http.StatusBadRequest, "目录名称不能为空")
+	}
+	if len([]rune(trimmed)) > 120 {
+		return statuserr.New(http.StatusBadRequest, "目录名称不能超过 120 个字符")
+	}
+
+	return nil
+}
+
+func mapKnowledgeMutationError(err error, notFoundMessage string) error {
+	if err == nil {
+		return nil
+	}
+	if errors.Is(err, pgx.ErrNoRows) {
+		return statuserr.NotFound(notFoundMessage)
+	}
+	if _, ok := statuserr.StatusCode(err); ok {
+		return err
+	}
+
+	return statuserr.ServiceUnavailable("知识库操作暂不可用，请稍后重试")
 }
 
 func boundedKnowledgeLimit(value, fallback, max int64) int {

@@ -47,6 +47,66 @@ func TestSaveKnowledgeBatchAssignsIncrementedSharedVersion(t *testing.T) {
 	}
 }
 
+func TestSaveKnowledgeBatchBindsFolderID(t *testing.T) {
+	folderID := int64(12)
+	tx := &knowledgeVersionTx{
+		t:                t,
+		expectedFolderID: folderID,
+	}
+	store := &VectorStore{
+		Pool:           &knowledgeVersionPool{tx: tx},
+		OpenAIClient:   newKnowledgeEmbeddingClient(t),
+		EmbeddingModel: "test-embedding",
+	}
+
+	err := store.SaveKnowledgeBatchForUserContextWithMetaInFolder(
+		context.Background(),
+		"Go 面试题",
+		[]string{"第一块"},
+		7,
+		"manual",
+		&folderID,
+	)
+	if err != nil {
+		t.Fatalf("SaveKnowledgeBatchForUserContextWithMetaInFolder() error = %v", err)
+	}
+	if !tx.checkedFolder {
+		t.Fatalf("expected folder ownership check before insert")
+	}
+	if !reflect.DeepEqual(tx.insertFolderIDs, []any{folderID}) {
+		t.Fatalf("insert folder ids = %#v, want [%d]", tx.insertFolderIDs, folderID)
+	}
+}
+
+func TestKnowledgeDocumentFilterWhereFolderScope(t *testing.T) {
+	userID := int64(7)
+	whereSQL, args, err := knowledgeDocumentFilterWhere(KnowledgeScopeFilter{
+		UserID:       &userID,
+		Visibility:   "private",
+		FolderScoped: true,
+		FolderID:     12,
+	}, 1, true)
+	if err != nil {
+		t.Fatalf("knowledgeDocumentFilterWhere() error = %v", err)
+	}
+	if !strings.Contains(whereSQL, "user_id = $1") ||
+		!strings.Contains(whereSQL, "visibility = 'private'") ||
+		!strings.Contains(whereSQL, "folder_id = $2") ||
+		!strings.Contains(whereSQL, "status = 'ready'") {
+		t.Fatalf("whereSQL missing expected constraints: %s", whereSQL)
+	}
+	assertKnowledgeArgs(t, args, int64(7), int64(12))
+}
+
+func TestKnowledgeDocumentFilterWhereRejectsAnonymousFolderScope(t *testing.T) {
+	_, _, err := knowledgeDocumentFilterWhere(KnowledgeScopeFilter{
+		FolderScoped: true,
+	}, 1, true)
+	if err == nil {
+		t.Fatalf("knowledgeDocumentFilterWhere() error = nil, want folder auth error")
+	}
+}
+
 func TestKnowledgeDocumentIdentitySeparatesRepeatedUploads(t *testing.T) {
 	ctx := context.Background()
 	userID := int64(7)
@@ -118,11 +178,14 @@ func (p *knowledgeVersionPool) QueryRow(context.Context, string, ...any) pgx.Row
 }
 
 type knowledgeVersionTx struct {
-	t              *testing.T
-	locked         bool
-	archived       bool
-	committed      bool
-	insertVersions []int64
+	t                *testing.T
+	locked           bool
+	archived         bool
+	committed        bool
+	checkedFolder    bool
+	expectedFolderID any
+	insertFolderIDs  []any
+	insertVersions   []int64
 }
 
 func (tx *knowledgeVersionTx) Begin(context.Context) (pgx.Tx, error) {
@@ -165,19 +228,23 @@ func (tx *knowledgeVersionTx) Exec(_ context.Context, sql string, args ...any) (
 		assertKnowledgeArgs(tx.t, args, int64(7), "Go 面试题", "manual")
 		tx.archived = true
 	case strings.HasPrefix(compactSQL, "INSERT INTO knowledge_base"):
-		if len(args) != 8 {
-			tx.t.Fatalf("insert args len = %d, want 8", len(args))
+		// 2026-05-12 v0.2 folder CRUD：INSERT 列加入 folder_id，args 从 8 变 9。
+		// args 顺序：title / content / embedding / user_id / folder_id / source / visibility / version / content_hash。
+		// folder_id 位于 args[4]，不传 folder 时为 nil（由 vector_store 中 “var knowledgeFolderID any” 默认 nil）。
+		if len(args) != 9 {
+			tx.t.Fatalf("insert args len = %d, want 9", len(args))
 		}
-		if args[0] != "Go 面试题" || args[3] != int64(7) || args[4] != "manual" || args[5] != "private" {
+		if args[0] != "Go 面试题" || args[3] != int64(7) || !reflect.DeepEqual(args[4], tx.expectedFolderID) || args[5] != "manual" || args[6] != "private" {
 			tx.t.Fatalf("unexpected insert args: %#v", args)
 		}
-		version, ok := args[6].(int64)
+		tx.insertFolderIDs = append(tx.insertFolderIDs, args[4])
+		version, ok := args[7].(int64)
 		if !ok {
-			tx.t.Fatalf("insert version arg type = %T, want int64", args[6])
+			tx.t.Fatalf("insert version arg type = %T, want int64", args[7])
 		}
-		hash, ok := args[7].(string)
+		hash, ok := args[8].(string)
 		if !ok || len(hash) != 64 {
-			tx.t.Fatalf("insert content hash = %#v, want sha256 hex", args[7])
+			tx.t.Fatalf("insert content hash = %#v, want sha256 hex", args[8])
 		}
 		tx.insertVersions = append(tx.insertVersions, version)
 	default:
@@ -194,6 +261,14 @@ func (tx *knowledgeVersionTx) Query(context.Context, string, ...any) (pgx.Rows, 
 func (tx *knowledgeVersionTx) QueryRow(_ context.Context, sql string, args ...any) pgx.Row {
 	tx.t.Helper()
 	compactSQL := compactKnowledgeSQL(sql)
+	if strings.Contains(compactSQL, "SELECT id FROM knowledge_folders WHERE id = $1 AND user_id = $2") {
+		if tx.expectedFolderID == nil {
+			return knowledgeRow{err: fmt.Errorf("unexpected folder ownership query: %s", compactSQL)}
+		}
+		assertKnowledgeArgs(tx.t, args, tx.expectedFolderID, int64(7))
+		tx.checkedFolder = true
+		return knowledgeRow{values: []any{tx.expectedFolderID}}
+	}
 	if !strings.Contains(compactSQL, "SELECT coalesce(max(version), 0) + 1 FROM knowledge_base") {
 		return knowledgeRow{err: fmt.Errorf("unexpected tx QueryRow: %s", compactSQL)}
 	}
@@ -233,12 +308,14 @@ func (p *knowledgeIdentityPool) Query(_ context.Context, sql string, args ...any
 			p.t.Fatalf("document list query should include archived versions, got SQL: %s", compactSQL)
 		}
 		assertKnowledgeArgs(p.t, args, int64(7), 10)
-		// 2026-05-12 Q8=B：ListKnowledgeDocuments SQL 加了 size_bytes 聚合列，位置在 chunk_count 与 created_at 之间（第 9 列）。
-		// mock 值不被本测试所验证（TestKnowledgeDocumentIdentitySeparatesRepeatedUploads 只关注 version/status/title），任意 int64 均可。
+		// 2026-05-12 Q8=B：ListKnowledgeDocuments SQL 加了 size_bytes 聚合列。
+		// 2026-05-12 v0.2 folder CRUD：又加了 folder_id 聚合列（coalesce(max(folder_id), 0)），位置在 user_id 之后。
+		// 总列数 13：min(id), user_id, folder_id, title, source, visibility, status, version, chunk_count, size_bytes, created_at, updated_at, preview。
+		// mock 值不被本测试所验证（只关注 version/status/title），folder_id=0 表示未归类。
 		return &knowledgeRows{
 			rows: [][]any{
-				{int64(201), int64(7), "Go 面试题", "manual", "private", "ready", int64(2), int64(2), int64(40), p.now.Add(time.Minute), p.now.Add(2 * time.Minute), "v2 第一块"},
-				{int64(101), int64(7), "Go 面试题", "manual", "private", "archived", int64(1), int64(2), int64(20), p.now.Add(-time.Hour), p.now, "v1 第一块"},
+				{int64(201), int64(7), int64(0), "Go 面试题", "manual", "private", "ready", int64(2), int64(2), int64(40), p.now.Add(time.Minute), p.now.Add(2 * time.Minute), "v2 第一块"},
+				{int64(101), int64(7), int64(0), "Go 面试题", "manual", "private", "archived", int64(1), int64(2), int64(20), p.now.Add(-time.Hour), p.now, "v1 第一块"},
 			},
 		}, nil
 	case strings.Contains(compactSQL, "SELECT id, title, content, created_at FROM knowledge_base"):
@@ -269,9 +346,10 @@ func (p *knowledgeIdentityPool) QueryRow(_ context.Context, sql string, args ...
 		return knowledgeRow{values: []any{int64(7), "Go 面试题", "manual", int64(2)}}
 	case strings.Contains(compactSQL, "FROM knowledge_base WHERE user_id = $1 AND title = $2 AND source = $3 AND version = $4"):
 		assertKnowledgeArgs(p.t, args, int64(7), "Go 面试题", "manual", int64(2))
-		// 2026-05-12 Q8=B：LoadKnowledgeDocumentChunks SQL 同样加了 size_bytes 聚合列（第 9 列）。
+		// 2026-05-12 Q8=B：LoadKnowledgeDocumentChunks SQL 加了 size_bytes 聚合列。
+		// 2026-05-12 v0.2 folder CRUD：又加了 folder_id 聚合列，总共 13 列（与 ListKnowledgeDocuments 对齐）。
 		return knowledgeRow{values: []any{
-			int64(201), int64(7), "Go 面试题", "manual", "private", "ready", int64(2), int64(2), int64(40),
+			int64(201), int64(7), int64(0), "Go 面试题", "manual", "private", "ready", int64(2), int64(2), int64(40),
 			p.now.Add(time.Minute), p.now.Add(2 * time.Minute), "v2 第一块",
 		}}
 	default:

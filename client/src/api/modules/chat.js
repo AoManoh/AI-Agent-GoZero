@@ -52,6 +52,40 @@ export const chatEndpoints = {
     };
   },
 
+  knowledgeFolders() {
+    return {
+      service: "chat",
+      method: "get",
+      url: "/ai/knowledge/folders",
+    };
+  },
+
+  knowledgeCreateFolder(payload) {
+    return {
+      service: "chat",
+      method: "post",
+      url: "/ai/knowledge/folders",
+      data: payload,
+    };
+  },
+
+  knowledgeUpdateFolder(id, payload) {
+    return {
+      service: "chat",
+      method: "patch",
+      url: `/ai/knowledge/folders/${encodeURIComponent(id)}`,
+      data: payload,
+    };
+  },
+
+  knowledgeDeleteFolder(id) {
+    return {
+      service: "chat",
+      method: "delete",
+      url: `/ai/knowledge/folders/${encodeURIComponent(id)}`,
+    };
+  },
+
   // 单个文档的分块预览
   knowledgeDocumentChunks(id, params = {}) {
     return {
@@ -62,7 +96,7 @@ export const chatEndpoints = {
     };
   },
 
-  // 知识库 PDF 上传（multipart/form-data，需管理员 Bearer token）
+  // 知识库 PDF 上传（multipart/form-data，需登录 Bearer token；普通用户写入私人知识）
   knowledgeUpload(formData) {
     return {
       service: "chat",
@@ -73,6 +107,15 @@ export const chatEndpoints = {
         "Content-Type": "multipart/form-data",
       },
       timeout: 120000,
+    };
+  },
+
+  knowledgeMoveDocumentFolder(id, payload) {
+    return {
+      service: "chat",
+      method: "patch",
+      url: `/ai/knowledge/documents/${encodeURIComponent(id)}/folder`,
+      data: payload,
     };
   },
 

@@ -33,6 +33,36 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 				Handler: KnowledgeDocumentChunksHandler(serverCtx),
 			},
 			{
+				// 知识库文档移动目录接口，要求登录态 Bearer token，folderId=0 表示移出目录
+				Method:  http.MethodPatch,
+				Path:    "/api/ai/knowledge/documents/:id/folder",
+				Handler: KnowledgeMoveDocumentFolderHandler(serverCtx),
+			},
+			{
+				// 知识库目录列表接口，要求登录态 Bearer token
+				Method:  http.MethodGet,
+				Path:    "/api/ai/knowledge/folders",
+				Handler: KnowledgeFoldersHandler(serverCtx),
+			},
+			{
+				// 知识库目录创建接口，要求登录态 Bearer token
+				Method:  http.MethodPost,
+				Path:    "/api/ai/knowledge/folders",
+				Handler: KnowledgeCreateFolderHandler(serverCtx),
+			},
+			{
+				// 知识库目录更新接口，要求登录态 Bearer token
+				Method:  http.MethodPatch,
+				Path:    "/api/ai/knowledge/folders/:id",
+				Handler: KnowledgeUpdateFolderHandler(serverCtx),
+			},
+			{
+				// 知识库目录删除接口，要求登录态 Bearer token，目录必须为空
+				Method:  http.MethodDelete,
+				Path:    "/api/ai/knowledge/folders/:id",
+				Handler: KnowledgeDeleteFolderHandler(serverCtx),
+			},
+			{
 				// 知识库测试召回接口，用于管理页验证 TopK 检索命中
 				Method:  http.MethodPost,
 				Path:    "/api/ai/knowledge/test-query",

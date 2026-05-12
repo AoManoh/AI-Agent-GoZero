@@ -28,9 +28,11 @@ package svc
 import (
 	"context"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 	"time"
 
@@ -42,6 +44,7 @@ import (
 	"GoZero-AI/api/chat/internal/config"
 	"GoZero-AI/api/chat/internal/types"
 	"GoZero-AI/internal/sessionmode"
+	"GoZero-AI/internal/sessionruntime"
 	"GoZero-AI/internal/statuserr"
 
 	// pgvector-go 是一个 Go 语言库，用于将 Go 语言中的数据类型转换为 PostgreSQL 的 pgvector 扩展所需的格式
@@ -84,9 +87,19 @@ type SessionPracticeContext struct {
 	QuestionSnapshot string
 }
 
+type SessionRuntimeContext struct {
+	ScenarioType       string
+	StarterSource      string
+	StarterQuestionKey string
+	QuestionKey        string
+	Source             string
+	QuestionSnapshot   string
+}
+
 type KnowledgeDocument struct {
 	DocumentID int64
 	OwnerID    int64
+	FolderID   sql.NullInt64
 	Title      string
 	Source     string
 	Visibility string
@@ -111,6 +124,51 @@ type KnowledgeSearchResult struct {
 	Title   string
 	Content string
 	Score   float64
+}
+
+type KnowledgeFolder struct {
+	ID            int64
+	UserID        int64
+	ParentID      sql.NullInt64
+	Name          string
+	Path          string
+	Depth         int64
+	SortOrder     int64
+	DocumentCount int64
+	ChunkCount    int64
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
+}
+
+type KnowledgeDeleteFolderResult struct {
+	MovedDocCount       int64
+	PromotedFolderCount int64
+	ParentName          string
+}
+
+type KnowledgeScopeFilter struct {
+	UserID       *int64
+	Limit        int
+	Visibility   string
+	FolderScoped bool
+	FolderID     int64
+}
+
+type KnowledgeCreateFolderInput struct {
+	UserID    int64
+	Name      string
+	ParentID  int64
+	SortOrder int64
+}
+
+type KnowledgeUpdateFolderInput struct {
+	UserID       int64
+	ID           int64
+	Name         string
+	ParentID     int64
+	SortOrder    int64
+	SetParent    bool
+	SetSortOrder bool
 }
 
 type execQuerier interface {
@@ -514,19 +572,339 @@ func (vs *VectorStore) retrieveKnowledgeScopedContext(ctx context.Context, query
 	return knowledge, nil
 }
 
-func (vs *VectorStore) ListKnowledgeDocuments(ctx context.Context, userID *int64, limit int) ([]KnowledgeDocument, error) {
+func (vs *VectorStore) ListKnowledgeFolders(ctx context.Context, userID int64) ([]KnowledgeFolder, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	if limit <= 0 {
-		limit = 20
+	if userID <= 0 {
+		return nil, fmt.Errorf("目录所属用户不能为空")
 	}
 
-	whereSQL, args := knowledgeDocumentAccessWhere(userID, 1)
+	rows, err := vs.Pool.Query(ctx, `SELECT
+f.id,
+f.user_id,
+f.parent_id,
+f.name,
+f.path,
+f.depth,
+f.sort_order,
+count(DISTINCT (kb.title, kb.source, kb.version)) AS document_count,
+count(kb.id) AS chunk_count,
+f.created_at,
+f.updated_at
+FROM knowledge_folders f
+LEFT JOIN knowledge_base kb
+  ON kb.folder_id = f.id
+ AND kb.user_id = f.user_id
+ AND kb.visibility = 'private'
+ AND kb.status = 'ready'
+WHERE f.user_id = $1
+GROUP BY f.id, f.user_id, f.parent_id, f.name, f.path, f.depth, f.sort_order, f.created_at, f.updated_at
+ORDER BY f.parent_id NULLS FIRST, f.sort_order ASC, f.created_at ASC, f.id ASC`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	folders := make([]KnowledgeFolder, 0)
+	for rows.Next() {
+		var folder KnowledgeFolder
+		if err := rows.Scan(
+			&folder.ID,
+			&folder.UserID,
+			&folder.ParentID,
+			&folder.Name,
+			&folder.Path,
+			&folder.Depth,
+			&folder.SortOrder,
+			&folder.DocumentCount,
+			&folder.ChunkCount,
+			&folder.CreatedAt,
+			&folder.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		folders = append(folders, folder)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return folders, nil
+}
+
+func (vs *VectorStore) CreateKnowledgeFolder(ctx context.Context, input KnowledgeCreateFolderInput) (KnowledgeFolder, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	name := strings.TrimSpace(input.Name)
+	if err := validateKnowledgeFolderMutation(input.UserID, 0, name); err != nil {
+		return KnowledgeFolder{}, err
+	}
+
+	tx, err := vs.Pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return KnowledgeFolder{}, err
+	}
+	defer rollbackTx(tx)
+
+	if input.ParentID > 0 {
+		if err := ensureKnowledgeFolderOwned(ctx, tx, input.ParentID, input.UserID); err != nil {
+			return KnowledgeFolder{}, err
+		}
+	}
+
+	parentPath, parentDepth, err := loadKnowledgeFolderParentPath(ctx, tx, input.ParentID, input.UserID)
+	if err != nil {
+		return KnowledgeFolder{}, err
+	}
+	depth := parentDepth
+	if input.ParentID > 0 {
+		depth = parentDepth + 1
+	}
+	if depth > 2 {
+		return KnowledgeFolder{}, statuserr.New(http.StatusUnprocessableEntity, "目录最多支持 3 层")
+	}
+	path := buildKnowledgeFolderPath(parentPath, name)
+
+	row := tx.QueryRow(ctx, `INSERT INTO knowledge_folders (user_id, parent_id, name, path, depth, sort_order)
+VALUES ($1, NULLIF($2::bigint, 0), $3, $4, $5, $6)
+RETURNING id, user_id, parent_id, name, path, depth, sort_order, 0::bigint, 0::bigint, created_at, updated_at`,
+		input.UserID,
+		input.ParentID,
+		name,
+		path,
+		depth,
+		input.SortOrder,
+	)
+
+	folder, err := scanKnowledgeFolder(row)
+	if err != nil {
+		return KnowledgeFolder{}, translateKnowledgeFolderWriteError(err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return KnowledgeFolder{}, err
+	}
+
+	return folder, nil
+}
+
+func (vs *VectorStore) UpdateKnowledgeFolder(ctx context.Context, input KnowledgeUpdateFolderInput) (KnowledgeFolder, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	name := strings.TrimSpace(input.Name)
+	if err := validateKnowledgeFolderMutation(input.UserID, input.ID, name); err != nil {
+		return KnowledgeFolder{}, err
+	}
+	if name == "" && !input.SetParent && !input.SetSortOrder {
+		return vs.LoadKnowledgeFolder(ctx, input.ID, input.UserID)
+	}
+
+	tx, err := vs.Pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return KnowledgeFolder{}, err
+	}
+	defer rollbackTx(tx)
+
+	if err := ensureKnowledgeFolderOwned(ctx, tx, input.ID, input.UserID); err != nil {
+		return KnowledgeFolder{}, err
+	}
+	if input.SetParent {
+		if input.ParentID == input.ID {
+			return KnowledgeFolder{}, fmt.Errorf("目录不能移动到自身下")
+		}
+		if input.ParentID > 0 {
+			if err := ensureKnowledgeFolderOwned(ctx, tx, input.ParentID, input.UserID); err != nil {
+				return KnowledgeFolder{}, err
+			}
+			if err := ensureKnowledgeFolderNotDescendant(ctx, tx, input.ID, input.UserID, input.ParentID); err != nil {
+				return KnowledgeFolder{}, err
+			}
+		}
+	}
+
+	row := tx.QueryRow(ctx, `UPDATE knowledge_folders
+SET name = CASE WHEN $3 THEN $4 ELSE name END,
+    parent_id = CASE WHEN $5 THEN NULLIF($6::bigint, 0) ELSE parent_id END,
+    sort_order = CASE WHEN $7 THEN $8 ELSE sort_order END,
+    updated_at = now()
+WHERE id = $1 AND user_id = $2
+RETURNING id, user_id, parent_id, name, sort_order, 0::bigint, 0::bigint, created_at, updated_at`,
+		input.ID,
+		input.UserID,
+		name != "",
+		name,
+		input.SetParent,
+		input.ParentID,
+		input.SetSortOrder,
+		input.SortOrder,
+	)
+
+	folder, err := scanKnowledgeFolder(row)
+	if err != nil {
+		return KnowledgeFolder{}, translateKnowledgeFolderWriteError(err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return KnowledgeFolder{}, err
+	}
+
+	return folder, nil
+}
+
+func (vs *VectorStore) LoadKnowledgeFolder(ctx context.Context, folderID, userID int64) (KnowledgeFolder, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if folderID <= 0 || userID <= 0 {
+		return KnowledgeFolder{}, pgx.ErrNoRows
+	}
+
+	return scanKnowledgeFolder(vs.Pool.QueryRow(ctx, `SELECT
+f.id,
+f.user_id,
+f.parent_id,
+f.name,
+f.sort_order,
+count(DISTINCT (kb.title, kb.source, kb.version)) AS document_count,
+count(kb.id) AS chunk_count,
+f.created_at,
+f.updated_at
+FROM knowledge_folders f
+LEFT JOIN knowledge_base kb
+  ON kb.folder_id = f.id
+ AND kb.user_id = f.user_id
+ AND kb.visibility = 'private'
+ AND kb.status = 'ready'
+WHERE f.id = $1 AND f.user_id = $2
+GROUP BY f.id, f.user_id, f.parent_id, f.name, f.sort_order, f.created_at, f.updated_at`,
+		folderID,
+		userID,
+	))
+}
+
+func (vs *VectorStore) DeleteKnowledgeFolder(ctx context.Context, folderID, userID int64) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if folderID <= 0 || userID <= 0 {
+		return pgx.ErrNoRows
+	}
+
+	tx, err := vs.Pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return err
+	}
+	defer rollbackTx(tx)
+
+	if err := ensureKnowledgeFolderOwned(ctx, tx, folderID, userID); err != nil {
+		return err
+	}
+
+	var childCount int64
+	if err := tx.QueryRow(ctx, `SELECT count(*) FROM knowledge_folders WHERE user_id = $1 AND parent_id = $2`, userID, folderID).Scan(&childCount); err != nil {
+		return err
+	}
+	if childCount > 0 {
+		return statuserr.Conflict("目录下仍有子目录，不能删除")
+	}
+
+	var chunkCount int64
+	if err := tx.QueryRow(ctx, `SELECT count(*) FROM knowledge_base WHERE user_id = $1 AND folder_id = $2`, userID, folderID).Scan(&chunkCount); err != nil {
+		return err
+	}
+	if chunkCount > 0 {
+		return statuserr.Conflict("目录下仍有文档，不能删除")
+	}
+
+	tag, err := tx.Exec(ctx, `DELETE FROM knowledge_folders WHERE id = $1 AND user_id = $2`, folderID, userID)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return pgx.ErrNoRows
+	}
+
+	return tx.Commit(ctx)
+}
+
+func (vs *VectorStore) MoveKnowledgeDocumentFolder(ctx context.Context, documentID, userID, folderID int64) (KnowledgeDocument, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if documentID <= 0 || userID <= 0 {
+		return KnowledgeDocument{}, pgx.ErrNoRows
+	}
+
+	tx, err := vs.Pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return KnowledgeDocument{}, err
+	}
+	defer rollbackTx(tx)
+
+	if folderID > 0 {
+		if err := ensureKnowledgeFolderOwned(ctx, tx, folderID, userID); err != nil {
+			return KnowledgeDocument{}, err
+		}
+	}
+
+	var title, source string
+	var version int64
+	if err := tx.QueryRow(ctx, `SELECT title, coalesce(source, ''), coalesce(version, 1)
+FROM knowledge_base
+WHERE id = $1 AND user_id = $2 AND visibility = 'private'
+LIMIT 1`, documentID, userID).Scan(&title, &source, &version); err != nil {
+		return KnowledgeDocument{}, err
+	}
+
+	tag, err := tx.Exec(ctx, `UPDATE knowledge_base
+SET folder_id = NULLIF($5::bigint, 0),
+    updated_at = now()
+WHERE user_id = $1 AND title = $2 AND source = $3 AND version = $4 AND visibility = 'private'`,
+		userID,
+		title,
+		source,
+		version,
+		folderID,
+	)
+	if err != nil {
+		return KnowledgeDocument{}, err
+	}
+	if tag.RowsAffected() == 0 {
+		return KnowledgeDocument{}, pgx.ErrNoRows
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return KnowledgeDocument{}, err
+	}
+
+	return vs.LoadKnowledgeDocument(ctx, documentID, &userID)
+}
+
+func (vs *VectorStore) ListKnowledgeDocuments(ctx context.Context, userID *int64, limit int) ([]KnowledgeDocument, error) {
+	return vs.ListKnowledgeDocumentsFiltered(ctx, KnowledgeScopeFilter{
+		UserID: userID,
+		Limit:  limit,
+	})
+}
+
+func (vs *VectorStore) ListKnowledgeDocumentsFiltered(ctx context.Context, filter KnowledgeScopeFilter) ([]KnowledgeDocument, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if filter.Limit <= 0 {
+		filter.Limit = 20
+	}
+
+	whereSQL, args, err := knowledgeDocumentFilterWhere(filter, 1, false)
+	if err != nil {
+		return nil, err
+	}
 	// 2026-05-12 Q8=B：聚合每个文档的总字节数（sum(length(content))），暴露给前端卡片元信息
 	query := fmt.Sprintf(`SELECT
 min(id) AS document_id,
 user_id,
+coalesce(max(folder_id), 0) AS folder_id,
 title,
 coalesce(source, '') AS source,
 coalesce(max(visibility), case when user_id = %d then 'public' else 'private' end) AS visibility,
@@ -542,7 +920,7 @@ WHERE %s
 GROUP BY user_id, title, source, version
 ORDER BY coalesce(max(updated_at), max(created_at)) DESC, min(id) DESC
 LIMIT $%d`, publicKnowledgeOwnerID, whereSQL, len(args)+1)
-	args = append(args, limit)
+	args = append(args, filter.Limit)
 
 	rows, err := vs.Pool.Query(ctx, query, args...)
 	if err != nil {
@@ -553,8 +931,12 @@ LIMIT $%d`, publicKnowledgeOwnerID, whereSQL, len(args)+1)
 	documents := make([]KnowledgeDocument, 0)
 	for rows.Next() {
 		var doc KnowledgeDocument
-		if err := rows.Scan(&doc.DocumentID, &doc.OwnerID, &doc.Title, &doc.Source, &doc.Visibility, &doc.Status, &doc.Version, &doc.ChunkCount, &doc.SizeBytes, &doc.CreatedAt, &doc.UpdatedAt, &doc.Preview); err != nil {
+		var folderID int64
+		if err := rows.Scan(&doc.DocumentID, &doc.OwnerID, &folderID, &doc.Title, &doc.Source, &doc.Visibility, &doc.Status, &doc.Version, &doc.ChunkCount, &doc.SizeBytes, &doc.CreatedAt, &doc.UpdatedAt, &doc.Preview); err != nil {
 			return nil, err
+		}
+		if folderID > 0 {
+			doc.FolderID = sql.NullInt64{Int64: folderID, Valid: true}
 		}
 		documents = append(documents, doc)
 	}
@@ -563,6 +945,11 @@ LIMIT $%d`, publicKnowledgeOwnerID, whereSQL, len(args)+1)
 	}
 
 	return documents, nil
+}
+
+func (vs *VectorStore) LoadKnowledgeDocument(ctx context.Context, documentID int64, userID *int64) (KnowledgeDocument, error) {
+	document, _, err := vs.LoadKnowledgeDocumentChunks(ctx, documentID, userID, 1)
+	return document, err
 }
 
 func (vs *VectorStore) LoadKnowledgeDocumentChunks(ctx context.Context, documentID int64, userID *int64, limit int) (KnowledgeDocument, []KnowledgeDocumentChunk, error) {
@@ -590,11 +977,15 @@ LIMIT 1`, whereSQL), args...)
 		return KnowledgeDocument{}, nil, err
 	}
 
-	var document KnowledgeDocument
+	var (
+		document         KnowledgeDocument
+		documentFolderID int64
+	)
 	// 2026-05-12 Q8=B：聚合每个文档的总字节数（sum(length(content))），与 ListKnowledgeDocuments 保持一致
 	if err := vs.Pool.QueryRow(ctx, `SELECT
 min(id) AS document_id,
 user_id,
+coalesce(max(folder_id), 0) AS folder_id,
 title,
 coalesce(source, '') AS source,
 coalesce(max(visibility), case when user_id = $1 then 'public' else 'private' end) AS visibility,
@@ -610,6 +1001,7 @@ WHERE user_id = $1 AND title = $2 AND source = $3 AND version = $4
 GROUP BY user_id, title, source, version`, ownerID, title, source, version).Scan(
 		&document.DocumentID,
 		&document.OwnerID,
+		&documentFolderID,
 		&document.Title,
 		&document.Source,
 		&document.Visibility,
@@ -622,6 +1014,9 @@ GROUP BY user_id, title, source, version`, ownerID, title, source, version).Scan
 		&document.Preview,
 	); err != nil {
 		return KnowledgeDocument{}, nil, err
+	}
+	if documentFolderID > 0 {
+		document.FolderID = sql.NullInt64{Int64: documentFolderID, Valid: true}
 	}
 
 	rows, err := vs.Pool.Query(ctx, `SELECT id, title, content, created_at
@@ -650,6 +1045,12 @@ LIMIT $5`, ownerID, title, source, version, limit)
 }
 
 func (vs *VectorStore) SearchKnowledge(ctx context.Context, query string, topK int, userID *int64) ([]KnowledgeSearchResult, error) {
+	return vs.SearchKnowledgeFiltered(ctx, query, topK, KnowledgeScopeFilter{
+		UserID: userID,
+	})
+}
+
+func (vs *VectorStore) SearchKnowledgeFiltered(ctx context.Context, query string, topK int, filter KnowledgeScopeFilter) ([]KnowledgeSearchResult, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -662,7 +1063,7 @@ func (vs *VectorStore) SearchKnowledge(ctx context.Context, query string, topK i
 		return nil, fmt.Errorf("知识库测试查询向量化失败: %w", err)
 	}
 
-	scoredResults, err := vs.fetchPublicKnowledge(ctx, queryEmbeddingVector, topK, userID)
+	scoredResults, err := vs.fetchKnowledgeForManager(ctx, queryEmbeddingVector, topK, filter)
 	if err != nil {
 		return nil, err
 	}
@@ -797,6 +1198,47 @@ LIMIT 1`, chatID, userID)
 	return artifactID, true
 }
 
+func (vs *VectorStore) LoadSessionRuntimeContext(ctx context.Context, chatId string, userID *int64) (SessionRuntimeContext, bool, error) {
+	if userID == nil || strings.TrimSpace(chatId) == "" {
+		return SessionRuntimeContext{}, false, nil
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	var runtime SessionRuntimeContext
+	row := vs.Pool.QueryRow(ctx, `SELECT scenario_type, starter_source, starter_question_key
+FROM chat_sessions
+WHERE session_id = $1 AND user_id = $2 AND is_active = true
+LIMIT 1`, chatId, *userID)
+	if err := row.Scan(&runtime.ScenarioType, &runtime.StarterSource, &runtime.StarterQuestionKey); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return SessionRuntimeContext{}, false, nil
+		}
+		return SessionRuntimeContext{}, false, err
+	}
+	runtime.ScenarioType = sessionruntime.NormalizeScenario(runtime.ScenarioType)
+	runtime.StarterSource = sessionruntime.NormalizeStarterSource(runtime.StarterSource)
+	runtime.StarterQuestionKey = strings.TrimSpace(runtime.StarterQuestionKey)
+
+	if runtime.ScenarioType == sessionruntime.ScenarioQuestionPractice {
+		practice, found, err := vs.LoadSessionPracticeContext(ctx, chatId, userID)
+		if err != nil {
+			return SessionRuntimeContext{}, false, err
+		}
+		if found {
+			runtime.QuestionKey = practice.QuestionKey
+			runtime.Source = practice.Source
+			runtime.QuestionSnapshot = practice.QuestionSnapshot
+		}
+		if strings.TrimSpace(runtime.QuestionKey) == "" {
+			runtime.QuestionKey = runtime.StarterQuestionKey
+		}
+	}
+
+	return runtime, true, nil
+}
+
 func (vs *VectorStore) LoadSessionPracticeContext(ctx context.Context, chatId string, userID *int64) (SessionPracticeContext, bool, error) {
 	if userID == nil || strings.TrimSpace(chatId) == "" {
 		return SessionPracticeContext{}, false, nil
@@ -808,7 +1250,7 @@ func (vs *VectorStore) LoadSessionPracticeContext(ctx context.Context, chatId st
 	var practice SessionPracticeContext
 	row := vs.Pool.QueryRow(ctx, `SELECT question_key, source, question_snapshot
 FROM session_question_events
-WHERE session_id = $1 AND user_id = $2 AND source IN ('bank', 'generated')
+WHERE session_id = $1 AND user_id = $2 AND source = 'bank'
 ORDER BY turn_index ASC
 LIMIT 1`, chatId, *userID)
 	if err := row.Scan(&practice.QuestionKey, &practice.Source, &practice.QuestionSnapshot); err != nil {
@@ -897,6 +1339,69 @@ func knowledgeAccessWhereWithStatus(userID *int64, startIndex int, requireReady 
 	return fmt.Sprintf("((visibility = 'public' OR user_id = %d) OR user_id = $%d)%s", publicKnowledgeOwnerID, startIndex, statusSQL), []any{*userID}
 }
 
+func knowledgeDocumentFilterWhere(filter KnowledgeScopeFilter, startIndex int, requireReady bool) (string, []any, error) {
+	if startIndex <= 0 {
+		startIndex = 1
+	}
+
+	visibility := strings.ToLower(strings.TrimSpace(filter.Visibility))
+	if visibility != "" && visibility != "public" && visibility != "private" {
+		return "", nil, fmt.Errorf("知识可见性无效")
+	}
+	if filter.FolderScoped {
+		if filter.UserID == nil || *filter.UserID <= 0 {
+			return "", nil, fmt.Errorf("目录范围需要登录用户")
+		}
+		if filter.FolderID < 0 {
+			return "", nil, fmt.Errorf("目录 ID 无效")
+		}
+		if visibility != "" && visibility != "private" {
+			return "", nil, fmt.Errorf("目录范围仅支持私人知识")
+		}
+		visibility = "private"
+	}
+
+	args := make([]any, 0, 3)
+	nextParam := startIndex
+	addArg := func(value any) string {
+		args = append(args, value)
+		placeholder := fmt.Sprintf("$%d", nextParam)
+		nextParam++
+		return placeholder
+	}
+
+	conditions := make([]string, 0, 5)
+	switch visibility {
+	case "public":
+		conditions = append(conditions, fmt.Sprintf("(visibility = 'public' OR user_id = %d)", publicKnowledgeOwnerID))
+	case "private":
+		if filter.UserID == nil || *filter.UserID <= 0 {
+			return "", nil, fmt.Errorf("私人知识范围需要登录用户")
+		}
+		conditions = append(conditions, fmt.Sprintf("user_id = %s", addArg(*filter.UserID)))
+		conditions = append(conditions, "visibility = 'private'")
+	default:
+		if filter.UserID == nil || *filter.UserID == publicKnowledgeOwnerID {
+			conditions = append(conditions, fmt.Sprintf("(visibility = 'public' OR user_id = %d)", publicKnowledgeOwnerID))
+		} else {
+			conditions = append(conditions, fmt.Sprintf("((visibility = 'public' OR user_id = %d) OR user_id = %s)", publicKnowledgeOwnerID, addArg(*filter.UserID)))
+		}
+	}
+
+	if filter.FolderScoped {
+		if filter.FolderID == 0 {
+			conditions = append(conditions, "folder_id IS NULL")
+		} else {
+			conditions = append(conditions, fmt.Sprintf("folder_id = %s", addArg(filter.FolderID)))
+		}
+	}
+	if requireReady {
+		conditions = append(conditions, "status = 'ready'")
+	}
+
+	return strings.Join(conditions, " AND "), args, nil
+}
+
 const (
 	defaultSessionTitle    = "新对话"
 	defaultSessionMode     = sessionmode.DefaultKey
@@ -906,6 +1411,57 @@ const (
 type scoredKnowledgeChunk struct {
 	types.KnowledgeChunk
 	Score float64
+}
+
+func (vs *VectorStore) fetchKnowledgeForManager(ctx context.Context, queryEmbeddingVector pgvector.Vector, topK int, filter KnowledgeScopeFilter) ([]scoredKnowledgeChunk, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	whereSQL, args, err := knowledgeDocumentFilterWhere(filter, 2, true)
+	if err != nil {
+		return nil, err
+	}
+
+	sql := fmt.Sprintf(`SELECT id, title, content, embedding <-> $1 AS score
+FROM knowledge_base
+WHERE %s AND embedding IS NOT NULL
+ORDER BY score
+LIMIT $%d`, whereSQL, len(args)+2)
+	args = append([]any{queryEmbeddingVector}, args...)
+	args = append(args, topK)
+
+	rows, err := vs.Pool.Query(ctx, sql, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var results []scoredKnowledgeChunk
+	for rows.Next() {
+		var (
+			id      int64
+			title   string
+			content string
+			score   float64
+		)
+		if err := rows.Scan(&id, &title, &content, &score); err != nil {
+			return nil, err
+		}
+		results = append(results, scoredKnowledgeChunk{
+			KnowledgeChunk: types.KnowledgeChunk{
+				ID:      id,
+				Title:   title,
+				Content: content,
+			},
+			Score: score,
+		})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return results, nil
 }
 
 func (vs *VectorStore) fetchPublicKnowledge(ctx context.Context, queryEmbeddingVector pgvector.Vector, topK int, userID *int64) ([]scoredKnowledgeChunk, error) {
@@ -1013,6 +1569,92 @@ func sortScoredKnowledge(results []scoredKnowledgeChunk) {
 	}
 }
 
+func scanKnowledgeFolder(row pgx.Row) (KnowledgeFolder, error) {
+	var folder KnowledgeFolder
+	if err := row.Scan(
+		&folder.ID,
+		&folder.UserID,
+		&folder.ParentID,
+		&folder.Name,
+		&folder.SortOrder,
+		&folder.DocumentCount,
+		&folder.ChunkCount,
+		&folder.CreatedAt,
+		&folder.UpdatedAt,
+	); err != nil {
+		return KnowledgeFolder{}, err
+	}
+
+	return folder, nil
+}
+
+func validateKnowledgeFolderMutation(userID, folderID int64, name string) error {
+	if userID <= 0 {
+		return fmt.Errorf("目录所属用户不能为空")
+	}
+	if folderID < 0 {
+		return fmt.Errorf("目录 ID 无效")
+	}
+	if folderID == 0 && name == "" {
+		return fmt.Errorf("目录名称不能为空")
+	}
+	if name != "" && len([]rune(name)) > 120 {
+		return fmt.Errorf("目录名称不能超过 120 个字符")
+	}
+
+	return nil
+}
+
+func ensureKnowledgeFolderOwned(ctx context.Context, db execQuerier, folderID, userID int64) error {
+	if folderID <= 0 || userID <= 0 {
+		return pgx.ErrNoRows
+	}
+
+	var id int64
+	if err := db.QueryRow(ctx, `SELECT id FROM knowledge_folders WHERE id = $1 AND user_id = $2 LIMIT 1`, folderID, userID).Scan(&id); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func ensureKnowledgeFolderNotDescendant(ctx context.Context, db execQuerier, folderID, userID, parentID int64) error {
+	var isDescendant bool
+	if err := db.QueryRow(ctx, `WITH RECURSIVE descendants AS (
+    SELECT id FROM knowledge_folders WHERE parent_id = $1 AND user_id = $2
+    UNION ALL
+    SELECT f.id
+    FROM knowledge_folders f
+    INNER JOIN descendants d ON f.parent_id = d.id
+    WHERE f.user_id = $2
+)
+SELECT EXISTS(SELECT 1 FROM descendants WHERE id = $3)`, folderID, userID, parentID).Scan(&isDescendant); err != nil {
+		return err
+	}
+	if isDescendant {
+		return statuserr.Conflict("目录不能移动到自己的子目录下")
+	}
+
+	return nil
+}
+
+func translateKnowledgeFolderWriteError(err error) error {
+	if err == nil {
+		return nil
+	}
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) {
+		switch pgErr.Code {
+		case "23505":
+			return statuserr.Conflict("同级目录下已存在同名目录")
+		case "23514":
+			return statuserr.New(http.StatusBadRequest, "目录名称不能为空")
+		}
+	}
+
+	return err
+}
+
 // SaveKnowledgeBatch 以事务方式批量写入知识块，确保全部成功或全部失败
 // SaveKnowledgeBatch 批量保存知识块到向量数据库
 // 参数:
@@ -1034,6 +1676,10 @@ func (vs *VectorStore) SaveKnowledgeBatchForUserContext(ctx context.Context, tit
 }
 
 func (vs *VectorStore) SaveKnowledgeBatchForUserContextWithMeta(ctx context.Context, title string, chunks []string, userID int64, source string) error {
+	return vs.SaveKnowledgeBatchForUserContextWithMetaInFolder(ctx, title, chunks, userID, source, nil)
+}
+
+func (vs *VectorStore) SaveKnowledgeBatchForUserContextWithMetaInFolder(ctx context.Context, title string, chunks []string, userID int64, source string, folderID *int64) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -1074,6 +1720,19 @@ func (vs *VectorStore) SaveKnowledgeBatchForUserContextWithMeta(ctx context.Cont
 
 	knowledgeSource := defaultKnowledgeSource(source, title)
 	visibility := knowledgeVisibilityForUser(userID)
+	var knowledgeFolderID any
+	if folderID != nil {
+		if *folderID <= 0 {
+			return fmt.Errorf("知识目录 ID 无效")
+		}
+		if visibility != "private" {
+			return statuserr.New(http.StatusBadRequest, "公共知识暂不支持目录归档")
+		}
+		if err := ensureKnowledgeFolderOwned(ctx, tx, *folderID, userID); err != nil {
+			return err
+		}
+		knowledgeFolderID = *folderID
+	}
 	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, knowledgeDocumentLockKey(userID, title, knowledgeSource)); err != nil {
 		return fmt.Errorf("锁定知识文档身份失败: %w", err)
 	}
@@ -1092,12 +1751,12 @@ WHERE user_id = $1 AND title = $2 AND source = $3 AND status = 'ready'`, userID,
 	}
 
 	// 定义插入 SQL 语句
-	insertSQL := `INSERT INTO knowledge_base (title, content, embedding, user_id, source, visibility, status, version, content_hash, updated_at)
-VALUES ($1, $2, $3, $4, $5, $6, 'ready', $7, $8, now())`
+	insertSQL := `INSERT INTO knowledge_base (title, content, embedding, user_id, folder_id, source, visibility, status, version, content_hash, updated_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7, 'ready', $8, $9, now())`
 	// 遍历所有知识块
 	for _, item := range embeddings {
 		// 执行 SQL 插入语句
-		if _, err := tx.Exec(ctx, insertSQL, title, item.chunk, item.embedding, userID, knowledgeSource, visibility, version, knowledgeContentHash(item.chunk)); err != nil {
+		if _, err := tx.Exec(ctx, insertSQL, title, item.chunk, item.embedding, userID, knowledgeFolderID, knowledgeSource, visibility, version, knowledgeContentHash(item.chunk)); err != nil {
 			return fmt.Errorf("保存知识块到数据库失败: %w", err)
 		}
 	}
