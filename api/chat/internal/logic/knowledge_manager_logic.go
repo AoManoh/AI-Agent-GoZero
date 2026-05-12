@@ -266,16 +266,13 @@ func (l *KnowledgeDeleteFolderLogic) KnowledgeDeleteFolder(req *types.KnowledgeD
 		return nil, statuserr.New(http.StatusBadRequest, "知识目录 ID 无效")
 	}
 
-	result, err := l.svcCtx.VectorStore.DeleteKnowledgeFolder(l.ctx, req.Id, userID)
-	if err != nil {
+	if err := l.svcCtx.VectorStore.DeleteKnowledgeFolder(l.ctx, req.Id, userID); err != nil {
 		return nil, mapKnowledgeMutationError(err, "知识目录不存在或无权访问")
 	}
 
 	return &types.KnowledgeFolderDeleteResp{
-		MovedDocCount:       result.MovedDocCount,
-		PromotedFolderCount: result.PromotedFolderCount,
-		ParentName:          result.ParentName,
-		Meta:                buildKnowledgeManagerMeta(&userID),
+		Deleted: true,
+		Meta:    buildKnowledgeManagerMeta(&userID),
 	}, nil
 }
 

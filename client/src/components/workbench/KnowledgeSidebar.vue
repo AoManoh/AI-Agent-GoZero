@@ -298,8 +298,8 @@ const submitRenameFolder = (folder) => {
 
 const confirmDeleteFolder = (folder) => {
   if (props.busy) return;
-  // 用 native confirm 简化：后端会在事务内把直接子项提升到父级。
-  const ok = window.confirm(`确认删除文件夹「${folder.name}」吗？\n\n其中的文档和直接子文件夹会提升到父级目录，顶级目录会提升到未归类。`);
+  // 后端只允许删除空目录，避免用户资料被隐式移动。
+  const ok = window.confirm(`确认删除空文件夹「${folder.name}」吗？\n\n如果其中仍有文档或子文件夹，请先移动后再删除。`);
   if (!ok) return;
   emit("delete-folder", { id: Number(folder.id) });
 };

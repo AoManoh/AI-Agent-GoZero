@@ -473,24 +473,13 @@ const handleDeleteFolder = async ({ id }) => {
   if (folderMutating.value) return;
   folderMutating.value = true;
   try {
-    // v0.2+ cascade 删除：后端事务内将子文件夹与文档提升到父目录（顶级目录的子项提升到「未归类」），
-    // 返回 KnowledgeFolderDeleteResp 含 movedDocCount / promotedFolderCount / parentName 三字段，用于通知用户搬迁结果。
-    const result = await apiService.chat.knowledgeDeleteFolder(id);
+    // 后端只允许删除空目录，避免文档或子目录被隐式移动。
+    await apiService.chat.knowledgeDeleteFolder(id);
     // 如果当前选中的是被删除的目录，回退到「我的私人资料」
     if (activeKey.value === `folder:${id}`) {
       activeKey.value = "private";
     }
     await Promise.all([loadFolders(), loadSidebarDocuments(), loadDocuments()]);
-    // 仅在确实有搬迁内容时提示，纯空目录删除保持安静。
-    const movedDocs = Number(result?.movedDocCount || 0);
-    const promotedFolders = Number(result?.promotedFolderCount || 0);
-    if (movedDocs > 0 || promotedFolders > 0) {
-      const target = result?.parentName || "未归类";
-      const parts = [];
-      if (movedDocs > 0) parts.push(`${movedDocs} 份文档`);
-      if (promotedFolders > 0) parts.push(`${promotedFolders} 个子目录`);
-      window.alert(`已将 ${parts.join("、")}移动到「${target}」`);
-    }
   } catch (error) {
     console.error("删除文件夹失败:", error);
     window.alert(`删除文件夹失败：${error?.message || "请稍后重试"}`);

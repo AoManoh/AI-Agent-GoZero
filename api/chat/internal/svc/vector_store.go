@@ -140,12 +140,6 @@ type KnowledgeFolder struct {
 	UpdatedAt     time.Time
 }
 
-type KnowledgeDeleteFolderResult struct {
-	MovedDocCount       int64
-	PromotedFolderCount int64
-	ParentName          string
-}
-
 type KnowledgeScopeFilter struct {
 	UserID       *int64
 	Limit        int
@@ -179,9 +173,10 @@ type execQuerier interface {
 const vectorStoreEmbeddingDimensions = 1536
 
 var (
-	ErrSessionDeleted      = statuserr.Conflict("会话已删除，请创建新会话")
-	ErrSessionCompleted    = statuserr.Conflict("面试已结束，请创建新会话")
-	ErrSessionAccessDenied = statuserr.Forbidden("无权访问该会话")
+	ErrSessionDeleted          = statuserr.Conflict("会话已删除，请创建新会话")
+	ErrSessionCompleted        = statuserr.Conflict("面试已结束，请创建新会话")
+	ErrSessionAccessDenied     = statuserr.Forbidden("无权访问该会话")
+	ErrKnowledgeFolderNotEmpty = statuserr.Conflict("只能删除空目录，请先移动或删除目录中的文档和子目录")
 )
 
 // NewVectorStore 初始化向量存储
@@ -839,70 +834,66 @@ GROUP BY f.id, f.user_id, f.parent_id, f.name, f.path, f.depth, f.sort_order, f.
 	))
 }
 
-func (vs *VectorStore) DeleteKnowledgeFolder(ctx context.Context, folderID, userID int64) (KnowledgeDeleteFolderResult, error) {
+func (vs *VectorStore) DeleteKnowledgeFolder(ctx context.Context, folderID, userID int64) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	if folderID <= 0 || userID <= 0 {
-		return KnowledgeDeleteFolderResult{}, pgx.ErrNoRows
+		return pgx.ErrNoRows
 	}
 
 	tx, err := vs.Pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
-		return KnowledgeDeleteFolderResult{}, err
+		return err
 	}
 	defer rollbackTx(tx)
 
-	folder, err := loadKnowledgeFolderForUpdate(ctx, tx, folderID, userID)
-	if err != nil {
-		return KnowledgeDeleteFolderResult{}, err
+	if _, err := loadKnowledgeFolderForUpdate(ctx, tx, folderID, userID); err != nil {
+		return err
 	}
 
-	var parentID any
-	parentName := "未归类"
-	if folder.ParentID.Valid {
-		parentID = folder.ParentID.Int64
-		if err := tx.QueryRow(ctx, `SELECT name FROM knowledge_folders WHERE id = $1 AND user_id = $2`, folder.ParentID.Int64, userID).Scan(&parentName); err != nil {
-			return KnowledgeDeleteFolderResult{}, err
-		}
+	var hasDocuments bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS(
+    SELECT 1
+    FROM knowledge_base
+    WHERE user_id = $1 AND folder_id = $2
+    LIMIT 1
+)`, userID, folderID).Scan(&hasDocuments); err != nil {
+		return err
+	}
+	if hasDocuments {
+		return ErrKnowledgeFolderNotEmpty
 	}
 
-	docTag, err := tx.Exec(ctx, `UPDATE knowledge_base
-SET folder_id = $3,
-    updated_at = now()
-WHERE user_id = $1 AND folder_id = $2`, userID, folderID, parentID)
-	if err != nil {
-		return KnowledgeDeleteFolderResult{}, err
+	var hasChildren bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS(
+    SELECT 1
+    FROM knowledge_folders
+    WHERE user_id = $1 AND parent_id = $2
+    LIMIT 1
+)`, userID, folderID).Scan(&hasChildren); err != nil {
+		return err
 	}
-
-	childTag, err := tx.Exec(ctx, `UPDATE knowledge_folders
-SET parent_id = $3,
-    updated_at = now()
-WHERE user_id = $1 AND parent_id = $2`, userID, folderID, parentID)
-	if err != nil {
-		return KnowledgeDeleteFolderResult{}, err
+	if hasChildren {
+		return ErrKnowledgeFolderNotEmpty
 	}
 
 	tag, err := tx.Exec(ctx, `DELETE FROM knowledge_folders WHERE id = $1 AND user_id = $2`, folderID, userID)
 	if err != nil {
-		return KnowledgeDeleteFolderResult{}, err
+		return err
 	}
 	if tag.RowsAffected() == 0 {
-		return KnowledgeDeleteFolderResult{}, pgx.ErrNoRows
+		return pgx.ErrNoRows
 	}
 
 	if err := rebuildKnowledgeFolderPaths(ctx, tx, userID); err != nil {
-		return KnowledgeDeleteFolderResult{}, err
+		return err
 	}
 	if err := tx.Commit(ctx); err != nil {
-		return KnowledgeDeleteFolderResult{}, err
+		return err
 	}
 
-	return KnowledgeDeleteFolderResult{
-		MovedDocCount:       docTag.RowsAffected(),
-		PromotedFolderCount: childTag.RowsAffected(),
-		ParentName:          parentName,
-	}, nil
+	return nil
 }
 
 func (vs *VectorStore) MoveKnowledgeDocumentFolder(ctx context.Context, documentID, userID, folderID int64) (KnowledgeDocument, error) {

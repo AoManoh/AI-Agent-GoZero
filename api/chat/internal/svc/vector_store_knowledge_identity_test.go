@@ -2,6 +2,8 @@ package svc
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -107,6 +109,56 @@ func TestKnowledgeDocumentFilterWhereRejectsAnonymousFolderScope(t *testing.T) {
 	}
 }
 
+func TestDeleteKnowledgeFolderDeletesOnlyEmptyFolder(t *testing.T) {
+	tx := &deleteKnowledgeFolderTx{t: t}
+	store := &VectorStore{Pool: &deleteKnowledgeFolderPool{tx: tx}}
+
+	if err := store.DeleteKnowledgeFolder(context.Background(), 12, 7); err != nil {
+		t.Fatalf("DeleteKnowledgeFolder() error = %v", err)
+	}
+	if !tx.deleted {
+		t.Fatalf("expected folder delete")
+	}
+	if !tx.rebuiltPaths {
+		t.Fatalf("expected path rebuild after delete")
+	}
+	if !tx.committed {
+		t.Fatalf("expected transaction commit")
+	}
+}
+
+func TestDeleteKnowledgeFolderRejectsFolderWithDocuments(t *testing.T) {
+	tx := &deleteKnowledgeFolderTx{t: t, hasDocuments: true}
+	store := &VectorStore{Pool: &deleteKnowledgeFolderPool{tx: tx}}
+
+	err := store.DeleteKnowledgeFolder(context.Background(), 12, 7)
+	if !errors.Is(err, ErrKnowledgeFolderNotEmpty) {
+		t.Fatalf("DeleteKnowledgeFolder() error = %v, want ErrKnowledgeFolderNotEmpty", err)
+	}
+	if tx.deleted {
+		t.Fatalf("folder should not be deleted when documents exist")
+	}
+	if tx.committed {
+		t.Fatalf("transaction should not commit when documents exist")
+	}
+}
+
+func TestDeleteKnowledgeFolderRejectsFolderWithChildren(t *testing.T) {
+	tx := &deleteKnowledgeFolderTx{t: t, hasChildren: true}
+	store := &VectorStore{Pool: &deleteKnowledgeFolderPool{tx: tx}}
+
+	err := store.DeleteKnowledgeFolder(context.Background(), 12, 7)
+	if !errors.Is(err, ErrKnowledgeFolderNotEmpty) {
+		t.Fatalf("DeleteKnowledgeFolder() error = %v, want ErrKnowledgeFolderNotEmpty", err)
+	}
+	if tx.deleted {
+		t.Fatalf("folder should not be deleted when children exist")
+	}
+	if tx.committed {
+		t.Fatalf("transaction should not commit when children exist")
+	}
+}
+
 func TestKnowledgeDocumentIdentitySeparatesRepeatedUploads(t *testing.T) {
 	ctx := context.Background()
 	userID := int64(7)
@@ -149,6 +201,126 @@ func TestKnowledgeDocumentIdentitySeparatesRepeatedUploads(t *testing.T) {
 			t.Fatalf("loaded chunk from archived v1 batch: %+v", chunk)
 		}
 	}
+}
+
+type deleteKnowledgeFolderPool struct {
+	tx *deleteKnowledgeFolderTx
+}
+
+func (p *deleteKnowledgeFolderPool) BeginTx(context.Context, pgx.TxOptions) (pgx.Tx, error) {
+	return p.tx, nil
+}
+
+func (p *deleteKnowledgeFolderPool) Close() {}
+
+func (p *deleteKnowledgeFolderPool) Exec(context.Context, string, ...any) (pgconn.CommandTag, error) {
+	return pgconn.NewCommandTag("EXEC 0"), fmt.Errorf("unexpected pool Exec")
+}
+
+func (p *deleteKnowledgeFolderPool) Ping(context.Context) error {
+	return nil
+}
+
+func (p *deleteKnowledgeFolderPool) Query(context.Context, string, ...any) (pgx.Rows, error) {
+	return nil, fmt.Errorf("unexpected pool Query")
+}
+
+func (p *deleteKnowledgeFolderPool) QueryRow(context.Context, string, ...any) pgx.Row {
+	return knowledgeRow{err: fmt.Errorf("unexpected pool QueryRow")}
+}
+
+type deleteKnowledgeFolderTx struct {
+	t            *testing.T
+	hasDocuments bool
+	hasChildren  bool
+	deleted      bool
+	rebuiltPaths bool
+	committed    bool
+}
+
+func (tx *deleteKnowledgeFolderTx) Begin(context.Context) (pgx.Tx, error) {
+	return nil, fmt.Errorf("unexpected nested Begin")
+}
+
+func (tx *deleteKnowledgeFolderTx) Commit(context.Context) error {
+	tx.committed = true
+	return nil
+}
+
+func (tx *deleteKnowledgeFolderTx) Rollback(context.Context) error {
+	return nil
+}
+
+func (tx *deleteKnowledgeFolderTx) CopyFrom(context.Context, pgx.Identifier, []string, pgx.CopyFromSource) (int64, error) {
+	return 0, fmt.Errorf("unexpected CopyFrom")
+}
+
+func (tx *deleteKnowledgeFolderTx) SendBatch(context.Context, *pgx.Batch) pgx.BatchResults {
+	return nil
+}
+
+func (tx *deleteKnowledgeFolderTx) LargeObjects() pgx.LargeObjects {
+	return pgx.LargeObjects{}
+}
+
+func (tx *deleteKnowledgeFolderTx) Prepare(context.Context, string, string) (*pgconn.StatementDescription, error) {
+	return nil, fmt.Errorf("unexpected Prepare")
+}
+
+func (tx *deleteKnowledgeFolderTx) Exec(_ context.Context, sql string, args ...any) (pgconn.CommandTag, error) {
+	tx.t.Helper()
+	compactSQL := compactKnowledgeSQL(sql)
+	switch {
+	case strings.HasPrefix(compactSQL, "DELETE FROM knowledge_folders"):
+		assertKnowledgeArgs(tx.t, args, int64(12), int64(7))
+		tx.deleted = true
+		return pgconn.NewCommandTag("DELETE 1"), nil
+	case strings.HasPrefix(compactSQL, "WITH RECURSIVE folder_tree AS"):
+		assertKnowledgeArgs(tx.t, args, int64(7))
+		tx.rebuiltPaths = true
+		return pgconn.NewCommandTag("UPDATE 1"), nil
+	default:
+		return pgconn.NewCommandTag("EXEC 0"), fmt.Errorf("unexpected tx Exec: %s", compactSQL)
+	}
+}
+
+func (tx *deleteKnowledgeFolderTx) Query(context.Context, string, ...any) (pgx.Rows, error) {
+	return nil, fmt.Errorf("unexpected tx Query")
+}
+
+func (tx *deleteKnowledgeFolderTx) QueryRow(_ context.Context, sqlText string, args ...any) pgx.Row {
+	tx.t.Helper()
+	compactSQL := compactKnowledgeSQL(sqlText)
+	switch {
+	case strings.Contains(compactSQL, "FROM knowledge_folders") && strings.Contains(compactSQL, "FOR UPDATE"):
+		assertKnowledgeArgs(tx.t, args, int64(12), int64(7))
+		now := time.Date(2026, 5, 12, 10, 0, 0, 0, time.UTC)
+		return knowledgeRow{values: []any{
+			int64(12),
+			int64(7),
+			sql.NullInt64{},
+			"空目录",
+			"/空目录",
+			int64(0),
+			int64(0),
+			int64(0),
+			int64(0),
+			now,
+			now,
+		}}
+	case strings.Contains(compactSQL, "FROM knowledge_base") && strings.Contains(compactSQL, "SELECT EXISTS"):
+		assertKnowledgeArgs(tx.t, args, int64(7), int64(12))
+		return knowledgeRow{values: []any{tx.hasDocuments}}
+	case strings.Contains(compactSQL, "FROM knowledge_folders") && strings.Contains(compactSQL, "parent_id = $2") && strings.Contains(compactSQL, "SELECT EXISTS"):
+		assertKnowledgeArgs(tx.t, args, int64(7), int64(12))
+		return knowledgeRow{values: []any{tx.hasChildren}}
+	default:
+		return knowledgeRow{err: fmt.Errorf("unexpected tx QueryRow: %s", compactSQL)}
+	}
+}
+
+func (tx *deleteKnowledgeFolderTx) Conn() *pgx.Conn {
+	return nil
 }
 
 type knowledgeVersionPool struct {

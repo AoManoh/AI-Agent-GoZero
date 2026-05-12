@@ -76,10 +76,8 @@ type KnowledgeDocumentsResp struct {
 }
 
 type KnowledgeFolderDeleteResp struct {
-	MovedDocCount       int64                `json:"movedDocCount"`
-	PromotedFolderCount int64                `json:"promotedFolderCount"`
-	ParentName          string               `json:"parentName"`
-	Meta                KnowledgeManagerMeta `json:"meta"`
+	Deleted bool                 `json:"deleted"`
+	Meta    KnowledgeManagerMeta `json:"meta"`
 }
 
 type KnowledgeFolderItem struct {

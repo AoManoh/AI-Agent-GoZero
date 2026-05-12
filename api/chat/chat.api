@@ -114,10 +114,8 @@ type KnowledgeFolderMutationResp {
 
 // KnowledgeFolderDeleteResp 知识库目录删除响应
 type KnowledgeFolderDeleteResp {
-	MovedDocCount       int64                `json:"movedDocCount"`
-	PromotedFolderCount int64                `json:"promotedFolderCount"`
-	ParentName          string               `json:"parentName"`
-	Meta                KnowledgeManagerMeta `json:"meta"`
+	Deleted bool                 `json:"deleted"`
+	Meta    KnowledgeManagerMeta `json:"meta"`
 }
 
 // KnowledgeDocumentMutationResp 知识库文档变更响应
@@ -229,7 +227,7 @@ service chat {
 	@handler KnowledgeUpdateFolder
 	patch /api/ai/knowledge/folders/:id (KnowledgeUpdateFolderReq) returns (KnowledgeFolderMutationResp)
 
-	@doc "知识库目录删除接口，要求登录态 Bearer token；删除后文档和直接子目录提升到父级"
+	@doc "知识库目录删除接口，要求登录态 Bearer token；只允许删除空目录"
 	@handler KnowledgeDeleteFolder
 	delete /api/ai/knowledge/folders/:id (KnowledgeDeleteFolderReq) returns (KnowledgeFolderDeleteResp)
 
