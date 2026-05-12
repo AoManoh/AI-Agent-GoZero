@@ -115,7 +115,7 @@ const groupedSessions = computed(() => {
 }
 
 .sb-brand {
-  font-size: 14px;
+  font-size: var(--fs-md);
   font-weight: 600;
   display: flex;
   align-items: center;
@@ -159,7 +159,7 @@ const groupedSessions = computed(() => {
 
 .sb-section {
   padding: 16px 20px 6px;
-  font-size: 11px;
+  font-size: var(--fs-2xs);
   font-family: var(--mono);
   color: rgba(255, 255, 255, 0.4);
   text-transform: uppercase;
@@ -176,7 +176,7 @@ const groupedSessions = computed(() => {
 .sb-empty {
   padding: 32px 20px;
   text-align: center;
-  font-size: 12px;
+  font-size: var(--fs-xs);
   color: rgba(255, 255, 255, 0.35);
   font-family: var(--mono);
 }
@@ -184,7 +184,7 @@ const groupedSessions = computed(() => {
 .s-item {
   padding: 10px 12px;
   border-radius: var(--radius-sm);
-  font-size: 13.5px;
+  font-size: var(--fs-sm);
   color: var(--t2);
   cursor: pointer;
   display: flex;
@@ -229,7 +229,7 @@ const groupedSessions = computed(() => {
   color: var(--t2);
   cursor: pointer;
   font-family: var(--sans);
-  font-size: 13px;
+  font-size: var(--fs-sm);
   padding: 6px 12px;
   border-radius: 6px;
   transition: background 0.2s;

@@ -165,7 +165,7 @@ const handleMarkdownClick = async (event) => {
 
 <style scoped>
 .markdown {
-  font-size: 15px;
+  font-size: var(--fs-lg);
   line-height: 1.7;
   color: rgba(255, 255, 255, 0.85);
   overflow-wrap: anywhere;
@@ -201,7 +201,7 @@ const handleMarkdownClick = async (event) => {
 
 .markdown :deep(.code-language) {
   color: rgba(255, 255, 255, 0.58);
-  font: 600 11px var(--mono);
+  font: 600 var(--fs-2xs) var(--mono);
   letter-spacing: 0;
   text-transform: uppercase;
 }
@@ -213,7 +213,7 @@ const handleMarkdownClick = async (event) => {
   border-radius: var(--radius-xs);
   background: rgba(255, 255, 255, 0.06);
   color: rgba(255, 255, 255, 0.74);
-  font: 500 12px var(--sans);
+  font: 500 var(--fs-xs) var(--sans);
   cursor: pointer;
   transition: background 0.16s ease, color 0.16s ease, border-color 0.16s ease;
 }
@@ -238,7 +238,7 @@ const handleMarkdownClick = async (event) => {
   background: rgba(255, 255, 255, 0.1);
   padding: 2px 6px;
   border-radius: var(--radius-xs);
-  font-size: 13.5px;
+  font-size: var(--fs-sm);
 }
 
 .markdown :deep(pre code) {
@@ -248,7 +248,7 @@ const handleMarkdownClick = async (event) => {
   padding: 0;
   border-radius: 0;
   color: #d7dbe7;
-  font-size: 13.5px;
+  font-size: var(--fs-sm);
   line-height: 1.72;
   white-space: pre;
   tab-size: 2;

@@ -478,7 +478,7 @@ onBeforeUnmount(() => {
 }
 
 .mc-title {
-  font-size: 14px;
+  font-size: var(--fs-md);
   font-weight: 600;
   display: flex;
   align-items: center;
@@ -491,7 +491,7 @@ onBeforeUnmount(() => {
   color: var(--t2);
   cursor: pointer;
   font-family: var(--sans);
-  font-size: 13px;
+  font-size: var(--fs-sm);
   padding: 6px 12px;
   border-radius: var(--radius-sm);
   transition: background 0.2s;

@@ -210,7 +210,7 @@ const handleKeydown = (event) => {
 }
 
 .file-tag {
-  font-size: 12px;
+  font-size: var(--fs-xs);
   padding: 4px 10px;
   border-radius: var(--radius-pill);
   background: rgba(255, 255, 255, 0.1);
@@ -219,7 +219,7 @@ const handleKeydown = (event) => {
 }
 
 .hint {
-  font-size: 12px;
+  font-size: var(--fs-xs);
   color: var(--t3);
   display: flex;
   align-items: center;
@@ -284,7 +284,7 @@ const handleKeydown = (event) => {
   background: none;
   border: none;
   resize: none;
-  font: 15px var(--sans);
+  font: var(--fs-lg) var(--sans);
   color: var(--t);
   line-height: 1.6;
   height: 24px;
