@@ -1010,3 +1010,4 @@ service user-api {
 	@handler ResumeArtifactAnalysisPrepareHandler
 	post /resume/artifacts/:id/analysis/prepare (ResumeArtifactAnalysisPrepareReq) returns (ResumeArtifactAnalysisResp)
 }
+
