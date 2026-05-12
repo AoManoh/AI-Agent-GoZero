@@ -235,35 +235,210 @@ func normalizeIntentText(message string) string {
 }
 
 func looksLikeOpeningQuestion(s string) bool {
-	if containsAny(s, []string{
+	if strings.ContainsAny(s, "？?") {
+		return true
+	}
+	return looksLikeCandidateFacingPrompt(s, true)
+}
+
+func looksLikeCandidateFacingPrompt(s string, allowOpeningTopicTask bool) bool {
+	for _, clause := range splitPromptClauses(s) {
+		if isCandidateDirectedPromptClause(clause) || isExplicitAnswerRequestClause(clause) {
+			return true
+		}
+		if allowOpeningTopicTask && isOpeningTopicTaskClause(clause) {
+			return true
+		}
+	}
+	return false
+}
+
+func splitPromptClauses(s string) []string {
+	parts := strings.FieldsFunc(s, func(r rune) bool {
+		return strings.ContainsRune("。！？!?；;，,\n\r：:", r)
+	})
+	clauses := make([]string, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part != "" {
+			clauses = append(clauses, part)
+		}
+	}
+	return clauses
+}
+
+func isCandidateDirectedPromptClause(clause string) bool {
+	if isAssistantSelfExplanationClause(clause) {
+		return false
+	}
+	if hasCandidateQuestionSubjectCue(clause) && hasQuestionCue(clause) {
+		return true
+	}
+	return hasCandidateDirectiveSubjectCue(clause) && hasAnswerActionCue(clause)
+}
+
+func isExplicitAnswerRequestClause(clause string) bool {
+	if isAssistantSelfExplanationClause(clause) {
+		return false
+	}
+	return hasAnswerRequestCue(clause) && (hasQuestionCue(clause) || hasAnswerActionCue(clause))
+}
+
+func isOpeningTopicTaskClause(clause string) bool {
+	if isAssistantSelfExplanationClause(clause) {
+		return false
+	}
+	if containsAny(clause, []string{
+		"我们来看看这个问题",
+		"我们来看这个问题",
+		"我们先看",
+		"我们先聊",
+		"我们从",
+		"直接从",
 		"先来",
-		"我们来",
-		"请介绍",
-		"介绍一下",
-		"聊聊",
-		"说说",
-		"谈谈",
-		"讲一下",
-		"讲讲",
-		"先说",
-		"先看",
-		"第一步",
-		"会看什么",
-		"哪个指标",
-		"展开",
-		"如何",
-		"你提到",
-		"问你",
-		"问题",
+		"先聊聊",
+		"先说说",
+		"先讲一下",
+		"先讲讲",
+		"先谈谈",
+		"第一题",
+		"第一个问题",
+		"进入第一个问题",
 	}) {
 		return true
 	}
+	if hasAnswerRequestCue(clause) && containsAny(clause, []string{"先", "我们", "请", "问题", "场景", "项目"}) {
+		return true
+	}
+	return false
+}
 
-	return strings.ContainsAny(s, "？?")
+func isAssistantSelfExplanationClause(clause string) bool {
+	return containsAny(clause, []string{
+		"我会",
+		"我先",
+		"我来",
+		"我可以",
+		"下面我",
+		"接下来我",
+	})
+}
+
+func hasCandidateQuestionSubjectCue(clause string) bool {
+	return containsAny(clause, []string{
+		"你会",
+		"你具体",
+		"你怎么",
+		"你如何",
+		"你先",
+		"你第一",
+		"你认为",
+		"你觉得",
+		"你理解",
+		"你打算",
+		"你准备",
+		"你要",
+		"你可以",
+		"你在",
+		"如果你",
+		"假设你",
+		"你能否",
+		"你能不能",
+	})
+}
+
+func hasCandidateDirectiveSubjectCue(clause string) bool {
+	return containsAny(clause, []string{
+		"你先",
+		"请你",
+		"让你",
+		"给你",
+	})
+}
+
+func hasQuestionCue(clause string) bool {
+	return containsAny(clause, []string{
+		"怎么",
+		"如何",
+		"什么",
+		"哪些",
+		"哪个",
+		"为什么",
+		"是否",
+		"能否",
+		"能不能",
+		"可不可以",
+		"有没有",
+		"哪里",
+		"多少",
+		"多大",
+		"该不该",
+	})
+}
+
+func hasAnswerActionCue(clause string) bool {
+	return containsAny(clause, []string{
+		"回答",
+		"说明",
+		"解释",
+		"分析",
+		"描述",
+		"介绍",
+		"讲",
+		"说",
+		"谈",
+		"阐述",
+		"拆解",
+		"设计",
+		"定位",
+		"排查",
+		"处理",
+		"选择",
+		"保证",
+		"优化",
+		"实现",
+		"验证",
+		"复盘",
+		"止损",
+		"发现",
+		"判断",
+	})
+}
+
+func hasAnswerRequestCue(clause string) bool {
+	return containsAny(clause, []string{
+		"请说说",
+		"请讲讲",
+		"请谈谈",
+		"请介绍",
+		"请解释",
+		"请说明",
+		"请分析",
+		"请描述",
+		"请回答",
+		"请展开",
+		"麻烦你",
+		"先说说",
+		"先讲讲",
+		"先介绍",
+		"先解释",
+		"先说明",
+		"先分析",
+		"说说",
+		"聊聊",
+		"谈谈",
+		"讲一下",
+		"讲讲",
+		"介绍一下",
+		"解释一下",
+		"说明一下",
+		"分析一下",
+		"展开一下",
+	})
 }
 
 func looksLikeFollowUpSignal(s string) bool {
-	return containsAny(s, []string{
+	if containsAny(s, []string{
 		"追问",
 		"详细说明",
 		"为什么",
@@ -303,7 +478,10 @@ func looksLikeFollowUpSignal(s string) bool {
 		"如果",
 		"假设",
 		"换个角度",
-	})
+	}) {
+		return true
+	}
+	return looksLikeCandidateFacingPrompt(s, false)
 }
 
 func looksLikeNextQuestionSignal(s string) bool {

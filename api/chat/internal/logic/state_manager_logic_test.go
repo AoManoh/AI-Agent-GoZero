@@ -48,6 +48,18 @@ func TestTransitionStateDetailedFromStart(t *testing.T) {
 			wantReason: "opening_question_signal",
 		},
 		{
+			name:       "candidate facing incident prompt without question mark transitions",
+			reply:      "我们从线上连接池打满这个场景开始。假设接口 P95 已经升高，你具体会怎么发现、止损、定位、修复和验证",
+			wantState:  types.StateQuestion,
+			wantReason: "opening_question_signal",
+		},
+		{
+			name:       "assistant explanatory how statement stays in start",
+			reply:      "收到，我会先说明如何结合你的上下文来继续。",
+			wantState:  types.StateStart,
+			wantReason: "no_transition",
+		},
+		{
 			name:       "question mark transitions to question",
 			reply:      "我们直接开始：你怎么理解 Go 的并发模型？",
 			wantState:  types.StateQuestion,
@@ -95,6 +107,12 @@ func TestTransitionStateDetailedFromQuestion(t *testing.T) {
 		{
 			name:       "scenario follow up phrase",
 			reply:      "那如果下游阻塞且不支持 ctx，你会怎么避免 goroutine 泄漏？",
+			wantState:  types.StateFollowUp,
+			wantReason: "follow_up_signal",
+		},
+		{
+			name:       "explicit request follow up without question mark",
+			reply:      "请说说如果 Redis 锁释放失败，你如何保证不会误删别人的锁",
 			wantState:  types.StateFollowUp,
 			wantReason: "follow_up_signal",
 		},

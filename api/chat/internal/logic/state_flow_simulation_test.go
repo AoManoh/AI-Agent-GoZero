@@ -178,6 +178,26 @@ func TestDecideTransitionFallsBackToRulesWhenLLMRequestFails(t *testing.T) {
 	}
 }
 
+func TestDecideTransitionFallbackRecognizesStartPromptWithoutQuestionMark(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "state transition model unavailable", http.StatusInternalServerError)
+	}))
+	defer server.Close()
+
+	sm := newStateTransitionTestManager(server.URL)
+	reply := "我们从线上连接池打满这个场景开始。假设接口 P95 已经升高，你具体会怎么发现、止损、定位、修复和验证"
+	decision := sm.decideTransition(types.StateStart, reply)
+	if decision.NextState != types.StateQuestion {
+		t.Fatalf("NextState = %q, want %q", decision.NextState, types.StateQuestion)
+	}
+	if decision.Source != "rule" {
+		t.Fatalf("Source = %q, want rule", decision.Source)
+	}
+	if decision.Reason != "llm_fallback_opening_question_signal" {
+		t.Fatalf("Reason = %q, want llm_fallback_opening_question_signal", decision.Reason)
+	}
+}
+
 func TestDecideTransitionLLMPaths(t *testing.T) {
 	tests := []struct {
 		name       string
