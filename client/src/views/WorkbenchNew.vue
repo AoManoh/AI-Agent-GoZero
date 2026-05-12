@@ -265,7 +265,7 @@ const selectedDirectionLabel = computed(() => {
 });
 
 // === 简历选项（初值空数组，loadResumes 从后端拉真实数据）===
-// 历史上这里有两条 mock（Resume_v3.pdf / Resume_v2.pdf），新用户没上传也会看到假简历。
+// 历史上这里有两条硬编码示例简历，新用户没上传也会看到假简历。
 // 现在严格走「0 简历 → step 2 只显示『添加新简历』按钮 → 引导跳 /workbench/resume 上传」。
 const resumes = ref([]);
 
@@ -461,7 +461,7 @@ const loadPresets = async () => {
 
 // === 异步加载简历资料列表 ===
 // 后端返回 0 条 = 新用户从未上传，直接保持 resumes.value=[]，step 2 只显示「添加新简历」按钮兜底。
-// 不允许 fallback 到 mock，那会让新用户误选不存在的 artifactId，提交时 createSession 会失败。
+// 不允许 fallback 到本地示例，那会让新用户误选不存在的 artifactId，提交时 createSession 会失败。
 const loadResumes = async () => {
   try {
     const res = await apiService.user.resumeArtifacts();

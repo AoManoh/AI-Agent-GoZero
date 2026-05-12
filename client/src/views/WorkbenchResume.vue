@@ -560,7 +560,7 @@ const createEmptyEvaluationState = () => ({
 });
 
 // === 简历列表（初值为空数组，loadResumes 从后端拉真实数据）===
-// 历史上这里有两条 mock（Resume_v3.pdf / Resume_v2.pdf），导致新用户一进页面就显示假简历。
+// 历史上这里有两条硬编码示例简历，导致新用户一进页面就显示假简历。
 // 现在严格走「未上传 → 0 简历 → resumeState=S0 → dropzone 引导上传」流程，避免假数据混淆。
 const resumes = ref([]);
 
@@ -710,7 +710,7 @@ const formatRelativeTime = (timestamp) => {
 
 // 列表拉取：后端返回资产与评估摘要，详情分块在选中时 lazy load。
 // 后端返回 0 条 = 新用户从未上传，直接保持 resumes.value=[]，UI 走 resumeState='S0' dropzone 引导。
-// 不允许在空响应时 fallback 到 mock，那会让新用户误以为已经有简历（历史 bug）。
+// 不允许在空响应时 fallback 到本地示例，那会让新用户误以为已经有简历（历史 bug）。
 const loadResumes = async () => {
   try {
     const res = await apiService.user.resumeArtifacts();
