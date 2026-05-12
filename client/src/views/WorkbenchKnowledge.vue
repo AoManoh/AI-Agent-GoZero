@@ -23,29 +23,29 @@
   -->
   <WorkbenchLayout>
     <div class="wb-kb-content">
+      <!--
+        Hero（与 WorkbenchResume.vue 保持视觉一致）：删除原大标题「让 AI 学你的知识」，
+        eyebrow chip「• 知识库」与副标题同行 flex baseline 紧凑布局，
+        右侧保留「上传到我的私人资料库」CTA。中屏自动 wrap。
+      -->
       <section class="wb-kb-hero">
         <div class="wb-eyebrow">
           <span class="wb-eyebrow-dot" aria-hidden="true"></span>
           <span>知识库</span>
         </div>
-        <div class="wb-kb-hero-row">
-          <div class="wb-kb-hero-text">
-            <h1 class="wb-kb-title">让 AI 学你的知识</h1>
-            <p class="wb-kb-sub">上传文档后，AI 会基于检索增强 (RAG) 在面试时引用你提供的资料。</p>
-          </div>
-          <button type="button" class="wb-kb-upload-btn" @click="triggerUpload">
-            <span class="wb-kb-upload-plus" aria-hidden="true">+</span>
-            <span>上传到我的私人资料库</span>
-          </button>
-          <input
-            ref="uploadInputRef"
-            type="file"
-            accept=".pdf"
-            multiple
-            class="wb-kb-file-input"
-            @change="handleUpload"
-          />
-        </div>
+        <p class="wb-kb-sub">上传文档后，AI 会基于检索增强 (RAG) 在面试时引用你提供的资料。</p>
+        <button type="button" class="wb-kb-upload-btn" @click="triggerUpload">
+          <span class="wb-kb-upload-plus" aria-hidden="true">+</span>
+          <span>上传到我的私人资料库</span>
+        </button>
+        <input
+          ref="uploadInputRef"
+          type="file"
+          accept=".pdf"
+          multiple
+          class="wb-kb-file-input"
+          @change="handleUpload"
+        />
       </section>
 
       <div class="wb-kb-shell">
@@ -1042,8 +1042,14 @@ const getDocStatusLabel = (status) => {
   padding: 0 clamp(1rem, 3vw, 2.75rem) clamp(2.5rem, 5vw, 5rem);
 }
 
-/* === Hero === */
+/* === Hero ===
+   2026-05-12 改造：与 WorkbenchResume.vue 保持视觉一致 —— 删除大标题，
+   eyebrow chip + sub + upload CTA 在同行 baseline 对齐，中屏自动 wrap。 */
 .wb-kb-hero {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 12px 18px;
   padding: 0 0 clamp(1.25rem, 2.5vw, 2rem);
 }
 
@@ -1076,32 +1082,15 @@ const getDocStatusLabel = (status) => {
   50% { opacity: .35; }
 }
 
-.wb-kb-hero-row {
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 24px;
-  flex-wrap: wrap;
-}
-
-.wb-kb-hero-text {
-  flex: 1;
-  min-width: 320px;
-}
-
-.wb-kb-title {
-  font: 800 clamp(30px, 2.8vw, 42px) var(--display);
-  color: var(--t);
-  letter-spacing: -.02em;
-  margin: 0 0 12px;
-}
-
+/* 副标题（2026-05-12 改造）：与 eyebrow chip + upload CTA 同行 baseline 对齐；
+   颜色从 t3 → t2 提升可读性；flex: 1 让 sub 占用剩余宽度，长文本自动 wrap。
+   旧的 .wb-kb-hero-row / .wb-kb-hero-text / .wb-kb-title 三个样式已删除（hero 扁平化）。 */
 .wb-kb-sub {
   font-size: var(--fs-lg);
-  color: var(--t3);
-  line-height: 1.7;
+  color: var(--t2);
+  line-height: 1.65;
   margin: 0;
-  max-width: 560px;
+  flex: 1 1 480px;
 }
 
 .wb-kb-upload-btn {
