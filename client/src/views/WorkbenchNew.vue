@@ -1,10 +1,8 @@
 <template>
   <!--
     WorkbenchNew：新建面试配置向导（对应设计图 2）。
-    布局：stepper 进度条 + 方向 grid + 简历选择 + 难度滑杆 + 重点 checkbox + 底部 summary bar
-    交互：单页配置（非分步路由），用户在一页完成所有选择，点 "开始面试" 跳转 /chat?direction=...&difficulty=...
-    后端契约：当前接 /users/demo/interview-scenes/random 仅作为种子参考；
-            真实开练通过 /chat 页面的 SSE chat 接口（携带 direction/difficulty/focus 参数）。
+    布局：左侧配置区 + 右侧面试计划预览 + 底部确认条。
+    交互：用户在一页完成方向 / 简历 / 难度 / 侧重点选择，右侧展示计划生成状态，点“开始面试”创建会话。
   -->
   <WorkbenchLayout>
     <div class="wb-new-content">
@@ -17,131 +15,176 @@
         <p class="wb-new-sub">选择方向、难度和重点方向，AI 会基于你的简历定制题目。</p>
       </section>
 
-      <!-- Stepper -->
-      <ol class="wb-stepper" aria-label="配置步骤">
-        <li
-          v-for="(step, idx) in steps"
-          :key="step.key"
-          class="wb-step"
-          :class="{ 'wb-step-active': currentStep === idx, 'wb-step-done': currentStep > idx }"
-        >
-          <span class="wb-step-num">{{ String(idx + 1).padStart(2, '0') }}</span>
-          <span class="wb-step-label">{{ step.label }}</span>
-        </li>
-      </ol>
-
-      <div class="wb-new-form">
-        <!-- 方向选择 grid -->
-        <fieldset class="wb-block" data-step="direction">
-          <legend class="wb-block-legend">
-            <span class="wb-block-tag">01</span>
-            选择方向
-          </legend>
-          <div class="wb-direction-grid">
-            <button
-              v-for="dir in directions"
-              :key="dir.key"
-              type="button"
-              class="wb-dir"
-              :class="{ 'wb-dir-active': form.direction === dir.key }"
-              @click="selectDirection(dir)"
+      <div class="wb-new-shell">
+        <aside class="wb-config-panel" aria-label="面试配置">
+          <ol class="wb-stepper" aria-label="配置步骤">
+            <li
+              v-for="(step, idx) in steps"
+              :key="step.key"
+              class="wb-step"
+              :class="{ 'wb-step-active': currentStep === idx, 'wb-step-done': currentStep > idx }"
             >
-              <span class="wb-dir-dot" :style="{ background: dir.color }" aria-hidden="true"></span>
-              <span class="wb-dir-name">{{ dir.label }}</span>
-              <span class="wb-dir-tags">{{ dir.tags.join(' · ') }}</span>
-            </button>
-          </div>
-        </fieldset>
-
-        <!-- 简历选择 row -->
-        <fieldset class="wb-block">
-          <legend class="wb-block-legend">
-            <span class="wb-block-tag">02</span>
-            关联简历
-          </legend>
-          <div class="wb-resume-row">
-            <button
-              v-for="resume in resumes"
-              :key="resume.id"
-              type="button"
-              class="wb-resume"
-              :class="{ 'wb-resume-active': form.resumeArtifactId === resume.id }"
-              @click="form.resumeArtifactId = resume.id"
-            >
-              <div class="wb-resume-icon" aria-hidden="true">
-                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round">
-                  <path d="M3.5 1.5h6.5L13 4.5v10H3.5z" />
-                  <path d="M10 1.5V4.5h3" />
-                  <line x1="5.5" y1="8" x2="10.5" y2="8" stroke-linecap="round" />
-                  <line x1="5.5" y1="10.5" x2="10.5" y2="10.5" stroke-linecap="round" />
-                </svg>
-              </div>
-              <div class="wb-resume-meta">
-                <div class="wb-resume-name">{{ resume.name }}</div>
-                <div class="wb-resume-info">{{ resume.info }}</div>
-              </div>
-              <div class="wb-resume-tag" v-if="resume.primary">主用</div>
-            </button>
-            <button type="button" class="wb-resume wb-resume-add" @click="goToResumePage">
-              <div class="wb-resume-icon wb-resume-icon-add" aria-hidden="true">+</div>
-              <div class="wb-resume-meta">
-                <div class="wb-resume-name">添加新简历</div>
-                <div class="wb-resume-info">PDF / DOCX，最大 10MB</div>
-              </div>
-            </button>
-          </div>
-        </fieldset>
-
-        <!-- 难度滑杆 -->
-        <fieldset class="wb-block">
-          <legend class="wb-block-legend">
-            <span class="wb-block-tag">03</span>
-            难度等级
-          </legend>
-          <div class="wb-difficulty">
-            <button
-              v-for="(diff, idx) in difficulties"
-              :key="diff.key"
-              type="button"
-              class="wb-diff-btn"
-              :class="{ 'wb-diff-btn-active': form.difficultyIdx === idx }"
-              @click="form.difficultyIdx = idx"
-            >
-              <span class="wb-diff-name">{{ diff.label }}</span>
-              <span class="wb-diff-desc">{{ diff.desc }}</span>
-            </button>
-          </div>
-        </fieldset>
-
-        <!-- 重点方向 -->
-        <fieldset class="wb-block">
-          <legend class="wb-block-legend">
-            <span class="wb-block-tag">04</span>
-            重点方向 <span class="wb-block-hint">（可多选）</span>
-          </legend>
-          <div class="wb-focus-grid">
-            <label
-              v-for="focus in focusOptions"
-              :key="focus.key"
-              class="wb-focus"
-              :class="{ 'wb-focus-active': form.focus.includes(focus.key) }"
-            >
-              <input
-                type="checkbox"
-                :value="focus.key"
-                :checked="form.focus.includes(focus.key)"
-                class="wb-focus-input"
-                @change="toggleFocus(focus.key)"
-              />
-              <span class="wb-focus-check" aria-hidden="true">
-                <svg viewBox="0 0 16 16" fill="none">
-                  <polyline points="3,8 7,12 13,4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
-                </svg>
+              <span class="wb-step-num">{{ String(idx + 1).padStart(2, '0') }}</span>
+              <span class="wb-step-copy">
+                <span class="wb-step-label">{{ step.label }}</span>
+                <span class="wb-step-desc">{{ step.desc }}</span>
               </span>
-              <span class="wb-focus-label">{{ focus.label }}</span>
-            </label>
+            </li>
+          </ol>
+
+          <div class="wb-new-form">
+            <fieldset class="wb-block" data-step="direction">
+              <legend class="wb-block-legend">
+                <span class="wb-block-tag">01</span>
+                选择方向
+              </legend>
+              <div class="wb-direction-grid">
+                <button
+                  v-for="dir in directions"
+                  :key="dir.key"
+                  type="button"
+                  class="wb-dir"
+                  :class="{ 'wb-dir-active': form.direction === dir.key }"
+                  @click="selectDirection(dir)"
+                >
+                  <span class="wb-dir-dot" :style="{ background: dir.color }" aria-hidden="true"></span>
+                  <span class="wb-dir-name">{{ dir.label }}</span>
+                  <span class="wb-dir-tags">{{ dir.tags.join(' · ') }}</span>
+                </button>
+              </div>
+            </fieldset>
+
+            <fieldset class="wb-block">
+              <legend class="wb-block-legend">
+                <span class="wb-block-tag">02</span>
+                关联简历 <span class="wb-block-hint">可选</span>
+              </legend>
+              <div class="wb-resume-row">
+                <button
+                  v-for="resume in resumes"
+                  :key="resume.id"
+                  type="button"
+                  class="wb-resume"
+                  :class="{ 'wb-resume-active': form.resumeArtifactId === resume.id }"
+                  @click="form.resumeArtifactId = resume.id"
+                >
+                  <div class="wb-resume-icon" aria-hidden="true">
+                    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round">
+                      <path d="M3.5 1.5h6.5L13 4.5v10H3.5z" />
+                      <path d="M10 1.5V4.5h3" />
+                      <line x1="5.5" y1="8" x2="10.5" y2="8" stroke-linecap="round" />
+                      <line x1="5.5" y1="10.5" x2="10.5" y2="10.5" stroke-linecap="round" />
+                    </svg>
+                  </div>
+                  <div class="wb-resume-meta">
+                    <div class="wb-resume-name">{{ resume.name }}</div>
+                    <div class="wb-resume-info">{{ resume.info }}</div>
+                  </div>
+                  <div class="wb-resume-tag" v-if="resume.primary">主用</div>
+                </button>
+                <button type="button" class="wb-resume wb-resume-add" @click="goToResumePage">
+                  <div class="wb-resume-icon wb-resume-icon-add" aria-hidden="true">+</div>
+                  <div class="wb-resume-meta">
+                    <div class="wb-resume-name">添加新简历</div>
+                    <div class="wb-resume-info">PDF，最大 10MB</div>
+                  </div>
+                </button>
+              </div>
+            </fieldset>
+
+            <fieldset class="wb-block">
+              <legend class="wb-block-legend">
+                <span class="wb-block-tag">03</span>
+                难度等级
+              </legend>
+              <div class="wb-difficulty">
+                <button
+                  v-for="(diff, idx) in difficulties"
+                  :key="diff.key"
+                  type="button"
+                  class="wb-diff-btn"
+                  :class="{ 'wb-diff-btn-active': form.difficultyIdx === idx }"
+                  @click="form.difficultyIdx = idx"
+                >
+                  <span class="wb-diff-name">{{ diff.label }}</span>
+                  <span class="wb-diff-desc">{{ diff.desc }}</span>
+                </button>
+              </div>
+            </fieldset>
+
+            <fieldset class="wb-block">
+              <legend class="wb-block-legend">
+                <span class="wb-block-tag">04</span>
+                考察侧重 <span class="wb-block-hint">可多选</span>
+              </legend>
+              <div class="wb-focus-grid">
+                <label
+                  v-for="focus in focusOptions"
+                  :key="focus.key"
+                  class="wb-focus"
+                  :class="{ 'wb-focus-active': form.focus.includes(focus.key) }"
+                >
+                  <input
+                    type="checkbox"
+                    :value="focus.key"
+                    :checked="form.focus.includes(focus.key)"
+                    class="wb-focus-input"
+                    @change="toggleFocus(focus.key)"
+                  />
+                  <span class="wb-focus-check" aria-hidden="true">
+                    <svg viewBox="0 0 16 16" fill="none">
+                      <polyline points="3,8 7,12 13,4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+                    </svg>
+                  </span>
+                  <span class="wb-focus-label">{{ focus.label }}</span>
+                </label>
+              </div>
+            </fieldset>
           </div>
-        </fieldset>
+        </aside>
+
+        <section class="wb-preview-panel" aria-label="面试计划预览">
+          <header class="wb-preview-head">
+            <div>
+              <p class="wb-preview-kicker">实时预览</p>
+              <h2 class="wb-preview-title">面试计划预览</h2>
+              <p class="wb-preview-sub">配置完成后，这里会展示题目、时长、追问深度和能力覆盖。</p>
+            </div>
+            <span class="wb-preview-status" :class="{ 'wb-preview-status-ready': previewReady }">
+              {{ previewReady ? '待生成' : '待配置' }}
+            </span>
+          </header>
+
+          <div class="wb-preview-metrics">
+            <article v-for="metric in previewMetrics" :key="metric.key" class="wb-preview-metric">
+              <span class="wb-preview-metric-label">{{ metric.label }}</span>
+              <strong>{{ metric.value }}</strong>
+              <span>{{ metric.meta }}</span>
+            </article>
+          </div>
+
+          <div class="wb-preview-block">
+            <div class="wb-preview-block-head">
+              <h3>能力覆盖</h3>
+              <span>{{ selectedFocusLabels.length }} 项</span>
+            </div>
+            <div v-if="selectedFocusLabels.length > 0" class="wb-preview-focus-list">
+              <span v-for="label in selectedFocusLabels" :key="label">{{ label }}</span>
+            </div>
+            <p v-else class="wb-preview-empty">选择方向后会自动带出建议侧重点。</p>
+          </div>
+
+          <div class="wb-preview-block wb-preview-questions">
+            <div class="wb-preview-block-head">
+              <h3>题目安排</h3>
+              <span>{{ previewReady ? '下一阶段接入题库预览' : '待选择' }}</span>
+            </div>
+            <div class="wb-preview-placeholder">
+              <p v-if="previewReady">真实题目计划将在下一步接入后端预览接口生成。</p>
+              <p v-else>先选择方向和难度，系统再生成计划。</p>
+            </div>
+          </div>
+        </section>
       </div>
 
       <!-- 底部 summary bar -->
@@ -160,6 +203,11 @@
           <div class="wb-summary-line">
             <span class="wb-summary-label">重点</span>
             <span class="wb-summary-value">{{ form.focus.length > 0 ? `${form.focus.length} 项` : '未选择' }}</span>
+          </div>
+          <div class="wb-summary-sep" aria-hidden="true"></div>
+          <div class="wb-summary-line">
+            <span class="wb-summary-label">简历</span>
+            <span class="wb-summary-value">{{ selectedResumeLabel }}</span>
           </div>
         </div>
         <button
@@ -189,16 +237,15 @@ const route = useRoute();
 
 // === 步骤定义（视觉性 stepper，仅展示进度，不强制顺序） ===
 const steps = [
-  { key: "direction", label: "选择方向" },
-  { key: "resume", label: "关联简历" },
-  { key: "difficulty", label: "难度等级" },
-  { key: "focus", label: "重点方向" },
+  { key: "direction", label: "方向", desc: "技术方向" },
+  { key: "resume", label: "简历", desc: "可选关联" },
+  { key: "difficulty", label: "难度", desc: "追问强度" },
+  { key: "focus", label: "侧重", desc: "能力维度" },
 ];
 
 // 当前所在步骤：根据已填字段推断（任何用户操作都会推进 step）
 const currentStep = computed(() => {
   if (!form.value.direction) return 0;
-  if (!form.value.resumeArtifactId) return 1;
   if (form.value.difficultyIdx === null) return 2;
   return 3;
 });
@@ -264,6 +311,11 @@ const selectedDirectionLabel = computed(() => {
   return directions.value.find((d) => d.key === form.value.direction)?.label || "";
 });
 
+const selectedDifficulty = computed(() => {
+  if (form.value.difficultyIdx === null) return null;
+  return difficulties.value[form.value.difficultyIdx] || null;
+});
+
 // === 简历选项（初值空数组，loadResumes 从后端拉真实数据）===
 // 历史上这里有两条硬编码示例简历，新用户没上传也会看到假简历。
 // 现在严格走「0 简历 → step 2 只显示『添加新简历』按钮 → 引导跳 /workbench/resume 上传」。
@@ -298,6 +350,48 @@ const selectedDifficultyLabel = computed(() => {
   if (form.value.difficultyIdx === null) return "未选择";
   return difficulties.value[form.value.difficultyIdx]?.label || "";
 });
+
+const selectedResumeLabel = computed(() => {
+  const resume = resumes.value.find((item) => item.id === form.value.resumeArtifactId);
+  return resume?.name || "未关联";
+});
+
+const selectedFocusLabels = computed(() => {
+  return form.value.focus
+    .map((key) => focusOptions.value.find((item) => item.key === key)?.label || key)
+    .filter(Boolean);
+});
+
+const previewReady = computed(() => {
+  return Boolean(form.value.direction) && form.value.difficultyIdx !== null;
+});
+
+const previewMetrics = computed(() => [
+  {
+    key: "questions",
+    label: "题目数量",
+    value: previewReady.value ? "待生成" : "—",
+    meta: "来自题库预览接口",
+  },
+  {
+    key: "minutes",
+    label: "预计时长",
+    value: previewReady.value ? "待生成" : "—",
+    meta: selectedDifficulty.value?.desc || "选择难度后确定",
+  },
+  {
+    key: "depth",
+    label: "追问深度",
+    value: previewReady.value ? selectedDifficulty.value?.label || "—" : "—",
+    meta: "由难度和侧重点决定",
+  },
+  {
+    key: "coverage",
+    label: "能力覆盖",
+    value: `${selectedFocusLabels.value.length} 项`,
+    meta: selectedDirectionLabel.value || "选择方向后确定",
+  },
+]);
 
 // === 重点方向（mock first，onMounted 异步接入 interviewPresets.focusOptions 覆盖）===
 const focusOptions = ref([
@@ -1036,6 +1130,293 @@ onMounted(() => {
   .wb-summary-cta {
     width: 100%;
     justify-content: center;
+  }
+}
+
+/* ============ C1 双栏工作台重构 ============ */
+.wb-new-content {
+  width: 100%;
+  max-width: 1680px;
+  margin: 0 auto;
+  padding: 0 clamp(20px, 4vw, 56px) 96px;
+}
+
+.wb-new-hero {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 0 0 clamp(24px, 3vw, 40px);
+}
+
+.wb-new-title {
+  font-size: clamp(30px, 2.6vw, 42px);
+  margin: 0;
+}
+
+.wb-new-sub {
+  max-width: 720px;
+}
+
+.wb-new-shell {
+  display: grid;
+  grid-template-columns: minmax(260px, 34%) minmax(0, 1fr);
+  gap: clamp(18px, 2vw, 32px);
+  align-items: start;
+}
+
+.wb-config-panel,
+.wb-preview-panel {
+  min-width: 0;
+  background:
+    linear-gradient(180deg, rgba(18, 19, 24, 0.86) 0%, rgba(8, 9, 13, 0.90) 100%) padding-box,
+    linear-gradient(160deg, rgba(255, 255, 255, 0.12) 0%, rgba(255, 255, 255, 0.035) 100%) border-box;
+  border: 1px solid transparent;
+  border-radius: var(--radius-lg);
+  backdrop-filter: blur(18px);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.055),
+    0 18px 46px rgba(0, 0, 0, 0.34);
+}
+
+.wb-config-panel {
+  padding: clamp(18px, 2vw, 28px);
+}
+
+.wb-preview-panel {
+  padding: clamp(20px, 2.2vw, 32px);
+}
+
+.wb-stepper {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+  margin: 0 0 28px;
+}
+
+.wb-step {
+  width: 100%;
+  justify-content: flex-start;
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+}
+
+.wb-step-copy {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  min-width: 0;
+}
+
+.wb-step-label {
+  color: inherit;
+  white-space: nowrap;
+}
+
+.wb-step-desc {
+  font: var(--fs-2xs) var(--mono);
+  color: var(--t3);
+  letter-spacing: .03em;
+  white-space: nowrap;
+}
+
+.wb-new-form {
+  gap: clamp(24px, 2.4vw, 34px);
+}
+
+.wb-direction-grid,
+.wb-resume-row,
+.wb-focus-grid {
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+}
+
+.wb-difficulty {
+  grid-template-columns: repeat(auto-fit, minmax(118px, 1fr));
+}
+
+.wb-preview-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+  align-items: flex-start;
+  margin-bottom: 24px;
+}
+
+.wb-preview-kicker {
+  margin: 0 0 8px;
+  font: 600 var(--fs-2xs) var(--mono);
+  color: rgba(220, 155, 90, 0.9);
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.wb-preview-title {
+  margin: 0;
+  font: 800 clamp(24px, 2vw, 32px) var(--display);
+  color: var(--t);
+  letter-spacing: -.02em;
+}
+
+.wb-preview-sub {
+  max-width: 640px;
+  margin: 10px 0 0;
+  color: var(--t3);
+  line-height: 1.7;
+}
+
+.wb-preview-status {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  height: 30px;
+  padding: 0 12px;
+  border-radius: var(--radius-pill);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: var(--t3);
+  font: 600 var(--fs-2xs) var(--mono);
+  letter-spacing: .05em;
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.wb-preview-status-ready {
+  color: rgba(220, 155, 90, 0.95);
+  border-color: rgba(220, 155, 90, 0.26);
+  background: rgba(220, 155, 90, 0.08);
+}
+
+.wb-preview-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
+  gap: 12px;
+  margin-bottom: 24px;
+}
+
+.wb-preview-metric {
+  min-width: 0;
+  padding: 16px;
+  border-radius: var(--radius-md);
+  border: 1px solid rgba(255, 255, 255, 0.075);
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.wb-preview-metric-label,
+.wb-preview-metric span:last-child {
+  display: block;
+  font: var(--fs-2xs) var(--mono);
+  color: var(--t3);
+  letter-spacing: .04em;
+}
+
+.wb-preview-metric strong {
+  display: block;
+  margin: 9px 0 5px;
+  font: 800 clamp(24px, 2vw, 34px)/1 var(--display);
+  color: rgba(245, 199, 124, 0.95);
+}
+
+.wb-preview-block {
+  padding: 18px;
+  border-radius: var(--radius-md);
+  border: 1px solid rgba(255, 255, 255, 0.075);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.wb-preview-block + .wb-preview-block {
+  margin-top: 16px;
+}
+
+.wb-preview-block-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: center;
+  margin-bottom: 14px;
+}
+
+.wb-preview-block-head h3 {
+  margin: 0;
+  font: 700 var(--fs-md) var(--display);
+  color: var(--t);
+}
+
+.wb-preview-block-head span {
+  font: var(--fs-2xs) var(--mono);
+  color: var(--t3);
+  letter-spacing: .04em;
+}
+
+.wb-preview-focus-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.wb-preview-focus-list span {
+  display: inline-flex;
+  align-items: center;
+  height: 30px;
+  padding: 0 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(220, 155, 90, 0.22);
+  background: rgba(220, 155, 90, 0.07);
+  color: rgba(255, 224, 190, 0.95);
+  font: 600 var(--fs-2xs) var(--sans);
+}
+
+.wb-preview-empty,
+.wb-preview-placeholder p {
+  margin: 0;
+  color: var(--t3);
+  line-height: 1.7;
+}
+
+.wb-preview-placeholder {
+  min-height: 180px;
+  display: grid;
+  place-items: center;
+  text-align: center;
+  border-radius: var(--radius-md);
+  border: 1px dashed rgba(255, 255, 255, 0.10);
+  background: rgba(0, 0, 0, 0.12);
+  padding: 24px;
+}
+
+.wb-summary-bar {
+  margin-top: clamp(20px, 2.4vw, 36px);
+}
+
+.wb-summary-value {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 900px) {
+  .wb-new-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .wb-stepper {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 620px) {
+  .wb-stepper,
+  .wb-preview-metrics {
+    grid-template-columns: 1fr;
+  }
+
+  .wb-preview-head,
+  .wb-summary-bar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .wb-summary-sep {
+    display: none;
   }
 }
 </style>
