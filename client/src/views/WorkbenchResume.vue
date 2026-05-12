@@ -287,9 +287,114 @@
           </div>
         </main>
 
-        <!-- 右栏 360px：AI 追问 + CTA（C6 填充） -->
+        <!-- 右栏：AI 追问 + CTA（C6 commit） -->
         <aside class="wb-resume-right" aria-label="AI 追问与开始面试">
-          <div class="wb-resume-placeholder wb-resume-placeholder--right">
+          <!-- 选中简历后渲染完整右栏；未选中时 fallback 到原占位 -->
+          <div v-if="selectedResume" class="wb-resume-right-card">
+            <!-- 方向匹配 chip 列表：FocusMatches[] -->
+            <div v-if="(selectedResume.focusMatches?.length || 0) > 0" class="wb-focus-matches">
+              <div class="wb-section-label">方向匹配</div>
+              <div
+                v-for="match in selectedResume.focusMatches"
+                :key="match.key"
+                class="wb-focus-chip"
+              >
+                <div class="wb-focus-chip-head">
+                  <span class="wb-focus-chip-label">{{ match.label }}</span>
+                  <span class="wb-focus-chip-score">{{ match.matchScore }}%</span>
+                </div>
+                <div class="wb-focus-chip-bar" aria-hidden="true">
+                  <span :style="{ width: `${Math.min(100, Math.max(0, match.matchScore || 0))}%` }"></span>
+                </div>
+                <p v-if="(match.plannedQuestion || 0) > 0" class="wb-focus-chip-meta">打算追问 {{ match.plannedQuestion }} 题</p>
+              </div>
+            </div>
+
+            <!-- AI 追问问题列表：SuggestedQuestions[]。点击 chunk 联动高亮（phase2-resume-chunk-question-link） -->
+            <div v-if="(selectedResume.suggestedQuestions?.length || 0) > 0" class="wb-questions-list">
+              <div class="wb-section-label">AI 追问问题</div>
+              <button
+                v-for="(q, i) in selectedResume.suggestedQuestions.slice(0, 6)"
+                :key="q.key || `q-${i}`"
+                type="button"
+                class="wb-question-card"
+                @click="handleQuestionClick(q)"
+              >
+                <div class="wb-question-head">
+                  <span class="wb-question-num">#{{ String(i + 1).padStart(2, '0') }}</span>
+                  <span
+                    v-if="q.difficultyLabel"
+                    class="wb-question-chip wb-question-chip-difficulty"
+                  >{{ q.difficultyLabel }}</span>
+                  <span
+                    v-if="q.focusLabel"
+                    class="wb-question-chip wb-question-chip-focus"
+                  >{{ q.focusLabel }}</span>
+                </div>
+                <p class="wb-question-title">{{ q.title || q.prompt }}</p>
+              </button>
+            </div>
+
+            <!-- 评估 fallback：后端未返 focusMatches / suggestedQuestions 时的提示 -->
+            <div
+              v-else-if="hasEvaluation && !(selectedResume.focusMatches?.length || 0)"
+              class="wb-question-fallback"
+            >
+              <p class="wb-section-label">AI 追问问题</p>
+              <p class="wb-question-fallback-text">当前评估未生成追问。点下方 重新生成 AI 画像 刷新评估。</p>
+            </div>
+
+            <!-- 操作区：重新生成 + 看完整详情 -->
+            <div class="wb-actions">
+              <button
+                type="button"
+                class="wb-action-regenerate"
+                :disabled="selectedResume.evaluationLoading"
+                @click="prepareResumeEvaluation(selectedResume.id, { force: true })"
+              >
+                <span class="wb-action-icon" aria-hidden="true">↻</span>
+                <span>{{ selectedResume.evaluationLoading ? '生成中…' : '重新生成 AI 画像' }}</span>
+              </button>
+              <p v-if="selectedResume.evaluationMeta?.lastRefreshedAt" class="wb-action-meta">
+                最后刷新：{{ formatRelativeTime(selectedResume.evaluationMeta.lastRefreshedAt) }}
+                <span aria-hidden="true">·</span>
+                来源：{{ scoreSourceLabel(selectedResume.evaluationMeta.scoreSource) }}
+              </p>
+              <RouterLink
+                :to="`/workbench/resume/${selectedResume.id}`"
+                class="wb-action-detail"
+              >看完整详情 →</RouterLink>
+            </div>
+
+            <!-- TODO(phase2-resume-cta-disclaimer): 后端 CreateSession 接受 resumeId 后移除本声明。
+                 当前实现：11px 灰字两行，明确告知用户追问仅供参考。
+                 后端状态：正在开发（用户 2026-05-12 01:19 告知）。
+                 对齐目标：本声明文本整块删除，CTA 上方不再需要提示。
+                 触发条件：@d:\Go-Project\GoZero-AI\api\user\user.api 中 CreateSessionReq 出现 resumeId 字段。
+                 起草日期：2026-05-12 -->
+            <p class="wb-cta-disclaimer">
+              面试会使用这份简历的方向偏好；追问列表当前仅供参考。
+            </p>
+
+            <!-- TODO(phase2-resume-cta-handler): 后端 CreateSession 接受 resumeId 后接入。
+                 当前实现：仅 router.push('/workbench/new?resumeId=:id')，不能把 SuggestedQuestions 带进新面试。
+                 后端状态：正在开发（用户 2026-05-12 01:19 告知）。
+                 对齐目标：改为 apiService.user.createSession({ resumeId, directionKey, focusKeys })，
+                          后端自动从 resume_evaluations.suggested_questions 取 [0] 作首题。
+                 触发条件：@d:\Go-Project\GoZero-AI\api\user\user.api 中 CreateSessionReq 出现 resumeId 字段。
+                 起草日期：2026-05-12 -->
+            <button
+              type="button"
+              class="wb-cta-primary"
+              @click="handleStartInterview"
+            >
+              <span>用这份简历开始面试</span>
+              <span class="wb-cta-arrow" aria-hidden="true">→</span>
+            </button>
+          </div>
+
+          <!-- 未选中简历时 fallback 占位 -->
+          <div v-else class="wb-resume-placeholder wb-resume-placeholder--right">
             <div class="wb-resume-placeholder-icon" aria-hidden="true">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4">
                 <rect x="3" y="5" width="18" height="14" rx="2" />
@@ -297,7 +402,6 @@
               </svg>
             </div>
             <p>上传简历后这里会出现<br><strong>AI 追问</strong> 和 <strong>开始面试</strong> 入口</p>
-            <p class="wb-resume-placeholder-meta">由 C6 commit 填充</p>
           </div>
         </aside>
       </div>
@@ -432,6 +536,10 @@ const createEmptyEvaluationState = () => ({
   // C5: chunks 缓存。选中某份简历后调 resumeArtifactDetail 拉取一次，不重复拉。
   chunks: [],
   chunksLoaded: false,
+  // C6: 合后端 ResumeArtifactAnalysisResp.FocusMatches / SuggestedQuestions / EvaluationMeta
+  focusMatches: [],
+  suggestedQuestions: [],
+  evaluationMeta: null,
 });
 
 // === 简历列表（mock first，onMounted 异步接入 resumeArtifacts 覆盖） ===
@@ -692,8 +800,79 @@ const applyResumeAnalysis = (id, res) => {
     risks: Array.isArray(res.risks) ? res.risks : [],
     suggestions: Array.isArray(res.suggestions) ? res.suggestions : [],
     evidence: Array.isArray(res.evidence) ? res.evidence : [],
+    // C6: 右栏需要的 FocusMatches / SuggestedQuestions / EvaluationMeta
+    focusMatches: Array.isArray(res.focusMatches) ? res.focusMatches : [],
+    suggestedQuestions: Array.isArray(res.suggestedQuestions) ? res.suggestedQuestions : [],
+    evaluationMeta: res.evaluationMeta || null,
     evaluationLoaded: true,
   };
+};
+
+// === C6: 右栏交互 helpers ===
+// findRelatedChunk：根据 SuggestedQuestion.expectedSignals[] 与 chunk.content 做关键词匹配。
+// 返回匹配率最高的 chunk，命中率 < 50% 返 null（需求文档 §12 风险降级项）。
+const findRelatedChunk = (question) => {
+  const signals = Array.isArray(question?.expectedSignals) ? question.expectedSignals : [];
+  const chunks = selectedResume.value?.chunks || [];
+  if (!signals.length || !chunks.length) return null;
+
+  let bestChunk = null;
+  let bestScore = 0;
+  chunks.forEach((chunk) => {
+    const content = String(chunk.content || '').toLowerCase();
+    let score = 0;
+    signals.forEach((sig) => {
+      const signal = String(sig || '').toLowerCase();
+      if (signal && content.includes(signal)) score++;
+    });
+    if (score > bestScore) {
+      bestScore = score;
+      bestChunk = chunk;
+    }
+  });
+
+  // 命中率 < 50% 不联动（防止误高亮不相关 chunk）
+  if (bestScore / signals.length < 0.5) {
+    console.warn('[resume] chunk-question-link match rate too low (', bestScore, '/', signals.length, ') for question:', question?.title);
+    return null;
+  }
+  return bestChunk;
+};
+
+// handleQuestionClick：点追问 → 中栏滚动到关联 chunk + 0.6s 黄色高亮。
+// 命中率 < 50% 时 console.warn 且不滚动（D-U4 单向联动 + 需求文档 §12）。
+const handleQuestionClick = (question) => {
+  const chunk = findRelatedChunk(question);
+  if (!chunk) return;
+  const el = document.querySelector(`[data-chunk-index="${chunk.index}"]`);
+  if (!el) return;
+  el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  el.classList.add('wb-chunk-highlight');
+  setTimeout(() => el.classList.remove('wb-chunk-highlight'), 600);
+};
+
+// handleStartInterview：金色 CTA。
+// TODO(phase2-resume-cta-handler): 后端 CreateSession 接受 resumeId 后改为直接
+//   apiService.user.createSession({ resumeId: id, directionKey, focusKeys, ... })，
+//   后端从 resume_evaluations.suggested_questions 拿 [0] 作首题。
+//   触发条件：user.api CreateSessionReq 出现 resumeId 字段。
+const handleStartInterview = () => {
+  const id = selectedResume.value?.id;
+  if (!id) return;
+  router.push({ path: '/workbench/new', query: { resumeId: id } });
+};
+
+// scoreSourceLabel：后端 ScoreSource 枚举 → 中文标签。
+const scoreSourceLabel = (source) => {
+  switch ((source || '').toLowerCase()) {
+    case 'llm':
+      return 'LLM';
+    case 'heuristic':
+    case 'fallback':
+      return '规则降级';
+    default:
+      return '未知';
+  }
 };
 
 // === C5: 中栏 chunks 拉取 ===
@@ -1245,6 +1424,279 @@ const formatScore = (score) => {
   background: rgba(255, 255, 255, 0.025);
   border-radius: var(--radius-sm);
   border-left: 3px solid rgba(255, 255, 255, 0.15);
+}
+
+/* ============ 右栏 追问 + CTA（C6 commit）============ */
+/* 详见需求文档 §6.4。从上到下：方向匹配 chip + AI 追问问题列表 + 操作区（重新生成 + 看完整详情）
+   + 降级声明 + 金色 CTA。右栏使用与左栏 .wb-resume-eval-card 同视觉语言。 */
+.wb-resume-right-card {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 22px 20px;
+  background:
+    linear-gradient(180deg, rgba(18, 19, 24, 0.85) 0%, rgba(11, 12, 16, 0.85) 100%) padding-box,
+    linear-gradient(160deg, rgba(255, 255, 255, 0.10) 0%, rgba(255, 255, 255, 0.025) 100%) border-box;
+  border: 1px solid transparent;
+  border-radius: var(--radius-lg);
+  isolation: isolate;
+}
+
+.wb-section-label {
+  font: 600 10px var(--mono);
+  color: var(--t3);
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  margin: 0 0 10px;
+}
+
+/* 方向匹配 chip（FocusMatches[]） */
+.wb-focus-matches {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.wb-focus-chip {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.wb-focus-chip-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.wb-focus-chip-label {
+  font: 600 12px var(--sans);
+  color: var(--t);
+}
+
+.wb-focus-chip-score {
+  font: 700 11px var(--mono);
+  color: rgba(220, 155, 90, 0.95);
+  letter-spacing: .04em;
+}
+
+.wb-focus-chip-bar {
+  height: 4px;
+  border-radius: var(--radius-pill);
+  background: rgba(255, 255, 255, 0.06);
+  overflow: hidden;
+}
+
+.wb-focus-chip-bar span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, rgba(76, 214, 168, 0.85), rgba(220, 155, 90, 0.95));
+  transition: width .5s ease;
+}
+
+.wb-focus-chip-meta {
+  margin: 0;
+  font: 11px var(--mono);
+  color: var(--t3);
+  letter-spacing: .03em;
+}
+
+/* AI 追问问题列表。点击 chunk 联动（phase2-resume-chunk-question-link） */
+.wb-questions-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.wb-question-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 11px 13px;
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  transition: background-color .2s ease, border-color .2s ease;
+}
+
+.wb-question-card:hover {
+  background: rgba(220, 155, 90, 0.08);
+  border-color: rgba(220, 155, 90, 0.30);
+}
+
+.wb-question-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.wb-question-num {
+  font: 600 11px var(--mono);
+  color: var(--t3);
+  letter-spacing: .04em;
+}
+
+.wb-question-chip {
+  display: inline-flex;
+  align-items: center;
+  height: 18px;
+  padding: 0 7px;
+  font: 600 10px var(--sans);
+  letter-spacing: .04em;
+  border-radius: var(--radius-pill);
+  border: 1px solid transparent;
+}
+
+.wb-question-chip-difficulty {
+  background: rgba(76, 174, 230, 0.10);
+  border-color: rgba(76, 174, 230, 0.30);
+  color: rgba(165, 215, 250, 0.95);
+}
+
+.wb-question-chip-focus {
+  background: rgba(220, 155, 90, 0.10);
+  border-color: rgba(220, 155, 90, 0.30);
+  color: rgba(255, 224, 190, 0.95);
+}
+
+.wb-question-title {
+  margin: 0;
+  font: 13px/1.55 var(--sans);
+  color: var(--t);
+}
+
+/* 评估未生成追问时的 fallback */
+.wb-question-fallback {
+  padding: 12px 14px;
+  background: rgba(255, 255, 255, 0.022);
+  border: 1px dashed rgba(255, 255, 255, 0.10);
+  border-radius: var(--radius-md);
+}
+
+.wb-question-fallback-text {
+  margin: 0;
+  font: 12px/1.55 var(--sans);
+  color: var(--t3);
+}
+
+/* 操作区：重新生成 + 看完整详情 */
+.wb-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.wb-action-regenerate {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 9px 14px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  border-radius: var(--radius-sm);
+  color: var(--t2);
+  font: 600 12px var(--sans);
+  cursor: pointer;
+  transition: border-color .2s ease, color .2s ease, background-color .2s ease;
+}
+
+.wb-action-regenerate:hover:not(:disabled) {
+  color: rgba(255, 224, 190, 0.95);
+  border-color: rgba(220, 155, 90, 0.40);
+  background: rgba(220, 155, 90, 0.08);
+}
+
+.wb-action-regenerate:disabled {
+  cursor: wait;
+  opacity: 0.6;
+}
+
+.wb-action-icon {
+  font-size: 13px;
+  line-height: 1;
+}
+
+.wb-action-meta {
+  margin: 0;
+  font: 11px var(--mono);
+  color: var(--t3);
+  letter-spacing: .03em;
+  text-align: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.wb-action-detail {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font: 12px var(--sans);
+  color: rgba(220, 155, 90, 0.95);
+  text-decoration: none;
+  padding: 6px 0;
+  transition: color .2s ease;
+}
+
+.wb-action-detail:hover {
+  color: rgba(255, 200, 140, 1);
+  text-decoration: underline;
+}
+
+/* 降级声明（D-U10 / phase2-resume-cta-disclaimer） */
+.wb-cta-disclaimer {
+  margin: 0;
+  font: 11px/1.55 var(--sans);
+  color: var(--t3);
+  text-align: center;
+  opacity: 0.75;
+  padding: 0 4px;
+}
+
+/* 金色 CTA（phase2-resume-cta-handler） */
+.wb-cta-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  height: 56px;
+  padding: 0 22px;
+  background: linear-gradient(135deg, rgba(220, 155, 90, 0.95), rgba(200, 130, 65, 0.95));
+  border: 1px solid rgba(220, 155, 90, 0.6);
+  border-radius: var(--radius-md);
+  color: rgba(20, 12, 6, 0.95);
+  font: 700 15px var(--sans);
+  letter-spacing: .01em;
+  cursor: pointer;
+  transition: transform .2s ease, box-shadow .2s ease, opacity .2s ease;
+  box-shadow: 0 4px 16px rgba(220, 155, 90, 0.20);
+}
+
+.wb-cta-primary:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 22px rgba(220, 155, 90, 0.32);
+  opacity: 0.96;
+}
+
+.wb-cta-arrow {
+  font-size: 16px;
+  line-height: 1;
+  transition: transform .2s ease;
+}
+
+.wb-cta-primary:hover .wb-cta-arrow {
+  transform: translateX(2px);
 }
 
 /* 风险三色 left border（D-U9 + 需求文档 §6.2 第 7 项） */
