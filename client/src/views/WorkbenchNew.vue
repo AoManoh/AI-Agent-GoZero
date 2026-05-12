@@ -150,8 +150,24 @@
               <h2 class="wb-preview-title">面试计划预览</h2>
               <p class="wb-preview-sub">配置完成后，这里会展示题目、时长、追问深度和能力覆盖。</p>
             </div>
-            <span class="wb-preview-status" :class="{ 'wb-preview-status-ready': previewReady }">
-              {{ previewReady ? '待生成' : '待配置' }}
+            <button
+              type="button"
+              class="wb-preview-refresh"
+              :disabled="!previewReady || previewLoading"
+              @click="loadPlanPreview"
+            >
+              <span aria-hidden="true">↻</span>
+              <span>{{ previewLoading ? '生成中' : '重新生成' }}</span>
+            </button>
+            <span
+              class="wb-preview-status"
+              :class="{
+                'wb-preview-status-ready': previewStatus === 'ready',
+                'wb-preview-status-loading': previewStatus === 'loading',
+                'wb-preview-status-error': previewStatus === 'error'
+              }"
+            >
+              {{ previewStatusLabel }}
             </span>
           </header>
 
@@ -165,10 +181,17 @@
 
           <div class="wb-preview-block">
             <div class="wb-preview-block-head">
-              <h3>能力覆盖</h3>
-              <span>{{ selectedFocusLabels.length }} 项</span>
+              <h3>能力维度分布</h3>
+              <span>{{ previewFocusDistribution.length || selectedFocusLabels.length }} 项</span>
             </div>
-            <div v-if="selectedFocusLabels.length > 0" class="wb-preview-focus-list">
+            <div v-if="previewFocusDistribution.length > 0" class="wb-preview-focus-bars">
+              <div v-for="item in previewFocusDistribution" :key="item.key" class="wb-preview-focus-bar">
+                <span>{{ item.label }}</span>
+                <strong>{{ item.percent }}%</strong>
+                <i :style="{ width: `${item.percent}%` }" aria-hidden="true"></i>
+              </div>
+            </div>
+            <div v-else-if="selectedFocusLabels.length > 0" class="wb-preview-focus-list">
               <span v-for="label in selectedFocusLabels" :key="label">{{ label }}</span>
             </div>
             <p v-else class="wb-preview-empty">选择方向后会自动带出建议侧重点。</p>
@@ -177,10 +200,24 @@
           <div class="wb-preview-block wb-preview-questions">
             <div class="wb-preview-block-head">
               <h3>题目安排</h3>
-              <span>{{ previewReady ? '下一阶段接入题库预览' : '待选择' }}</span>
+              <span>{{ previewQuestionCountLabel }}</span>
             </div>
-            <div class="wb-preview-placeholder">
-              <p v-if="previewReady">真实题目计划将在下一步接入后端预览接口生成。</p>
+            <div v-if="previewLoading" class="wb-preview-placeholder">
+              <p>正在生成面试计划…</p>
+            </div>
+            <div v-else-if="previewError" class="wb-preview-placeholder wb-preview-placeholder-error">
+              <p>{{ previewError }}</p>
+            </div>
+            <ol v-else-if="previewQuestions.length > 0" class="wb-preview-question-list">
+              <li v-for="(question, index) in previewQuestions" :key="question.key || index">
+                <span class="wb-preview-question-index">{{ index + 1 }}.</span>
+                <p>{{ question.title || question.prompt }}</p>
+                <span class="wb-preview-question-chip">{{ question.focusLabel || '综合能力' }}</span>
+                <span class="wb-preview-question-meta">{{ question.difficultyLabel || selectedDifficultyLabel }}</span>
+              </li>
+            </ol>
+            <div v-else class="wb-preview-placeholder">
+              <p v-if="previewReady">暂未生成题目预览，点击重新生成再试。</p>
               <p v-else>先选择方向和难度，系统再生成计划。</p>
             </div>
           </div>
@@ -225,12 +262,17 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
 import WorkbenchLayout from "../components/dashboard/WorkbenchLayout.vue";
 import { apiService } from "../composables/useApi";
-import { buildSessionCreatePayload } from "../utils/interviewSession";
+import {
+  buildSessionCreatePayload,
+  normalizeDifficultyLevel,
+  normalizeDirectionKey,
+  normalizeFocusKeys,
+} from "../utils/interviewSession";
 
 const router = useRouter();
 const route = useRoute();
@@ -268,7 +310,7 @@ const DIRECTION_COLOR_MAP = {
 };
 const pickDirectionColor = (key) => DIRECTION_COLOR_MAP[key] || "rgba(255, 255, 255, 0.55)";
 
-// === 方向选项（mock first，onMounted 异步接入 interviewPresets 覆盖）===
+// === 方向选项（本地 fallback；onMounted 异步接入 interviewPresets 后覆盖）===
 const directions = ref([
   {
     key: "go_backend",
@@ -316,6 +358,12 @@ const selectedDifficulty = computed(() => {
   return difficulties.value[form.value.difficultyIdx] || null;
 });
 
+const selectedDifficultyLevel = computed(() => {
+  const diff = selectedDifficulty.value;
+  if (!diff) return 0;
+  return diff.level || normalizeDifficultyLevel(diff.key);
+});
+
 // === 简历选项（初值空数组，loadResumes 从后端拉真实数据）===
 // 历史上这里有两条硬编码示例简历，新用户没上传也会看到假简历。
 // 现在严格走「0 简历 → step 2 只显示『添加新简历』按钮 → 引导跳 /workbench/resume 上传」。
@@ -325,7 +373,7 @@ const goToResumePage = () => {
   router.push({ path: "/workbench/resume" });
 };
 
-// === 难度等级（mock first，onMounted 异步接入 interviewPresets 覆盖）===
+// === 难度等级（本地 fallback；onMounted 异步接入 interviewPresets 后覆盖）===
 // 后端 InterviewDifficultyPreset 是 5 级（Level 1-5），label 分别为 入门/初级/中级/资深/专家。
 // 本地 string key 仅用于 UI 状态与 createSession 传参，最终通过
 // utils/interviewSession.js 的 normalizeDifficultyLevel(key) 反向转回 int 1-5。
@@ -339,11 +387,11 @@ const DIFFICULTY_KEY_BY_LEVEL = {
   5: "expert",  // 专家
 };
 const difficulties = ref([
-  { key: "entry", label: "入门", desc: "确认基本概念和术语理解" },
-  { key: "junior", label: "初级", desc: "常见场景与基础工程经验" },
-  { key: "mid", label: "中级", desc: "机制、取舍与故障复盘" },
-  { key: "senior", label: "资深", desc: "架构判断与工程边界" },
-  { key: "expert", label: "专家", desc: "高压技术面 · 系统化论证" },
+  { key: "entry", level: 1, label: "入门", desc: "确认基本概念和术语理解" },
+  { key: "junior", level: 2, label: "初级", desc: "常见场景与基础工程经验" },
+  { key: "mid", level: 3, label: "中级", desc: "机制、取舍与故障复盘" },
+  { key: "senior", level: 4, label: "资深", desc: "架构判断与工程边界" },
+  { key: "expert", level: 5, label: "专家", desc: "高压技术面 · 系统化论证" },
 ]);
 
 const selectedDifficultyLabel = computed(() => {
@@ -366,34 +414,151 @@ const previewReady = computed(() => {
   return Boolean(form.value.direction) && form.value.difficultyIdx !== null;
 });
 
+const planPreview = ref(null);
+const previewLoading = ref(false);
+const previewError = ref("");
+let previewTimer = null;
+let previewRequestSeq = 0;
+
+const previewConfig = computed(() => planPreview.value?.config || null);
+const previewQuestions = computed(() =>
+  Array.isArray(planPreview.value?.questions) ? planPreview.value.questions : []
+);
+
+const previewStatus = computed(() => {
+  if (!previewReady.value) return "idle";
+  if (previewLoading.value) return "loading";
+  if (previewError.value) return "error";
+  if (planPreview.value) return "ready";
+  return "idle";
+});
+
+const previewStatusLabel = computed(() => {
+  switch (previewStatus.value) {
+    case "loading":
+      return "生成中";
+    case "ready":
+      return "已生成";
+    case "error":
+      return "预览失败";
+    default:
+      return previewReady.value ? "待生成" : "待配置";
+  }
+});
+
+const previewQuestionCountLabel = computed(() => {
+  const count = previewQuestions.value.length;
+  if (previewLoading.value) return "生成中";
+  if (count > 0) return `${count} 题`;
+  return previewReady.value ? "暂无题目" : "待选择";
+});
+
+const previewFocusDistribution = computed(() => {
+  const questions = previewQuestions.value;
+  if (questions.length === 0) return [];
+  const groups = new Map();
+  questions.forEach((question) => {
+    const key = question.focusKey || question.focusLabel || "general";
+    const label = question.focusLabel || question.focusKey || "综合能力";
+    const prev = groups.get(key) || { key, label, count: 0 };
+    prev.count += 1;
+    groups.set(key, prev);
+  });
+  return Array.from(groups.values()).map((item) => ({
+    ...item,
+    percent: Math.round((item.count / questions.length) * 100),
+  }));
+});
+
 const previewMetrics = computed(() => [
   {
     key: "questions",
     label: "题目数量",
-    value: previewReady.value ? "待生成" : "—",
-    meta: "来自题库预览接口",
+    value: previewQuestions.value.length > 0 ? `${previewQuestions.value.length} 题` : "—",
+    meta: previewConfig.value ? "由题库实时生成" : "来自题库预览接口",
   },
   {
     key: "minutes",
     label: "预计时长",
-    value: previewReady.value ? "待生成" : "—",
+    value: previewConfig.value?.estimatedMinutes ? `${previewConfig.value.estimatedMinutes} 分钟` : "—",
     meta: selectedDifficulty.value?.desc || "选择难度后确定",
   },
   {
     key: "depth",
     label: "追问深度",
-    value: previewReady.value ? selectedDifficulty.value?.label || "—" : "—",
-    meta: "由难度和侧重点决定",
+    value: previewConfig.value?.followUpDepth || selectedDifficulty.value?.label || "—",
+    meta: "由难度与侧重点决定",
   },
   {
     key: "coverage",
     label: "能力覆盖",
-    value: `${selectedFocusLabels.value.length} 项`,
+    value: previewConfig.value?.focusAreas?.length
+      ? `${previewConfig.value.focusAreas.length} 项`
+      : `${selectedFocusLabels.value.length} 项`,
     meta: selectedDirectionLabel.value || "选择方向后确定",
   },
 ]);
 
-// === 重点方向（mock first，onMounted 异步接入 interviewPresets.focusOptions 覆盖）===
+const buildPreviewParams = () => {
+  if (!previewReady.value) return null;
+  const focusKeys = normalizeFocusKeys(form.value.focus);
+  const params = {
+    directionKey: normalizeDirectionKey(form.value.direction),
+    difficulty: selectedDifficultyLevel.value || 3,
+    interviewerStyle: "senior",
+    limit: 8,
+  };
+  if (focusKeys.length > 0) {
+    params.focusKeys = focusKeys.join(",");
+  }
+  return params;
+};
+
+const loadPlanPreview = async () => {
+  const params = buildPreviewParams();
+  if (!params) {
+    planPreview.value = null;
+    previewError.value = "";
+    previewLoading.value = false;
+    return;
+  }
+
+  const seq = ++previewRequestSeq;
+  previewLoading.value = true;
+  previewError.value = "";
+
+  try {
+    const res = await apiService.user.interviewPlanPreview(params);
+    if (seq !== previewRequestSeq) return;
+    planPreview.value = res || null;
+  } catch (error) {
+    if (seq !== previewRequestSeq) return;
+    planPreview.value = null;
+    previewError.value = error?.message || "计划预览暂时不可用，不影响创建面试。";
+  } finally {
+    if (seq === previewRequestSeq) {
+      previewLoading.value = false;
+    }
+  }
+};
+
+const schedulePlanPreview = () => {
+  if (previewTimer) {
+    clearTimeout(previewTimer);
+    previewTimer = null;
+  }
+  if (!previewReady.value) {
+    planPreview.value = null;
+    previewError.value = "";
+    previewLoading.value = false;
+    return;
+  }
+  previewTimer = setTimeout(() => {
+    loadPlanPreview();
+  }, 250);
+};
+
+// === 重点方向（本地 fallback；onMounted 异步接入 interviewPresets.focusOptions 后覆盖）===
 const focusOptions = ref([
   { key: "project", label: "项目深度追问" },
   { key: "algo", label: "算法 + 数据结构" },
@@ -448,6 +613,7 @@ const startInterview = async () => {
         directionKey: form.value.direction,
         difficulty: difficulty?.key || "mid",
         focusKeys: form.value.focus,
+        estimatedMinutes: previewConfig.value?.estimatedMinutes || 30,
         resumeArtifactId: form.value.resumeArtifactId,
       })
     );
@@ -513,6 +679,7 @@ const loadPresets = async () => {
         }
         return {
           key: key || "mid",
+          level: dif.level,
           label: dif.label,
           desc: dif.description,
         };
@@ -549,7 +716,7 @@ const loadPresets = async () => {
       }
     }
   } catch (error) {
-    // 静默降级；mock 预设已然可用
+    // 静默降级；本地 fallback 预设继续可用
   }
 };
 
@@ -572,10 +739,25 @@ const loadResumes = async () => {
   }
 };
 
-onMounted(() => {
+watch(
+  () => [
+    form.value.direction,
+    form.value.difficultyIdx,
+    form.value.focus.join("|"),
+  ],
+  schedulePlanPreview
+);
+
+onMounted(async () => {
   // 并发拉两个接口；简历必须来自后端，空响应保持空态。
-  loadPresets();
-  loadResumes();
+  await Promise.all([loadPresets(), loadResumes()]);
+  schedulePlanPreview();
+});
+
+onUnmounted(() => {
+  if (previewTimer) {
+    clearTimeout(previewTimer);
+  }
 });
 </script>
 
@@ -1243,6 +1425,31 @@ onMounted(() => {
   margin-bottom: 24px;
 }
 
+.wb-preview-head > div {
+  flex: 1;
+  min-width: 0;
+}
+
+.wb-preview-refresh {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 32px;
+  padding: 0 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(220, 155, 90, 0.28);
+  background: rgba(220, 155, 90, 0.07);
+  color: rgba(255, 224, 190, 0.96);
+  font: 600 var(--fs-2xs) var(--sans);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.wb-preview-refresh:disabled {
+  cursor: not-allowed;
+  opacity: .5;
+}
+
 .wb-preview-kicker {
   margin: 0 0 8px;
   font: 600 var(--fs-2xs) var(--mono);
@@ -1283,6 +1490,18 @@ onMounted(() => {
   color: rgba(220, 155, 90, 0.95);
   border-color: rgba(220, 155, 90, 0.26);
   background: rgba(220, 155, 90, 0.08);
+}
+
+.wb-preview-status-loading {
+  color: rgba(190, 210, 255, 0.95);
+  border-color: rgba(110, 182, 255, 0.28);
+  background: rgba(110, 182, 255, 0.08);
+}
+
+.wb-preview-status-error {
+  color: rgba(255, 190, 170, 0.96);
+  border-color: rgba(220, 110, 90, 0.30);
+  background: rgba(220, 110, 90, 0.08);
 }
 
 .wb-preview-metrics {
@@ -1364,6 +1583,44 @@ onMounted(() => {
   font: 600 var(--fs-2xs) var(--sans);
 }
 
+.wb-preview-focus-bars {
+  display: grid;
+  gap: 10px;
+}
+
+.wb-preview-focus-bar {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  padding: 11px 12px 13px;
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.025);
+  overflow: hidden;
+}
+
+.wb-preview-focus-bar span,
+.wb-preview-focus-bar strong {
+  position: relative;
+  z-index: 1;
+  font: 600 var(--fs-2xs) var(--sans);
+  color: var(--t2);
+}
+
+.wb-preview-focus-bar strong {
+  color: rgba(245, 199, 124, 0.96);
+}
+
+.wb-preview-focus-bar i {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 2px;
+  border-radius: 2px;
+  background: rgba(220, 155, 90, 0.9);
+}
+
 .wb-preview-empty,
 .wb-preview-placeholder p {
   margin: 0;
@@ -1380,6 +1637,64 @@ onMounted(() => {
   border: 1px dashed rgba(255, 255, 255, 0.10);
   background: rgba(0, 0, 0, 0.12);
   padding: 24px;
+}
+
+.wb-preview-placeholder-error {
+  border-color: rgba(220, 110, 90, 0.22);
+  background: rgba(220, 110, 90, 0.06);
+}
+
+.wb-preview-question-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-radius: var(--radius-md);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  overflow: hidden;
+}
+
+.wb-preview-question-list li {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 12px;
+  padding: 13px 14px;
+  background: rgba(255, 255, 255, 0.015);
+}
+
+.wb-preview-question-list li + li {
+  border-top: 1px solid rgba(255, 255, 255, 0.065);
+}
+
+.wb-preview-question-index {
+  font: 700 var(--fs-2xs) var(--mono);
+  color: rgba(245, 199, 124, 0.94);
+}
+
+.wb-preview-question-list p {
+  margin: 0;
+  color: var(--t2);
+  line-height: 1.55;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.wb-preview-question-chip,
+.wb-preview-question-meta {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 0 8px;
+  border-radius: var(--radius-sm);
+  background: rgba(220, 155, 90, 0.08);
+  color: rgba(255, 224, 190, 0.95);
+  font: 600 var(--fs-3xs) var(--sans);
+  white-space: nowrap;
+}
+
+.wb-preview-question-meta {
+  background: rgba(255, 255, 255, 0.035);
+  color: var(--t3);
 }
 
 .wb-summary-bar {
@@ -1413,6 +1728,15 @@ onMounted(() => {
   .wb-summary-bar {
     flex-direction: column;
     align-items: stretch;
+  }
+
+  .wb-preview-question-list li {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .wb-preview-question-chip,
+  .wb-preview-question-meta {
+    width: fit-content;
   }
 
   .wb-summary-sep {
