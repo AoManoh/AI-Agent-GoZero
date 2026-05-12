@@ -64,6 +64,24 @@
           @delete-folder="handleDeleteFolder"
         />
 
+        <!-- 阅读进度条：reader 模式下 fixed 顶部，跨整页宽度，跟随 window scroll；非 reader 模式不渲染 -->
+        <Teleport to="body">
+          <div
+            v-if="viewMode === 'reader'"
+            class="wb-kb-reader-progress"
+            role="progressbar"
+            :aria-valuenow="readerProgress"
+            aria-valuemin="0"
+            aria-valuemax="100"
+            :aria-label="`阅读进度 ${readerProgress}%`"
+          >
+            <div
+              class="wb-kb-reader-progress-bar"
+              :style="{ width: `${readerProgress}%` }"
+            ></div>
+          </div>
+        </Teleport>
+
         <!-- 中：文档列表 / Reader 模式（v0.3 F7） -->
         <section
           class="wb-kb-list"
@@ -660,6 +678,9 @@ const viewMode = ref("list");
 const readerLoading = ref(false);
 const readerError = ref("");
 const readerScrollRef = ref(null);
+// 阅读进度：0-100 整数百分比。基于 scroll 容器的 scrollTop / (scrollHeight - clientHeight) 换算。
+// 非滚动态（内容不足一屏）保持 100%，避免顶部进度条显得永远不满。
+const readerProgress = ref(0);
 
 const readerButtonHint = "全文阅读：把所有切片按顺序拼接后用 markdown 渲染";
 
@@ -672,11 +693,16 @@ const enterReaderMode = async (doc) => {
   selectedDocId.value = doc.id;
   viewMode.value = "reader";
   readerError.value = "";
+  readerProgress.value = 0;
   // 滚到顶（reader 容器复用 list 容器位置；切回时无需复原滚动位置）
   await nextTick();
   readerScrollRef.value?.scrollTo?.({ top: 0, behavior: "auto" });
   // 已缓存则跳过
-  if (fullChunksByDoc.value.has(doc.id)) return;
+  if (fullChunksByDoc.value.has(doc.id)) {
+    await nextTick();
+    updateReaderProgress();
+    return;
+  }
   readerLoading.value = true;
   try {
     const res = await apiService.chat.knowledgeDocumentChunks(doc.id, { limit: 500 });
@@ -688,11 +714,34 @@ const enterReaderMode = async (doc) => {
     readerError.value = error?.message || "加载文档全文失败，请稍后重试";
   } finally {
     readerLoading.value = false;
+    await nextTick();
+    updateReaderProgress();
   }
 };
 
 const exitReaderMode = () => {
   viewMode.value = "list";
+  readerProgress.value = 0;
+};
+
+// 直接读 document.documentElement 计算 window-level scroll 进度。
+// .wb-kb-list 不是独立 scroll 容器（无 overflow-y），整个页面在 page level 滚动，所以监听对象是 window。
+const updateReaderProgress = () => {
+  const root = document.documentElement;
+  const max = root.scrollHeight - root.clientHeight;
+  if (max <= 0) {
+    // 内容不足一屏：视为已读完，进度条满，不影响主视觉
+    readerProgress.value = 100;
+    return;
+  }
+  const top = window.scrollY || root.scrollTop || 0;
+  const ratio = Math.min(1, Math.max(0, top / max));
+  readerProgress.value = Math.round(ratio * 100);
+};
+
+const handleReaderScroll = () => {
+  if (viewMode.value !== "reader") return;
+  updateReaderProgress();
 };
 
 // 把 chunks 数组拼成 markdown 字符串。chunks 之间用空行分隔，避免段落黏合。
@@ -904,10 +953,14 @@ onMounted(() => {
   loadDocuments();
   // reader 模式 Esc 退出快捷键：window 级监听以避免 focus 不在按钮时失效
   window.addEventListener("keydown", handleReaderKeydown);
+  // 阅读进度条：listening on window 因为 .wb-kb-list 无 overflow，page-level 才是真正的 scroll 容器；
+  // passive 提升滚动性能；handler 内部 viewMode 守卫保证 list 模式下不计算
+  window.addEventListener("scroll", handleReaderScroll, { passive: true });
 });
 
 onBeforeUnmount(() => {
   window.removeEventListener("keydown", handleReaderKeydown);
+  window.removeEventListener("scroll", handleReaderScroll);
 });
 
 // 返回 mono 文件类型标签，替代原 emoji 图标
@@ -1080,6 +1133,31 @@ const getDocStatusLabel = (status) => {
 }
 
 /* === Reader 模式（v0.3 F7）=== */
+
+/* 阅读进度条：reader 模式下 fixed 在 viewport 顶部，跨整页宽度，z-index 高于 SiteHeader 保证全程可见 */
+.wb-kb-reader-progress {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: rgba(0, 0, 0, 0.35);
+  z-index: 100;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.wb-kb-reader-progress-bar {
+  height: 100%;
+  background: linear-gradient(
+    90deg,
+    rgba(220, 155, 90, 0.55) 0%,
+    rgba(220, 155, 90, 0.95) 100%
+  );
+  transition: width 0.12s linear;
+  will-change: width;
+}
+
 .wb-kb-reader-head {
   display: flex;
   align-items: flex-start;
