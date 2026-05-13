@@ -9,7 +9,7 @@
     <div class="wb-resume-content">
       <!--
         Hero（F2 改造）：删除原大标题「让 AI 读懂你的项目」（营销级文案不适合工具页），
-        eyebrow tag「简历管理」与副标题合并到单行 flex baseline 布局，节省顶部 ~120px 垂直空间。
+        eyebrow tag「简历管理」与副标题合并到单行 flex 视觉中心布局，节省顶部 ~120px 垂直空间。
         视觉效果：[• 简历管理]  上传简历后，AI 会基于项目细节做深度追问，模拟真实面试节奏。
       -->
       <section class="wb-resume-hero">
@@ -1874,11 +1874,11 @@ const formatScore = (score) => {
 
 /* Hero 改造（F2，2026-05-12）：
    - 原 H1 标题「让 AI 读懂你的项目」已删除（营销文案不适合工具页）
-   - eyebrow chip + sub 副标题改 flex baseline 单行紧凑布局
+   - eyebrow chip + sub 副标题改 flex 视觉中心单行紧凑布局
    - 中屏自动 wrap 到下一行（chip 在上，sub 在下） */
 .wb-resume-hero {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   flex-wrap: wrap;
   gap: 12px 18px;
   padding: 28px 0 32px;
@@ -1912,7 +1912,7 @@ const formatScore = (score) => {
   50% { opacity: .35; }
 }
 
-/* 副标题（F2 改造）：与 eyebrow chip 同行 baseline 对齐；
+/* 副标题（F2 改造）：与 eyebrow chip 同行视觉中心对齐；
    字号从 15px → fs-lg (17px)；颜色从 t3 → t2 提升可读性；
    flex: 1 让 sub 占用剩余宽度，长文本自动 wrap 在右侧。 */
 .wb-resume-sub {

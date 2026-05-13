@@ -25,7 +25,7 @@
     <div class="wb-kb-content">
       <!--
         Hero（与 WorkbenchResume.vue 保持视觉一致）：删除原大标题「让 AI 学你的知识」，
-        eyebrow chip「• 知识库」与副标题同行 flex baseline 紧凑布局，
+        eyebrow chip「• 知识库」与副标题同行 flex 视觉中心紧凑布局，
         右侧保留「上传到我的私人资料库」CTA。中屏自动 wrap。
       -->
       <section class="wb-kb-hero">
@@ -1044,10 +1044,10 @@ const getDocStatusLabel = (status) => {
 
 /* === Hero ===
    2026-05-12 改造：与 WorkbenchResume.vue 保持视觉一致 —— 删除大标题，
-   eyebrow chip + sub + upload CTA 在同行 baseline 对齐，中屏自动 wrap。 */
+   eyebrow chip + sub + upload CTA 在同行视觉中心对齐，中屏自动 wrap。 */
 .wb-kb-hero {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   flex-wrap: wrap;
   gap: 12px 18px;
   padding: 0 0 clamp(1.25rem, 2.5vw, 2rem);
@@ -1062,11 +1062,11 @@ const getDocStatusLabel = (status) => {
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: var(--radius-pill);
   padding: 6px 14px;
-  margin-bottom: 22px;
   letter-spacing: .04em;
   background: rgba(255, 255, 255, 0.025);
   backdrop-filter: blur(8px);
   width: fit-content;
+  flex-shrink: 0;
 }
 
 .wb-eyebrow-dot {
@@ -1082,7 +1082,7 @@ const getDocStatusLabel = (status) => {
   50% { opacity: .35; }
 }
 
-/* 副标题（2026-05-12 改造）：与 eyebrow chip + upload CTA 同行 baseline 对齐；
+/* 副标题（2026-05-12 改造）：与 eyebrow chip + upload CTA 同行视觉中心对齐；
    颜色从 t3 → t2 提升可读性；flex: 1 让 sub 占用剩余宽度，长文本自动 wrap。
    旧的 .wb-kb-hero-row / .wb-kb-hero-text / .wb-kb-title 三个样式已删除（hero 扁平化）。 */
 .wb-kb-sub {
