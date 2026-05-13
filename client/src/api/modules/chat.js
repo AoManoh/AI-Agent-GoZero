@@ -50,13 +50,11 @@ export const chatEndpoints = {
   //     - GET    /api/ai/knowledge/documents/:id/chunks   → 200
   //     - POST   /api/ai/knowledge/upload                 → 401（需登录 Bearer token）
   //     - POST   /api/ai/knowledge/test-query             → 400（路由存在；缺 body）
-  //
-  //   ⚠️  仓库代码已实现，但 :8123 进程是 v0.2 之前的旧 build，**重启 chat 后端即生效**：
-  //     - GET    /api/ai/knowledge/folders                → 当前 404
-  //     - POST   /api/ai/knowledge/folders                → 当前 404
-  //     - PATCH  /api/ai/knowledge/folders/:id            → 当前 404
-  //     - DELETE /api/ai/knowledge/folders/:id            → 当前 404
-  //     - PATCH  /api/ai/knowledge/documents/:id/folder   → 当前 404
+  //     - GET    /api/ai/knowledge/folders                → 200
+  //     - POST   /api/ai/knowledge/folders                → 已实现（需登录 Bearer token）
+  //     - PATCH  /api/ai/knowledge/folders/:id            → 已实现（需登录 Bearer token）
+  //     - DELETE /api/ai/knowledge/folders/:id            → 已实现（需登录 Bearer token）
+  //     - PATCH  /api/ai/knowledge/documents/:id/folder   → 已实现（需登录 Bearer token）
   //
   //   后端事实源（不要把前端备注当事实源，请以 chat.api 为准）：
   //     - 路由契约：api/chat/chat.api（type 定义 + 路由声明）
@@ -82,8 +80,7 @@ export const chatEndpoints = {
     };
   },
 
-  // ⚠️  仓库代码已实现，当前 :8123 运行旧 build 返回 404；重启后端即生效。
-  //    期望响应（KnowledgeFoldersResp）：{ folders: KnowledgeFolderItem[]（树形 children 嵌套）, unfiledCount, total, totalCount, initialized, meta }
+  // 期望响应（KnowledgeFoldersResp）：{ folders: KnowledgeFolderItem[]（树形 children 嵌套）, unfiledCount, total, totalCount, initialized, meta }
   knowledgeFolders() {
     return {
       service: "chat",
@@ -92,9 +89,8 @@ export const chatEndpoints = {
     };
   },
 
-  // ⚠️  仓库代码已实现，当前 :8123 运行旧 build 返回 404；重启后端即生效。
-  //    期望请求（KnowledgeCreateFolderReq）：{ name, parentId?, sortOrder? }
-  //    期望响应（KnowledgeFolderMutationResp）：{ folder: KnowledgeFolderItem, meta }
+  // 期望请求（KnowledgeCreateFolderReq）：{ name, parentId?, sortOrder? }
+  // 期望响应（KnowledgeFolderMutationResp）：{ folder: KnowledgeFolderItem, meta }
   knowledgeCreateFolder(payload) {
     return {
       service: "chat",
@@ -104,9 +100,8 @@ export const chatEndpoints = {
     };
   },
 
-  // ⚠️  仓库代码已实现，当前 :8123 运行旧 build 返回 404；重启后端即生效。
-  //    期望请求（KnowledgeUpdateFolderReq）：{ name?, parentId?, sortOrder?, setParent?, setSortOrder? }
-  //    期望响应（KnowledgeFolderMutationResp）：{ folder: KnowledgeFolderItem, meta }
+  // 期望请求（KnowledgeUpdateFolderReq）：{ name?, parentId?, sortOrder?, setParent?, setSortOrder? }
+  // 期望响应（KnowledgeFolderMutationResp）：{ folder: KnowledgeFolderItem, meta }
   knowledgeUpdateFolder(id, payload) {
     return {
       service: "chat",
@@ -116,9 +111,8 @@ export const chatEndpoints = {
     };
   },
 
-  // ⚠️  仓库代码已实现，当前 :8123 运行旧 build 返回 404；重启后端即生效。
-  //    策略（refactor 9c38333）：仅允许删除空目录，非空返回 409 ErrKnowledgeFolderNotEmpty。
-  //    期望响应（KnowledgeFolderDeleteResp）：{ deleted: bool, meta }
+  // 策略（refactor 9c38333）：仅允许删除空目录，非空返回 409 ErrKnowledgeFolderNotEmpty。
+  // 期望响应（KnowledgeFolderDeleteResp）：{ deleted: bool, meta }
   knowledgeDeleteFolder(id) {
     return {
       service: "chat",
@@ -153,9 +147,8 @@ export const chatEndpoints = {
     };
   },
 
-  // ⚠️  仓库代码已实现，当前 :8123 运行旧 build 返回 404；重启后端即生效。
-  //    期望请求（KnowledgeMoveDocumentFolderReq）：{ folderId: number | 0=未归类 }
-  //    期望响应（KnowledgeDocumentMutationResp）：{ document: KnowledgeDocumentItem, meta }
+  // 期望请求（KnowledgeMoveDocumentFolderReq）：{ folderId: number | 0=未归类 }
+  // 期望响应（KnowledgeDocumentMutationResp）：{ document: KnowledgeDocumentItem, meta }
   knowledgeMoveDocumentFolder(id, payload) {
     return {
       service: "chat",

@@ -200,7 +200,7 @@ const DIFFICULTY_LEVEL_BY_KEY = { intro: 1, junior: 2, mid: 3, senior: 4, expert
 const QUESTION_BANK_ASSET_URL = "/data/interview-question-bank.json";
 const VISIBLE_QUESTION_LIMIT = 240;
 
-// === Filter 选项（mock first，onMounted 接入 interviewPresets 覆盖） ===
+// === Filter 选项（本地 fallback；onMounted 接入 interviewPresets 后覆盖） ===
 const directions = ref([
   { key: "go_backend", label: "Go 后端" },
   { key: "java_backend", label: "Java 后端" },
@@ -272,7 +272,7 @@ const sortOptions = [
   { key: "diff", label: "难度" },
 ];
 
-// === 题库数据（mock） ===
+// === 题库数据（本地 fallback；优先由 interviewQuestions / 静态资产 / plan preview 覆盖） ===
 const questions = ref([
   {
     id: "q-001",
@@ -520,7 +520,7 @@ const loadQuestionBankAsset = async () => {
   }
 };
 
-// 拉预设（方向 / 难度 / focus）。错误静默降级到 mock。
+// 拉预设（方向 / 难度 / focus）。错误静默降级到本地 fallback。
 const loadPresets = async () => {
   try {
     const res = await apiService.user.interviewPresets();
@@ -551,7 +551,7 @@ const loadQuestions = async (params = {}) => {
   try {
     const res = await apiService.user.interviewPlanPreview({ limit: 50, ...params });
     const list = Array.isArray(res?.questions) ? res.questions : [];
-    if (list.length === 0) return; // 保留 mock
+    if (list.length === 0) return; // 保留本地 fallback
     questions.value = list.map((item, index) => toQuestionCard(item, index, list.length));
     questionBankMeta.value = {
       total: list.length,
