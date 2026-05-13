@@ -6,7 +6,7 @@
       <span v-if="uploadingKnowledge" class="hint">知识库文件上传中...</span>
     </div>
     
-    <div class="floating-inp" :class="{ disabled: isConnecting }">
+    <div class="floating-inp" :class="{ disabled: isDisabled }">
       <div class="chat-actions">
         <el-upload
           v-model:file-list="fileList"
@@ -14,9 +14,9 @@
           :auto-upload="false"
           :show-file-list="false"
           :on-exceed="handleExceed"
-          :disabled="isConnecting"
+          :disabled="isDisabled"
         >
-          <button class="action-btn" type="button" title="上传附件" :disabled="isConnecting">
+          <button class="action-btn" type="button" title="上传附件" :disabled="isDisabled">
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
               <path stroke-linecap="round" stroke-linejoin="round" d="m18.375 12.739-7.693 7.693a4.5 4.5 0 0 1-6.364-6.364l10.94-10.94A3.375 3.375 0 1 1 18.374 7.5l-1.497 1.498a1.5 1.5 0 0 1-2.121-2.121l1.497-1.498 2.121-2.121a3.375 3.375 0 0 1 4.773 4.773l-10.94 10.94a4.5 4.5 0 1 1-6.364-6.364l7.693-7.693a.75.75 0 0 1 1.06 1.06z" />
             </svg>
@@ -30,9 +30,9 @@
           :show-file-list="false"
           :on-change="handleKnowledgeFileChange"
           :on-exceed="handleExceedKnowledge"
-          :disabled="isConnecting || uploadingKnowledge"
+          :disabled="isDisabled || uploadingKnowledge"
         >
-          <button class="action-btn" type="button" title="上传到知识库" :disabled="isConnecting || uploadingKnowledge">
+          <button class="action-btn" type="button" title="上传到知识库" :disabled="isDisabled || uploadingKnowledge">
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
               <path stroke-linecap="round" stroke-linejoin="round" d="M12 6.042A8.967 8.967 0 0 0 6 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 0 1 6 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 0 1 6-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0 0 18 18a8.967 8.967 0 0 0-6-2.292m0 0V3.75m0 12.558a8.966 8.966 0 0 1-6-2.292V3.75a8.966 8.966 0 0 1 6 2.292m0 12.558a8.966 8.966 0 0 0 6-2.292V3.75a8.966 8.966 0 0 0-6 2.292" />
             </svg>
@@ -45,7 +45,7 @@
         v-model="inputMessage"
         class="inp-ta"
         placeholder="输入你的回答或追问... (Shift+Enter换行)"
-        :disabled="isConnecting"
+        :disabled="isDisabled"
         @input="autoResizeTextarea"
         @keydown="handleKeydown"
       ></textarea>
@@ -84,6 +84,10 @@ const props = defineProps({
     type: Boolean,
     default: false,
   },
+  disabled: {
+    type: Boolean,
+    default: false,
+  },
   statusLabel: {
     type: String,
     default: "",
@@ -99,6 +103,7 @@ const textareaRef = ref(null);
 const uploadingKnowledge = ref(false);
 
 const fileName = computed(() => (fileList.value[0]?.name ? fileList.value[0].name : ""));
+const isDisabled = computed(() => props.disabled || props.isConnecting);
 
 const autoResizeTextarea = () => {
   const textarea = textareaRef.value;
@@ -153,8 +158,8 @@ const handleKnowledgeFileChange = async (uploadFile) => {
 };
 
 const handleSendMessage = () => {
-  if (props.isConnecting) {
-    ElMessage.warning("AI 正在回复，请稍候");
+  if (isDisabled.value) {
+    ElMessage.warning(props.isConnecting ? "AI 正在回复，请稍候" : "面试会话正在准备，请稍候");
     return;
   }
 

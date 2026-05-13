@@ -42,11 +42,57 @@ export const userEndpoints = {
       url: `/users/sessions/${encodeURIComponent(id)}/flow-state`,
     };
   },
+  sessionInterviewPlan(id, params = {}) {
+    return {
+      service: "user",
+      method: "get",
+      url: `/users/sessions/${encodeURIComponent(id)}/interview-plan`,
+      params,
+    };
+  },
+  sessionProgress(id, params = {}) {
+    return {
+      service: "user",
+      method: "get",
+      url: `/users/sessions/${encodeURIComponent(id)}/progress`,
+      params,
+    };
+  },
   finishSession(id) {
     return {
       service: "user",
       method: "post",
       url: `/users/sessions/${encodeURIComponent(id)}/finish`,
+    };
+  },
+  sessionReportReadiness(id) {
+    return {
+      service: "user",
+      method: "get",
+      url: `/users/sessions/${encodeURIComponent(id)}/report-readiness`,
+    };
+  },
+  sessionReportPrepare(id, data = {}) {
+    return {
+      service: "user",
+      method: "post",
+      url: `/users/sessions/${encodeURIComponent(id)}/report/prepare`,
+      data,
+      timeout: 120000,
+    };
+  },
+  sessionReportSummary(id) {
+    return {
+      service: "user",
+      method: "get",
+      url: `/users/sessions/${encodeURIComponent(id)}/report-summary`,
+    };
+  },
+  deleteSession(id) {
+    return {
+      service: "user",
+      method: "delete",
+      url: `/users/sessions/${encodeURIComponent(id)}`,
     };
   },
   demoInterviewSceneRandom(params = {}) {
