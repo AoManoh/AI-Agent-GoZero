@@ -661,6 +661,11 @@ type SessionConfigSnapshot struct {
 	FocusAreas            []FocusAreaSelection `json:"focusAreas"`
 	FollowUpDepth         string               `json:"followUpDepth"`
 	EstimatedMinutes      int64                `json:"estimatedMinutes"`
+	ScenarioType          string               `json:"scenarioType"`
+	ScenarioLabel         string               `json:"scenarioLabel"`
+	StarterSource         string               `json:"starterSource"`
+	StarterSourceLabel    string               `json:"starterSourceLabel"`
+	StarterQuestionKey    string               `json:"starterQuestionKey,optional"`
 	ResumeArtifactId      string               `json:"resumeArtifactId,optional"`
 	ProgressPercent       int64                `json:"progressPercent"`
 	DurationSeconds       int64                `json:"durationSeconds"`

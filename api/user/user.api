@@ -118,6 +118,11 @@ type (
 		FocusAreas            []FocusAreaSelection `json:"focusAreas"`
 		FollowUpDepth         string               `json:"followUpDepth"`
 		EstimatedMinutes      int64                `json:"estimatedMinutes"`
+		ScenarioType          string               `json:"scenarioType"`
+		ScenarioLabel         string               `json:"scenarioLabel"`
+		StarterSource         string               `json:"starterSource"`
+		StarterSourceLabel    string               `json:"starterSourceLabel"`
+		StarterQuestionKey    string               `json:"starterQuestionKey,optional"`
 		ResumeArtifactId      string               `json:"resumeArtifactId,optional"`
 		ProgressPercent       int64                `json:"progressPercent"`
 		DurationSeconds       int64                `json:"durationSeconds"`
@@ -990,7 +995,7 @@ service user-api {
 	@handler SessionFlowStateHandler
 	get /sessions/:id/flow-state (SessionFlowStateReq) returns (SessionFlowStateResp)
 
-	@doc "上传当前用户私有简历，使用 multipart/form-data，并要求 file(PDF) + chatId，title/mode 为可选表单字段"
+	@doc "上传当前用户私有简历，使用 multipart/form-data，要求 file(PDF)，chatId/title/mode 为可选表单字段"
 	@handler ResumeUploadHandler
 	post /resume/upload (ResumeUploadReq) returns (ResumeUploadResp)
 

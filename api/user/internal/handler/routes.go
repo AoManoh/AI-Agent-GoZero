@@ -142,7 +142,7 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 				Handler: user.ResumeArtifactAnalysisPrepareHandler(serverCtx),
 			},
 			{
-				// 上传当前用户私有简历，使用 multipart/form-data，并要求 file(PDF) + chatId，title/mode 为可选表单字段
+				// 上传当前用户私有简历，使用 multipart/form-data，要求 file(PDF)，chatId/title/mode 为可选表单字段
 				Method:  http.MethodPost,
 				Path:    "/resume/upload",
 				Handler: user.ResumeUploadHandler(serverCtx),

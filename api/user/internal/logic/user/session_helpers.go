@@ -6,6 +6,7 @@ import (
 	"GoZero-AI/api/user/internal/types"
 	"GoZero-AI/api/user/model"
 	"GoZero-AI/internal/sessionmode"
+	"GoZero-AI/internal/sessionruntime"
 )
 
 func buildSessionItem(session model.ChatSession) types.SessionItem {
@@ -47,6 +48,11 @@ func buildSessionConfigSnapshot(session model.ChatSession) types.SessionConfigSn
 		FocusAreas:            focusAreas,
 		FollowUpDepth:         defaultStringValue(session.FollowUpDepth, "N+3"),
 		EstimatedMinutes:      defaultInt64Value(session.EstimatedMinutes, 30),
+		ScenarioType:          sessionruntime.NormalizeScenario(session.ScenarioType),
+		ScenarioLabel:         scenarioTypeLabel(session.ScenarioType),
+		StarterSource:         sessionruntime.NormalizeStarterSource(session.StarterSource),
+		StarterSourceLabel:    starterSourceLabel(session.StarterSource),
+		StarterQuestionKey:    session.StarterQuestionKey,
 		ResumeArtifactId:      session.ResumeArtifactId,
 		ProgressPercent:       session.ProgressPercent,
 		DurationSeconds:       session.DurationSeconds,
@@ -92,4 +98,26 @@ func defaultInt64Value(value, fallback int64) int64 {
 		return fallback
 	}
 	return value
+}
+
+func scenarioTypeLabel(value string) string {
+	switch sessionruntime.NormalizeScenario(value) {
+	case sessionruntime.ScenarioQuestionPractice:
+		return "题库练习"
+	default:
+		return "模拟面试"
+	}
+}
+
+func starterSourceLabel(value string) string {
+	switch sessionruntime.NormalizeStarterSource(value) {
+	case sessionruntime.StarterBank:
+		return "题库题目"
+	case sessionruntime.StarterResumePlan:
+		return "简历画像"
+	case sessionruntime.StarterManual:
+		return "手动指定"
+	default:
+		return "常规开场"
+	}
 }

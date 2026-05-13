@@ -7,6 +7,7 @@ import (
 
 	"GoZero-AI/api/user/model"
 	"GoZero-AI/internal/sessionmode"
+	"GoZero-AI/internal/sessionruntime"
 )
 
 func TestNormalizeSessionMode(t *testing.T) {
@@ -69,5 +70,29 @@ func TestBuildSessionItemNormalizesMode(t *testing.T) {
 	}
 	if item.ModeKey != sessionmode.KeyResearch {
 		t.Fatalf("item.ModeKey = %q, want %q", item.ModeKey, sessionmode.KeyResearch)
+	}
+}
+
+func TestBuildSessionConfigSnapshotIncludesRuntimeContext(t *testing.T) {
+	config := buildSessionConfigSnapshot(model.ChatSession{
+		ScenarioType:       sessionruntime.ScenarioQuestionPractice,
+		StarterSource:      sessionruntime.StarterBank,
+		StarterQuestionKey: "go-rag",
+	})
+
+	if config.ScenarioType != sessionruntime.ScenarioQuestionPractice {
+		t.Fatalf("ScenarioType = %q, want %q", config.ScenarioType, sessionruntime.ScenarioQuestionPractice)
+	}
+	if config.ScenarioLabel != "题库练习" {
+		t.Fatalf("ScenarioLabel = %q, want 题库练习", config.ScenarioLabel)
+	}
+	if config.StarterSource != sessionruntime.StarterBank {
+		t.Fatalf("StarterSource = %q, want %q", config.StarterSource, sessionruntime.StarterBank)
+	}
+	if config.StarterSourceLabel != "题库题目" {
+		t.Fatalf("StarterSourceLabel = %q, want 题库题目", config.StarterSourceLabel)
+	}
+	if config.StarterQuestionKey != "go-rag" {
+		t.Fatalf("StarterQuestionKey = %q, want go-rag", config.StarterQuestionKey)
 	}
 }
