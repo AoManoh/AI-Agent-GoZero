@@ -12,7 +12,6 @@
           <span class="wb-eyebrow-dot" aria-hidden="true"></span>
           <span>题库浏览</span>
         </div>
-        <h1 class="wb-bank-title">真实面试题预演</h1>
         <p class="wb-bank-sub">{{ questionBankStatsLabel }}</p>
       </section>
 
@@ -610,13 +609,21 @@ onMounted(async () => {
 
 <style scoped>
 .wb-bank-content {
-  max-width: 1320px;
+  width: 100%;
+  max-width: min(1440px, 100%);
   margin: 0 auto;
-  padding: 0 44px 80px;
+  min-height: calc(100svh - 80px);
+  display: flex;
+  flex-direction: column;
+  padding: 0 clamp(20px, 4vw, 56px) 80px;
 }
 
 .wb-bank-hero {
-  padding: 0 0 32px;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px 18px;
+  padding: 0 0 clamp(20px, 2.5vw, 32px);
 }
 
 .wb-eyebrow {
@@ -628,11 +635,11 @@ onMounted(async () => {
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: var(--radius-pill);
   padding: 6px 14px;
-  margin-bottom: 22px;
   letter-spacing: .04em;
   background: rgba(255, 255, 255, 0.025);
   backdrop-filter: blur(8px);
   width: fit-content;
+  flex-shrink: 0;
 }
 
 .wb-eyebrow-dot {
@@ -648,32 +655,29 @@ onMounted(async () => {
   50% { opacity: .35; }
 }
 
-.wb-bank-title {
-  font: 800 clamp(30px, 2.8vw, 42px) var(--display);
-  color: var(--t);
-  letter-spacing: -.02em;
-  margin: 0 0 14px;
-}
-
 .wb-bank-sub {
   font-size: var(--fs-lg);
-  color: var(--t3);
-  line-height: 1.7;
+  color: var(--t2);
+  line-height: 1.65;
   margin: 0;
+  flex: 1 1 560px;
 }
 
 /* ============ Shell：双列布局 ============ */
 .wb-bank-shell {
+  min-height: 0;
   display: grid;
-  grid-template-columns: 240px minmax(0, 1fr);
-  gap: 24px;
+  grid-template-columns: minmax(220px, 22%) minmax(0, 1fr);
+  gap: clamp(16px, 1.6vw, 28px);
   align-items: start;
+  margin-top: 8px;
 }
 
 /* ============ 左侧 filter ============ */
 .wb-bank-filter {
   position: sticky;
   top: 100px; /* 80 header + 20 留白 */
+  min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 28px;
@@ -785,6 +789,7 @@ onMounted(async () => {
 /* ============ 主区 ============ */
 .wb-bank-main {
   min-width: 0;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   gap: 16px;
@@ -874,6 +879,7 @@ onMounted(async () => {
 
 /* === 题目卡片列表 === */
 .wb-bank-list {
+  min-height: 0;
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -1021,7 +1027,7 @@ onMounted(async () => {
   font: 700 var(--fs-xl) var(--display);
   color: var(--t);
   margin: 0 0 8px;
-  letter-spacing: -.01em;
+  letter-spacing: 0;
   line-height: 1.4;
 }
 
@@ -1168,10 +1174,91 @@ onMounted(async () => {
 }
 
 /* === 响应式 === */
-@media (max-width: 1024px) {
+@media (min-width: 900px) {
+  .wb-bank-content {
+    height: calc(100svh - 80px);
+    min-height: 640px;
+    overflow: hidden;
+    padding-bottom: clamp(28px, 4vw, 48px);
+  }
+
+  .wb-bank-hero {
+    flex: 0 0 auto;
+    padding: clamp(20px, 3vw, 28px) 0 clamp(18px, 2.4vw, 28px);
+  }
+
+  .wb-bank-shell {
+    flex: 1 1 auto;
+    align-items: stretch;
+    overflow: hidden;
+  }
+
+  .wb-bank-filter,
+  .wb-bank-main {
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .wb-bank-filter {
+    position: static;
+    top: auto;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, 0.16) transparent;
+    scrollbar-gutter: stable;
+  }
+
+  .wb-bank-toolbar {
+    flex: 0 0 auto;
+  }
+
+  .wb-bank-list,
+  .wb-empty {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, 0.16) transparent;
+    scrollbar-gutter: stable;
+  }
+
+  .wb-empty {
+    justify-content: center;
+  }
+
+  .wb-bank-filter::-webkit-scrollbar,
+  .wb-bank-list::-webkit-scrollbar,
+  .wb-empty::-webkit-scrollbar {
+    width: 6px;
+  }
+
+  .wb-bank-filter::-webkit-scrollbar-track,
+  .wb-bank-list::-webkit-scrollbar-track,
+  .wb-empty::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .wb-bank-filter::-webkit-scrollbar-thumb,
+  .wb-bank-list::-webkit-scrollbar-thumb,
+  .wb-empty::-webkit-scrollbar-thumb {
+    border-radius: var(--radius-pill);
+    background: rgba(255, 255, 255, 0.16);
+  }
+
+  .wb-bank-filter::-webkit-scrollbar-thumb:hover,
+  .wb-bank-list::-webkit-scrollbar-thumb:hover,
+  .wb-empty::-webkit-scrollbar-thumb:hover {
+    background: rgba(220, 155, 90, 0.32);
+  }
+}
+
+@media (max-width: 899px) {
   .wb-bank-shell {
     grid-template-columns: 1fr;
   }
+
   .wb-bank-filter {
     position: static;
   }
