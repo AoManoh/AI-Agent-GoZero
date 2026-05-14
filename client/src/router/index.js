@@ -109,8 +109,7 @@ const routes = [
       requiresAuth: true,
     },
   },
-  // 报告中心：当前为占位 SFC，完整 SFC 由独立需求阶段实现
-  // 详见 docs/requirements/2026-05-10-workbench-information-architecture.md 决策 5=A
+  // 报告中心：v1 聚合页，入口由工作台报告卡承接，顶部导航暂不单列。
   {
     path: "/workbench/reports",
     name: "WorkbenchReports",

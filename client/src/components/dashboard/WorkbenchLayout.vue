@@ -300,7 +300,7 @@ const handleLogout = async () => {
 }
 
 .wb-main-normal {
-  padding-top: 60px;
+  padding-top: 0;
 }
 
 .wb-main-immersive {
