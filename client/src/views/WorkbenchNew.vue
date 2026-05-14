@@ -11,7 +11,6 @@
           <span class="wb-eyebrow-dot" aria-hidden="true"></span>
           <span>新建面试</span>
         </div>
-        <h1 class="wb-new-title">配置一场专属面试</h1>
         <p class="wb-new-sub">方向、难度、简历和侧重点会作为会话配置传给后端面试官策略。</p>
       </section>
 
@@ -539,7 +538,8 @@ onMounted(async () => {
 <style scoped>
 /* ============ Layout ============ */
 .wb-new-content {
-  max-width: 1320px;
+  width: 100%;
+  max-width: min(1440px, 100%);
   margin: 0 auto;
   padding: 0 44px 120px;
   /* 底部 120px 留白：summary bar 自然布局到页面底部后的呼吸空间（原 sticky 避让
@@ -560,11 +560,11 @@ onMounted(async () => {
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: var(--radius-pill);
   padding: 6px 14px;
-  margin-bottom: 22px;
   letter-spacing: .04em;
   background: rgba(255, 255, 255, 0.025);
   backdrop-filter: blur(8px);
   width: fit-content;
+  flex-shrink: 0;
 }
 
 .wb-eyebrow-dot {
@@ -578,13 +578,6 @@ onMounted(async () => {
 @keyframes wb-edot {
   0%, 100% { opacity: 1; }
   50% { opacity: .35; }
-}
-
-.wb-new-title {
-  font: 800 clamp(30px, 2.8vw, 42px) var(--display);
-  color: var(--t);
-  letter-spacing: -.02em;
-  margin: 0 0 14px;
 }
 
 .wb-new-sub {
@@ -669,7 +662,7 @@ onMounted(async () => {
   font: 600 var(--fs-md) var(--display);
   color: var(--t);
   margin-bottom: 16px;
-  letter-spacing: -.01em;
+  letter-spacing: 0;
 }
 
 .wb-block-tag {
@@ -742,7 +735,7 @@ onMounted(async () => {
 .wb-dir-name {
   font: 700 var(--fs-md) var(--display);
   color: var(--t);
-  letter-spacing: -.01em;
+  letter-spacing: 0;
 }
 
 .wb-dir-tags {
@@ -1105,11 +1098,6 @@ onMounted(async () => {
   padding: 0 0 clamp(24px, 3vw, 40px);
 }
 
-.wb-new-title {
-  font-size: clamp(30px, 2.6vw, 42px);
-  margin: 0;
-}
-
 .wb-new-sub {
   max-width: 720px;
 }
@@ -1222,20 +1210,31 @@ onMounted(async () => {
 
 /* ============ C4 配置型新建面试页语义修正 ============ */
 .wb-new-content {
-  max-width: 1280px;
+  max-width: min(1440px, 100%);
+  min-height: calc(100svh - 80px);
+  display: flex;
+  flex-direction: column;
   padding: 0 clamp(20px, 4vw, 56px) 96px;
 }
 
 .wb-new-hero {
-  max-width: 760px;
+  width: 100%;
+  max-width: 1120px;
   margin: 0 auto;
+  display: flex;
+  flex-direction: row;
   align-items: center;
-  text-align: center;
+  flex-wrap: wrap;
+  gap: 12px 18px;
+  text-align: left;
   padding-bottom: clamp(20px, 2.6vw, 34px);
 }
 
 .wb-new-sub {
-  max-width: 680px;
+  flex: 1 1 560px;
+  max-width: none;
+  color: var(--t2);
+  line-height: 1.65;
 }
 
 .wb-stepper {
@@ -1294,8 +1293,10 @@ onMounted(async () => {
 
 .wb-new-shell {
   display: block;
+  width: 100%;
   max-width: 1120px;
   margin: 0 auto;
+  min-height: 0;
 }
 
 .wb-config-panel {
@@ -1450,6 +1451,7 @@ onMounted(async () => {
 }
 
 .wb-summary-bar {
+  width: 100%;
   max-width: 1120px;
   margin: clamp(20px, 2.8vw, 36px) auto 0;
   border-radius: var(--radius-lg);
@@ -1482,6 +1484,69 @@ onMounted(async () => {
   .wb-block {
     grid-template-columns: 1fr;
     align-items: stretch;
+  }
+}
+
+@media (min-width: 900px) {
+  .wb-new-content {
+    height: calc(100svh - 80px);
+    min-height: 640px;
+    overflow: hidden;
+    padding-bottom: clamp(28px, 4vw, 48px);
+  }
+
+  .wb-new-hero {
+    flex: 0 0 auto;
+    padding: clamp(20px, 3vw, 28px) 0 clamp(16px, 2vw, 24px);
+  }
+
+  .wb-stepper {
+    flex: 0 0 auto;
+    margin-bottom: clamp(16px, 2vw, 24px);
+  }
+
+  .wb-new-shell {
+    flex: 1 1 auto;
+    overflow: hidden;
+  }
+
+  .wb-config-panel {
+    height: 100%;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .wb-new-form {
+    height: 100%;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, 0.16) transparent;
+    scrollbar-gutter: stable;
+    padding-right: 6px;
+  }
+
+  .wb-new-form::-webkit-scrollbar {
+    width: 6px;
+  }
+
+  .wb-new-form::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .wb-new-form::-webkit-scrollbar-thumb {
+    border-radius: var(--radius-pill);
+    background: rgba(255, 255, 255, 0.16);
+  }
+
+  .wb-new-form::-webkit-scrollbar-thumb:hover {
+    background: rgba(220, 155, 90, 0.32);
+  }
+
+  .wb-summary-bar {
+    flex: 0 0 auto;
+    margin-top: clamp(16px, 2vw, 24px);
   }
 }
 
