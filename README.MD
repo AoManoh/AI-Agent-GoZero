@@ -358,8 +358,8 @@ docker-compose logs -f [service_name]
 精简前端部署
 
 ```bash
-# 仅启动前端服务
-docker-compose -f docker-compose.client.slim.yml up -d
+# 在完整服务编排上叠加前端 Nginx 服务
+docker compose -f docker-compose.yml -f docker-compose.client.slim.yml up -d client
 ```
 
 ---
@@ -379,7 +379,7 @@ docker-compose -f docker-compose.client.slim.yml up -d
     + 解压文件：`unzip dist.zip`
 + 重启前端容器：`docker restart xxx-client`
 + 注意：如果出现 **520/521** 的报错，可能是因为修改部署了后端后，重新挂载前端时，前端无法找到后端的 `compose` 文件导致。此时你可以执行：
-    + `docker compose -f docker-compose.yml -f docker-compose.client.yml up client`
+    + `docker compose -f docker-compose.yml -f docker-compose.client.slim.yml up -d client`
 
 
 ---

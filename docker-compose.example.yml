@@ -34,7 +34,7 @@ services:
   etcd:
     image: quay.io/coreos/etcd:v3.5.0  # 使用稳定版本ETCD镜像
     ports:
-      - "2379:2379"  # 对外暴露ETCD客户端端口，支持外部调试和管理
+      - "127.0.0.1:2379:2379"  # 仅绑定宿主机本地，避免公网暴露 ETCD
     environment:
       # ETCD服务监听地址配置，允许所有网络接口访问
       - ETCD_LISTEN_CLIENT_URLS=http://0.0.0.0:2379
@@ -56,7 +56,7 @@ services:
   redis:
     image: redis:alpine  # 使用轻量Alpine Linux版本，减少镜像大小
     ports:
-      - "6379:6379"  # Redis标准端口，支持外部Redis客户端连接
+      - "127.0.0.1:6379:6379"  # 仅绑定宿主机本地，避免公网暴露 Redis
     # Redis健康检查：确保服务可用性和响应能力
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]  # 使用ping命令检查Redis连接状态
@@ -79,7 +79,7 @@ services:
       POSTGRES_PASSWORD: your-database-password  # 数据库密码（生产环境应使用环境变量或加密配置）
       POSTGRES_DB: gozero_ai_agent               # 默认创建的数据库名称
     ports:
-      - "5432:5432"  # PostgreSQL标准端口，支持外部数据库工具连接
+      - "127.0.0.1:5432:5432"  # 仅绑定宿主机本地，避免公网暴露 PostgreSQL
     volumes:
       # 数据持久化和初始化脚本挂载
       - postgres-data:/var/lib/postgresql/data        # 数据持久化存储
@@ -102,7 +102,7 @@ services:
       context: .                    # 以项目根目录为构建上下文
       dockerfile: mcp/Dockerfile    # 指定MCP服务的Dockerfile路径
     ports:
-      - "8321:8321"  # MCP gRPC服务端口，与API服务内部通信
+      - "127.0.0.1:8321:8321"  # 仅绑定宿主机本地；API/User 容器通过 Docker 网络访问 mcp:8321
     # 服务依赖关系：确保ETCD就绪后再启动MCP服务
     depends_on:
       etcd:
@@ -130,7 +130,7 @@ services:
       context: .                    # 以项目根目录为构建上下文
       dockerfile: api/chat/Dockerfile    # 指定API服务的Dockerfile路径
     ports:
-      - "8123:8123"  # API HTTP服务端口，对外提供Web API接口
+      - "127.0.0.1:8123:8123"  # 仅绑定宿主机本地；前端 Nginx 容器通过 Docker 网络访问 api:8123
     # 复杂的服务依赖关系：确保所有基础服务就绪后再启动API服务
     depends_on:
       etcd:
@@ -154,7 +154,7 @@ services:
       context: .
       dockerfile: api/user/Dockerfile
     ports:
-      - "8124:8124"  # User API HTTP 服务端口
+      - "127.0.0.1:8124:8124"  # 仅绑定宿主机本地；前端 Nginx 容器通过 Docker 网络访问 user:8124
     depends_on:
       redis:
         condition: service_healthy
