@@ -87,6 +87,7 @@
           class="wb-kb-list"
           :class="{ 'wb-kb-list-reader': viewMode === 'reader' }"
           ref="readerScrollRef"
+          @scroll="handleReaderScroll"
         >
           <!-- Reader 模式：跨两列全屏阅读 -->
           <template v-if="viewMode === 'reader' && selectedDoc">
@@ -688,7 +689,7 @@ const readerButtonHint = "全文阅读：把所有切片按顺序拼接后用 ma
 // reader 模式需要全部 chunks 内容，因此用独立的 fullChunksByDoc Map 做缓存，避免冲掉列表预览。
 const fullChunksByDoc = ref(new Map());
 
-// reader 阅读位置持久化：同 tab 内（sessionStorage）按文档 id 记忆 scrollY，下次进入同一文档自动恢复。
+// reader 阅读位置持久化：同 tab 内（sessionStorage）按文档 id 记忆容器 scrollTop，下次进入同一文档自动恢复。
 // 跨 tab 不共享避免不同窗口干扰；用户退出登录或关闭页签后自然清空。
 const READER_SCROLL_KEY_PREFIX = "wb-kb-reader-scroll-";
 const readReaderScrollFor = (docId) => {
@@ -709,21 +710,38 @@ const writeReaderScrollFor = (docId, top) => {
   }
 };
 
+const getReaderScroller = () => readerScrollRef.value || null;
+
+const getReaderScrollTop = () => {
+  const scroller = getReaderScroller();
+  if (scroller) return scroller.scrollTop || 0;
+  return window.scrollY || document.documentElement.scrollTop || 0;
+};
+
+const restoreReaderScroll = async (top) => {
+  await nextTick();
+  const scroller = getReaderScroller();
+  if (scroller) {
+    scroller.scrollTo({ top, behavior: "auto" });
+    return;
+  }
+  window.scrollTo({ top, behavior: "auto" });
+};
+
 const enterReaderMode = async (doc) => {
   if (!doc?.id) return;
   selectedDocId.value = doc.id;
   viewMode.value = "reader";
   readerError.value = "";
   readerProgress.value = 0;
-  // 上一次阅读到的 scrollY；首次进入或新文档 → 0
+  lastReaderScrollSaveAt = 0;
+  // 上一次阅读到的容器 scrollTop；首次进入或新文档 → 0
   const restoreTop = readReaderScrollFor(doc.id);
-  await nextTick();
-  window.scrollTo({ top: restoreTop, behavior: "auto" });
+  await restoreReaderScroll(restoreTop);
   // 已缓存则跳过 fetch
   if (fullChunksByDoc.value.has(doc.id)) {
-    await nextTick();
     // chunks 已就位，再尝试恢复一次（避免 reader-body 已经渲染时 nextTick 没等到布局）
-    window.scrollTo({ top: restoreTop, behavior: "auto" });
+    await restoreReaderScroll(restoreTop);
     updateReaderProgress();
     return;
   }
@@ -738,34 +756,34 @@ const enterReaderMode = async (doc) => {
     readerError.value = error?.message || "加载文档全文失败，请稍后重试";
   } finally {
     readerLoading.value = false;
-    await nextTick();
     // 内容渲染完成后再恢复一次，确保 scrollHeight 已经撑开
-    window.scrollTo({ top: restoreTop, behavior: "auto" });
+    await restoreReaderScroll(restoreTop);
     updateReaderProgress();
   }
 };
 
 const exitReaderMode = () => {
-  // 兜底写入最后一次 scrollY，避免 throttle 边缘的最后一次微小位移没被持久化
+  // 兜底写入最后一次 scrollTop，避免 throttle 边缘的最后一次微小位移没被持久化
   const docId = selectedDocId.value;
   if (docId) {
-    writeReaderScrollFor(docId, window.scrollY || document.documentElement.scrollTop || 0);
+    writeReaderScrollFor(docId, getReaderScrollTop());
   }
   viewMode.value = "list";
   readerProgress.value = 0;
 };
 
-// 直接读 document.documentElement 计算 window-level scroll 进度。
-// .wb-kb-list 不是独立 scroll 容器（无 overflow-y），整个页面在 page level 滚动，所以监听对象是 window。
+// 直接读 reader 容器计算阅读进度，避免长文档把整个工作台页面撑成瀑布。
 const updateReaderProgress = () => {
-  const root = document.documentElement;
-  const max = root.scrollHeight - root.clientHeight;
+  const scroller = getReaderScroller();
+  const max = scroller
+    ? scroller.scrollHeight - scroller.clientHeight
+    : document.documentElement.scrollHeight - document.documentElement.clientHeight;
   if (max <= 0) {
     // 内容不足一屏：视为已读完，进度条满，不影响主视觉
     readerProgress.value = 100;
     return;
   }
-  const top = window.scrollY || root.scrollTop || 0;
+  const top = scroller ? scroller.scrollTop || 0 : window.scrollY || document.documentElement.scrollTop || 0;
   const ratio = Math.min(1, Math.max(0, top / max));
   readerProgress.value = Math.round(ratio * 100);
 };
@@ -781,7 +799,7 @@ const handleReaderScroll = () => {
   const now = Date.now();
   if (now - lastReaderScrollSaveAt < 250) return;
   lastReaderScrollSaveAt = now;
-  writeReaderScrollFor(docId, window.scrollY || document.documentElement.scrollTop || 0);
+  writeReaderScrollFor(docId, getReaderScrollTop());
 };
 
 // 把 chunks 数组拼成 markdown 字符串。chunks 之间用空行分隔，避免段落黏合。
@@ -993,14 +1011,10 @@ onMounted(() => {
   loadDocuments();
   // reader 模式 Esc 退出快捷键：window 级监听以避免 focus 不在按钮时失效
   window.addEventListener("keydown", handleReaderKeydown);
-  // 阅读进度条：listening on window 因为 .wb-kb-list 无 overflow，page-level 才是真正的 scroll 容器；
-  // passive 提升滚动性能；handler 内部 viewMode 守卫保证 list 模式下不计算
-  window.addEventListener("scroll", handleReaderScroll, { passive: true });
 });
 
 onBeforeUnmount(() => {
   window.removeEventListener("keydown", handleReaderKeydown);
-  window.removeEventListener("scroll", handleReaderScroll);
 });
 
 // 返回 mono 文件类型标签，替代原 emoji 图标
@@ -1037,8 +1051,12 @@ const getDocStatusLabel = (status) => {
 */
 
 .wb-kb-content {
+  width: 100%;
   max-width: min(1440px, 100%);
   margin: 0 auto;
+  min-height: calc(100svh - 80px);
+  display: flex;
+  flex-direction: column;
   padding: 0 clamp(1rem, 3vw, 2.75rem) clamp(2.5rem, 5vw, 5rem);
 }
 
@@ -1136,6 +1154,7 @@ const getDocStatusLabel = (status) => {
   align-items: start 让三栏顶端对齐，避免左/右栏因 sticky 与中栏卡片高度不同造成视觉错位（C2.2 决策）。
 */
 .wb-kb-shell {
+  min-height: 0;
   display: grid;
   grid-template-columns: minmax(240px, 260px) minmax(0, 1fr) minmax(320px, 360px);
   gap: clamp(0.875rem, 1.5vw, 1.25rem);
@@ -1151,9 +1170,73 @@ const getDocStatusLabel = (status) => {
 /* === 中间文档列表 === */
 .wb-kb-list {
   min-width: 0;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
+}
+
+@media (min-width: 1025px) {
+  .wb-kb-content {
+    height: calc(100svh - 80px);
+    min-height: 640px;
+    overflow: hidden;
+    padding-bottom: clamp(28px, 4vw, 48px);
+  }
+
+  .wb-kb-hero {
+    flex: 0 0 auto;
+    padding: clamp(20px, 3vw, 28px) 0 clamp(18px, 2.4vw, 28px);
+  }
+
+  .wb-kb-shell {
+    flex: 1 1 auto;
+    align-items: stretch;
+    overflow: hidden;
+  }
+
+  .wb-kb-shell > :first-child,
+  .wb-kb-list,
+  .wb-kb-detail {
+    min-height: 0;
+    max-height: none;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, 0.16) transparent;
+    scrollbar-gutter: stable;
+  }
+
+  .wb-kb-shell > :first-child,
+  .wb-kb-detail {
+    position: static;
+    top: auto;
+  }
+
+  .wb-kb-shell > :first-child::-webkit-scrollbar,
+  .wb-kb-list::-webkit-scrollbar,
+  .wb-kb-detail::-webkit-scrollbar {
+    width: 6px;
+  }
+
+  .wb-kb-shell > :first-child::-webkit-scrollbar-track,
+  .wb-kb-list::-webkit-scrollbar-track,
+  .wb-kb-detail::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .wb-kb-shell > :first-child::-webkit-scrollbar-thumb,
+  .wb-kb-list::-webkit-scrollbar-thumb,
+  .wb-kb-detail::-webkit-scrollbar-thumb {
+    border-radius: var(--radius-pill);
+    background: rgba(255, 255, 255, 0.16);
+  }
+
+  .wb-kb-shell > :first-child::-webkit-scrollbar-thumb:hover,
+  .wb-kb-list::-webkit-scrollbar-thumb:hover,
+  .wb-kb-detail::-webkit-scrollbar-thumb:hover {
+    background: rgba(220, 155, 90, 0.32);
+  }
 }
 
 /* Reader 模式：跨右栏占用，让阅读区域更宽（lg/xl/md 三栏 grid 时生效；sm/xs 已堆叠不需要） */
@@ -1664,6 +1747,14 @@ const getDocStatusLabel = (status) => {
   isolation: isolate;
   max-height: calc(100dvh - 7.5rem);
   overflow-y: auto;
+}
+
+@media (min-width: 1025px) {
+  .wb-kb-detail {
+    position: static;
+    top: auto;
+    max-height: none;
+  }
 }
 
 /* === 右栏 tab 切换 === */

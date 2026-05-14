@@ -1076,6 +1076,9 @@ const formatScore = (score) => {
   width: 100%;
   max-width: 1680px;
   margin: 0 auto;
+  min-height: calc(100svh - 80px);
+  display: flex;
+  flex-direction: column;
   padding: 0 clamp(20px, 4vw, 56px) 80px;
 }
 
@@ -1086,6 +1089,7 @@ const formatScore = (score) => {
    minmax 保护：左栏 ≥ 200px（6 维进度条可读下限）、右栏 ≥ 260px（追问卡不振压下限）。
    gap 也用 clamp 随视口缩放（16 至 28）。超小屏（< 900px）才堆叠。 */
 .wb-resume-shell {
+  min-height: 0;
   display: grid;
   grid-template-columns:
     minmax(200px, 22%)
@@ -1106,6 +1110,80 @@ const formatScore = (score) => {
 
 .wb-resume-mid {
   min-width: 0;
+}
+
+@media (min-width: 900px) {
+  .wb-resume-content {
+    height: calc(100svh - 80px);
+    min-height: 640px;
+    overflow: hidden;
+    padding-bottom: clamp(28px, 4vw, 48px);
+  }
+
+  .wb-resume-hero {
+    flex: 0 0 auto;
+    padding: clamp(20px, 3vw, 28px) 0 clamp(18px, 2.4vw, 28px);
+  }
+
+  .wb-resume-shell {
+    flex: 1 1 auto;
+    align-items: stretch;
+    overflow: hidden;
+  }
+
+  .wb-resume-left,
+  .wb-resume-mid,
+  .wb-resume-right {
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .wb-resume-mid,
+  .wb-resume-right {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .wb-resume-left,
+  .wb-resume-mid > *,
+  .wb-resume-right > * {
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, 0.16) transparent;
+    scrollbar-gutter: stable;
+  }
+
+  .wb-resume-mid > *,
+  .wb-resume-right > * {
+    flex: 1 1 auto;
+  }
+
+  .wb-resume-left::-webkit-scrollbar,
+  .wb-resume-mid > *::-webkit-scrollbar,
+  .wb-resume-right > *::-webkit-scrollbar {
+    width: 6px;
+  }
+
+  .wb-resume-left::-webkit-scrollbar-track,
+  .wb-resume-mid > *::-webkit-scrollbar-track,
+  .wb-resume-right > *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .wb-resume-left::-webkit-scrollbar-thumb,
+  .wb-resume-mid > *::-webkit-scrollbar-thumb,
+  .wb-resume-right > *::-webkit-scrollbar-thumb {
+    border-radius: var(--radius-pill);
+    background: rgba(255, 255, 255, 0.16);
+  }
+
+  .wb-resume-left::-webkit-scrollbar-thumb:hover,
+  .wb-resume-mid > *::-webkit-scrollbar-thumb:hover,
+  .wb-resume-right > *::-webkit-scrollbar-thumb:hover {
+    background: rgba(220, 155, 90, 0.32);
+  }
 }
 
 /* ============ 简历版本切换 dropdown selector（C3 commit）============ */
