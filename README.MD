@@ -1,504 +1,259 @@
-# GoZero-AI 快速启动指南
+# GoZero-AI
 
-## 项目概述
+GoZero-AI 是一个基于 GoZero 微服务架构实现的 AI 面试与知识库增强对话系统。项目把大语言模型对话、RAG 检索增强、PDF 文档解析、用户认证、简历分析、面试会话管理和报告复盘整合到同一个可本地运行的工程中。
 
-GoZero-AI 是一个基于 **GoZero 微服务框架**构建的企业级 AI 对话服务系统，深度集成大语言模型（OpenAI/千问/Gemini 等）与本地 **RAG（检索增强生成）**技术，提供智能对话、知识库管理、文档解析等核心功能。
+当前公开仓库包含三个后端服务和一个前端应用：
 
-### 核心特性
-- **微服务架构**: 基于 GoZero 框架，支持服务注册发现、负载均衡、链路追踪
-- **多模型支持**: 兼容 OpenAI API 标准，支持千问、Gemini、GPT 等多种大模型
-- **RAG 知识库**: 集成 PostgreSQL + pgvector，支持向量检索和语义搜索
-- **文档处理**: 独立 MCP 微服务，支持 PDF 文档解析和文本提取
-- **用户认证**: JWT + RefreshToken 双令牌机制，已落地基础工作台接口
-- **会话状态机**: Redis 实现有限状态机，管理对话状态转移
+- `api/chat`：面试对话与知识库 RAG 服务，提供 SSE 流式对话、知识库上传、文本导入、目录管理和检索测试接口。
+- `api/user`：用户域服务，提供注册登录、JWT/RefreshToken、工作台、题库、面试会话、简历上传与报告中心接口。
+- `mcp`：PDF 文本提取 gRPC 服务，供知识库和简历解析链路调用。
+- `client`：Vue 3 + Vite + JavaScript 前端，包含首页、登录注册、聊天面试、工作台、题库、知识库、简历管理和报告中心页面。
 
-### 技术栈
-- **后端**: Go 1.24+ | GoZero | gRPC | PostgreSQL | Redis | ETCD
-- **前端**: Vue 3 | Vite | TypeScript
-- **AI**: OpenAI API（gemini-balance 轮询池） | 向量数据库 | UniPDF
-- **部署**: Docker | Docker Compose
+## 核心能力
 
-### 开发笔记
-如果你想获取详细的开发笔记和技术分享，请访问我的**[个人博客专栏](https://aomanoh.com/categories/2)**查阅文档资料。
+- AI 面试官：基于会话状态、面试方向、难度、简历和侧重点组织追问。
+- 流式对话：Chat API 通过 SSE 返回面试官回复，并记录会话过程。
+- RAG 知识库：支持 PDF 上传、文本导入、知识库目录、文档 chunks 与检索测试。
+- 简历管理：支持 PDF 简历上传、文本抽取、结构化分析和面试追问素材沉淀。
+- 题库浏览：按方向、难度、能力维度浏览面试题，并为面试计划提供候选题。
+- 工作台：聚合最近面试、能力雷达、面试入口、题库、知识库、简历和报告中心。
+- 报告中心：汇总已完成面试的评分、模式表现、单场报告和复盘建议。
+- 用户认证：User API 提供注册、登录、刷新 token、登出和 profile 能力。
 
----
+## 技术栈
 
-## 系统架构
+| 层级 | 技术 |
+|------|------|
+| 后端 | Go 1.24、GoZero、gRPC |
+| 前端 | Vue 3、Vite、JavaScript、Element Plus |
+| 数据 | PostgreSQL、pgvector、Redis |
+| 服务发现 | ETCD |
+| AI 接口 | OpenAI 兼容接口、DashScope 兼容接口 |
+| 文档解析 | UniPDF、MCP gRPC |
+| 部署 | Docker、Docker Compose、Nginx |
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                         客户端层 (Client)                        │
-│                     Vue3 + Vite + TypeScript                    │
-└────────────────────────────┬────────────────────────────────────┘
-                             │ HTTP/HTTPS
-                             ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                        API 网关层 (Gateway)                      │
-│                  Nginx / GoZero Gateway (可选)                  │
-└─────┬───────────────────────────────────┬───────────────────────┘
-      │                                   │
-      │ HTTP REST API                     │ HTTP REST API
-      ▼                                   ▼
-┌─────────────────────────┐   ┌─────────────────────────────────┐
-│   Chat API 服务          │   │   User API 服务                  │
-│   端口: 8123             │   │   端口: 8124                    │
-│   ─────────────────────  │   │   ─────────────────────────────  │
-│   • AI 对话接口          │   │   • 用户注册/登录               │
-│   • 知识库管理           │   │   • JWT 认证                    │
-│   • 流式响应             │   │   • RefreshToken                │
-│   • RAG 检索增强         │   │   • 会话管理                    │
-└──────┬──────────────────┘   └─────────┬───────────────────────┘
-       │ gRPC                            │
-       │                                 │
-       ▼                                 ▼
-┌─────────────────────────┐   ┌─────────────────────────────────┐
-│   MCP 微服务             │   │   ETCD 服务注册中心              │
-│   端口: 8321             │   │   端口: 2379                    │
-│   ─────────────────────  │   │   ─────────────────────────────  │
-│   • PDF 文档解析         │   │   • 服务注册与发现               │
-│   • 文本提取             │   │   • 配置管理                    │
-│   • 高性能 gRPC          │   │   • 健康检查                    │
-└─────────────────────────┘   └─────────────────────────────────┘
-                             
-┌─────────────────────────────────────────────────────────────────┐
-│                        基础设施层 (Infrastructure)                │
-├─────────────────────────┬──────────────────┬────────────────────┤
-│  PostgreSQL + pgvector  │   Redis 6.x      │   OpenAI API       │
-│  端口: 5432             │   端口: 6379     │   外部服务          │
-│  ───────────────────    │   ─────────────  │   ───────────────  │
-│  • 用户数据存储         │   • 会话状态机   │   • LLM 推理       │
-│  • 向量数据存储         │   • RefreshToken │   • Embedding      │
-│  • 知识库内容           │   • 异步任务队列 │   • 文本生成       │
-└─────────────────────────┴──────────────────┴────────────────────┘
+## 架构概览
+
+```text
+Browser / Vite / Nginx
+        |
+        +-- /api/users/* --> User API (:8124)
+        |                       |
+        |                       +-- PostgreSQL
+        |                       +-- Redis
+        |                       +-- MCP gRPC
+        |
+        +-- /api/ai/* ----> Chat API (:8123)
+                                |
+                                +-- PostgreSQL + pgvector
+                                +-- Redis
+                                +-- MCP gRPC
+                                +-- OpenAI-compatible LLM / Embedding
+
+MCP gRPC (:8080 local, :8321 docker)
+        |
+        +-- PDF text extraction
+        +-- ETCD service discovery
 ```
 
-### 服务说明
+## 目录结构
 
-| 服务名称 | 端口 | 协议 | 状态 | 说明 |
-|---------|------|------|------|------|
-| **Chat API** | 8123 | HTTP | 运行中 | AI 对话服务，支持流式输出和 RAG 检索 |
-| **User API** | 8124 | HTTP | 已实现 | 用户认证、工作台接口与私有简历上传 |
-| **MCP Service** | 8321 | gRPC | 运行中 | PDF 文档处理微服务 |
-| **ETCD** | 2379 | HTTP | 运行中 | 微服务注册发现中心 |
-| **PostgreSQL** | 5432 | TCP | 运行中 | 主数据库 + 向量存储 |
-| **Redis** | 6379 | TCP | 运行中 | 会话状态机与异步任务队列 |
-| **Frontend** | 5000/80 | HTTP | 运行中 | Vue3 前端应用 |
-
-### 数据流向
-
-AI 对话流程：
-
-```
-用户输入 → Chat API → 检索向量数据库 (RAG) → 调用 OpenAI API → 流式返回 → 用户
-                  ↓
-         Redis (会话状态机)
+```text
+.
+├── api/
+│   ├── chat/                  # Chat API：SSE 面试对话、RAG 知识库
+│   └── user/                  # User API：认证、工作台、简历、报告、题库
+├── client/                    # Vue 3 + Vite 前端
+├── cmd/pdfparse/              # PDF 解析调试命令
+├── db/                        # PostgreSQL 初始化脚本
+├── internal/                  # 后端共享包
+├── mcp/                       # PDF 文本提取 gRPC 服务
+├── docker-compose.example.yml # 完整服务编排示例
+└── docker-compose.client.slim.yml
 ```
 
-文档上传流程：
+## 服务与端口
 
-```
-用户上传 PDF → Chat API → MCP 服务 (gRPC) → 文本提取 → 向量化 → PostgreSQL
-```
+| 服务 | 默认端口 | 说明 |
+|------|----------|------|
+| Frontend dev server | `3000` | Vite 开发服务器 |
+| Chat API | `8123` | `/api/ai/*`，SSE 对话与知识库 |
+| User API | `8124` | `/api/users/*`，认证、工作台、简历、报告 |
+| MCP local | `8080` | 本地 `mcp/etc/mcp.yaml` 默认 gRPC 端口 |
+| MCP docker | `8321` | `mcp/etc/docker.yaml` 默认 gRPC 端口 |
+| PostgreSQL | `5432` | 主库与 pgvector |
+| Redis | `6379` | token、会话和状态数据 |
+| ETCD | `2379` | GoZero 服务注册发现 |
 
-用户认证流程：
+## 配置准备
 
-```
-登录请求 → User API → 验证密码 → 生成 JWT + RefreshToken → Redis (白名单) → 返回令牌
-```
-
-异步任务流程（规划中）：
-
-```
-定时器触发 → Redis 任务队列 → 清理匿名用户对话数据 → PostgreSQL
-```
-
-> **说明**: User 模块开发完成后，将支持异步清理匿名用户的对话历史，优化存储空间。
-
----
-
-## 快速开始
-
-
-### 配置文件说明：
-
-接口契约与 `goctl` 再生规则以 [AGENTS.md](/mnt/d/go-project/gozero-ai/AGENTS.md) 的 `API 契约与生成边界` 章节和 `bash scripts/regenerate_api_contracts.sh` 为准，不再在 README 维护第二套生成说明。
-
-- `xxx.yaml`：开发环境的配置文件
-- `docker.yaml`：生产环境专用配置文件
-
-| 文件名                             | 用途                | 说明                                                         |
-| :--------------------------------- | ------------------- | :----------------------------------------------------------- |
-| api/chat/etc/chat.yaml             | 本地开发环境配置    | 用于本地调试，数据库和服务地址指向 localhost 或 127.0.0.1    |
-| api/chat/etc/docker.yaml           | Docker 容器环境配置 | 用于 Docker Compose 部署，服务地址使用 Docker 服务名（如 postgres、redis、mcp） |
-| api/chat/etc/chat.example.yaml     | 本地开发配置模板    | 脱敏的示例文件，需复制为 chat.yaml 并填入真实密钥            |
-| api/chat/etc/docker.example.yaml   | Docker 环境配置模板 | 脱敏的示例文件，需复制为 docker.yaml 并填入真实密钥          |
-| mcp/etc/mcp.yaml                   | 本地开发环境配置    | ETCD 地址指向 127.0.0.1:2379                                 |
-| mcp/etc/mcp.example.yaml           | 本地开发配置模板    | 脱敏的示例文件，需复制为 mcp.yaml 并填入 UniPDF 许可证       |
-| mcp/etc/docker.example.yaml        | Docker 环境配置模板 | 脱敏的示例文件，需复制为 docker.yaml                         |
-| api/user/etc/user-api.yaml         | 本地开发环境配置    | 包含 JWT 密钥和数据库连接信息                                |
-| api/user/etc/user-api.example.yaml | 配置模板            | 脱敏的示例文件                                               |
-| client/.env.development            | 开发环境变量        | API 地址通常为 `http://localhost:8123/api`                   |
-| client/.env.production             | 生产环境变量        | API 地址通常为相对路径/api（通过 Nginx 代理）                |
-| client/.env.example                | 环境变量模板        | 脱敏的示例文件，根据文件内容变更即可                         |
-| docker-compose.yml                 | 容器编排配置        | 定义所有服务的 Docker                                        |
-| docker-compose.example.yml         | 配置模板            | 脱敏的示例文件，需复制为 docker-compose.yml 并修改密码       |
-
----
-
-### 第一步：配置文件准备
-
-克隆项目后，需要根据 **example** 配置文件创建实际的配置文件，并填入你的密钥信息。
-
-必需的配置文件（将项目中的配置文件中 **example** 关键字移除，然后更改秘钥、密码等配置）：
+仓库只提交示例配置。首次运行前复制示例文件并填写数据库密码、JWT secret、模型 key、UniPDF license 等敏感配置。
 
 ```bash
-# 1. Chat API 配置（本地开发）
-cp api/chat/etc/chat.example.yaml api/chat/etc/chat.yaml
+cp docker-compose.example.yml docker-compose.yml
 
-# 2. Chat API 配置（Docker 环境）
+cp api/chat/etc/chat.example.yaml api/chat/etc/chat.yaml
 cp api/chat/etc/docker.example.yaml api/chat/etc/docker.yaml
 
-# 3. MCP 服务配置（本地开发）
-cp mcp/etc/mcp.example.yaml mcp/etc/mcp.yaml
+cp api/user/etc/user-api.example.yaml api/user/etc/user-api.yaml
+cp api/user/etc/docker.example.yaml api/user/etc/docker.yaml
 
-# 4. MCP 服务配置（Docker 环境）
+cp mcp/etc/mcp.example.yaml mcp/etc/mcp.yaml
 cp mcp/etc/docker.example.yaml mcp/etc/docker.yaml
 
-# 5. 前端环境变量
 cp client/.env.example client/.env.development
-cp client/.env.example client/.env.production
-
-# 6. Docker Compose 配置
-cp docker-compose.example.yml docker-compose.yml
 ```
 
-关键配置项，修改以下配置文件，填入你的密钥信息：
+请确认 `docker-compose.yml` 中的 `POSTGRES_USER`、`POSTGRES_PASSWORD`、`POSTGRES_DB` 与 `api/chat/etc/*.yaml`、`api/user/etc/*.yaml` 中的数据库连接配置保持一致。
 
-**`api/chat/etc/chat.yaml`** 或 **`api/chat/etc/docker.yaml`**:
+前端开发环境默认通过 Vite 代理访问后端：
 
-```yaml
-OpenAI:
-  ApiKeyFile: "~/.codex/auth.json"     # 可选：从 Codex auth 文件读取对话模型 key
-  ApiKeyJSONKey: "OPENAI_API_KEY"
-  BaseURL: "http://sub2api.aomanoh.com:18080/v1"
-  Model: "gpt-5.4"
+- `/api/users/*` 转发到 `http://127.0.0.1:8124`
+- `/api/ai/*` 转发到 `http://127.0.0.1:8123`
 
-Embedding:
-  ApiKey: "your-embedding-api-key"     # embedding 可与对话模型使用不同凭证
-  BaseURL: "https://dashscope.aliyuncs.com/compatible-mode/v1"
-  Model: "text-embedding-v2"
+如需修改代理目标，编辑 `client/.env.development`：
 
-VectorDB:
-  Password: "your-database-password"   # 替换为你的数据库密码
+```env
+VITE_API_BASE_URL=/api
+VITE_USER_API_BASE_URL=/api
+VITE_CHAT_API_BASE_URL=/api
+VITE_DEV_USER_PROXY_TARGET=http://127.0.0.1:8124
+VITE_DEV_CHAT_PROXY_TARGET=http://127.0.0.1:8123
 ```
 
-**`mcp/etc/mcp.yaml`** 或 **`mcp/etc/docker.yaml`**:
-```yaml
-# 请访问 https://unidoc.io 获取你自己的许可证
-# 如果不知道如何获取，请访问我的个人博客查看详细步骤
-UniPDFLicense: "your-unipdf-license"  # 替换为你的 UniPDF 许可证（可选）
-```
+## 本地开发启动
 
-**`docker-compose.yml`**:
-```yaml
-postgres:
-  environment:
-    POSTGRES_PASSWORD: your-database-password  # 替换为你的数据库密码
-```
+### 1. 启动基础依赖
 
----
-
-### 第二步：选择启动方式
-
-方式一：完全 Docker 启动（适合快速体验），使用 Docker Compose 一键启动所有服务：
+复制并确认 `docker-compose.yml` 后，可以只启动基础设施：
 
 ```bash
-# 启动所有服务（ETCD、Redis、PostgreSQL、MCP、Chat API、User API）
-docker-compose up -d
-
-# 查看服务状态
-docker-compose ps
-
-# 查看服务日志，如
-docker-compose logs -f api
-docker-compose logs -f mcp
-docker-compose logs -f user
+docker compose up -d etcd redis postgres
 ```
 
-**说明**:
-
-- 详细的 Docker 配置和故障排查请参考 Docker 官方文档或社区教程
-
----
-
-#### 方式二：混合启动（Docker 基础服务 + 本地应用，推荐）
-
-使用 Docker 运行 PostgreSQL 和 Redis，本地运行 Go 服务。这是笔者当前使用的方式。
-
-**步骤 1**: 启动 Docker 基础服务，如果不会就用 **docker desktop** 软件启动。不过需要配置一下国内代理。我的博客有写明配置操作。如果不用那个，就可以参考下面的操作（不保证正确）
+### 2. 启动 MCP 服务
 
 ```bash
-# 启动 PostgreSQL（带 pgvector 扩展）
-docker run -d \
-  --name postgres-vector \
-  -e POSTGRES_DB=gozero_ai_agent \
-  -e POSTGRES_USER=postgres \
-  -e POSTGRES_PASSWORD=your_password \
-  -p 5432:5432 \
-  pgvector/pgvector:pg15
-
-# 启动 Redis
-docker run -d \
-  --name my-redis \
-  -p 6379:6379 \
-  redis:alpine
-
-# 初始化数据库（首次运行）
-psql -h localhost -U postgres -d gozero_ai_agent -f db/init.sql
+go run mcp/mcp.go -f mcp/etc/mcp.yaml
 ```
 
-> 详细的 PostgreSQL + pgvector 和 Redis Docker 配置请查看**[博客文章](https://aomanoh.com/categories/2)**
-
-**步骤 2**: 本地启动应用服务
+### 3. 启动 Chat API
 
 ```bash
-# 终端 0：启动 ETCD 服务，这是启动微服务的前提（需要你先安装ETCD服务）
-etcd
+go run api/chat/chat.go -f api/chat/etc/chat.yaml
+```
 
-# 终端 1：启动 MCP 微服务
-cd mcp
-go run mcp.go -f etc/mcp.yaml
+### 4. 启动 User API
 
-# 终端 2：启动 Chat API 服务
-cd api/chat
-go run chat.go -f etc/chat.yaml
+```bash
+go run api/user/user.go -f api/user/etc/user-api.yaml
+```
 
-# 终端 3：启动前端（可选）
+### 5. 启动前端
+
+```bash
 cd client
-npm install  # 首次运行
+npm install
 npm run dev
 ```
 
-**访问地址**:
+默认访问地址：
 
-- Chat API: http://localhost:8123
-- 前端: http://localhost:5000
-
----
-
-#### 方式三：完全本地启动（适合深度调试）
-
-> 由于笔者没有下载过 PostgreSQL，所以笔者这里的说明只供参考。
-
-需要本地安装 Redis 和 PostgreSQL（含 pgvector 扩展）。
-
-**步骤 1**: 启动本地服务和 Docker ETCD
-
-```bash
-# 启动 Redis（根据你的 Redis 版本选择启动方式）
-# 微软维护的旧版本（3.x）: redis-server.exe redis.windows.conf
-# 高版本（3.x+）: redis-server.exe redis.conf
-
-# 启动 PostgreSQL（需预先安装 pgvector）
-# 创建数据库并初始化
-psql -U postgres -c "CREATE DATABASE gozero_ai_agent;"
-psql -U postgres -d gozero_ai_agent -c "CREATE EXTENSION vector;"
-psql -U postgres -d gozero_ai_agent -f db/init.sql
+```text
+http://localhost:3000
 ```
 
-**步骤 2**: 确保配置文件指向本地服务（127.0.0.1）
+## Docker Compose 启动
 
-**步骤 3**: 启动应用服务（同方式二）
-
----
-
-### 启动方式对比
-
-| 启动方式 | 优点 | 缺点 | 适用场景 |
-|---------|------|------|----------|
-| **完全 Docker** | 环境一致，一键启动 | 调试困难，资源占用高 | 快速体验、演示 |
-| **混合启动** | 易于调试，环境隔离 | 需要管理多个终端 | 日常开发（推荐）|
-| **完全本地** | 调试方便，资源占用少 | 环境配置复杂 | 深度调试 |
-
-> 作者使用混合模式，因为 PostgreSQL 和 Redis 配置稳定，使用 Docker 更方便。
-
----
-
-### 服务启动顺序
-
-无论选择哪种方式，都应按以下顺序启动：
-
-1. **ETCD** (端口 2379) - 服务注册中心（必需，MCP 服务依赖）
-2. **Redis** (端口 6379) - 会话状态机
-3. **PostgreSQL** (端口 5432) - 数据库 + 向量存储
-4. **MCP 微服务** (端口 8321) - PDF 处理（依赖 ETCD）
-5. **Chat API** (端口 8123) - 主服务
-6. **User API** (端口 8124) - 用户认证、会话工作台与私有简历上传
-7. **前端** (端口 5000) - 可选
-
-**重要提示**: ETCD 是 GoZero 微服务的服务注册中心，MCP 服务启动时需要向 ETCD 注册，因此 ETCD 必须先于 MCP 服务启动。如果没有本地 ETCD，建议使用 Docker 运行。
-
----
-
-## Docker-Compose 部署
-
-完整服务部署：
+准备好 `docker-compose.yml` 和各服务的 `docker.yaml` 后，可以直接启动完整服务栈：
 
 ```bash
-# 启动完整服务栈
-docker-compose up -d
-
-# 查看服务状态
-docker-compose ps
-
-# 查看服务日志
-docker-compose logs -f [service_name]
+docker compose up -d
 ```
 
-精简前端部署
+查看状态与日志：
 
 ```bash
-# 在完整服务编排上叠加前端 Nginx 服务
+docker compose ps
+docker compose logs -f api
+docker compose logs -f user
+docker compose logs -f mcp
+```
+
+如果只想叠加前端 Nginx 静态服务：
+
+```bash
+cd client
+npm install
+npm run build
+cd ..
 docker compose -f docker-compose.yml -f docker-compose.client.slim.yml up -d client
 ```
 
----
+`docker-compose.client.slim.yml` 默认把前端发布到宿主机 `8080` 端口。
 
-## 项目更新时重新部署注意事项
+## 主要 HTTP 接口
 
-### 前端热更新
+接口契约以 `api/chat/chat.api` 和 `api/user/user.api` 为准。
 
-+ 删除服务器中的 dist 目录
-+ 本地执行 `npm run build` 生成新的 dist，然后压缩文件
-+ 在本地终端里上传新的 dist.zip 到服务器中并解压，如：
-    + `scp 你想上传的本地文件路径 你的服务器用户名@你的服务器地址:你想上传的服务器文件指定位置`
-        + 如：`scp ./dist.zip "root@8.137.22.79:/opt/项目根目录/client"`
-    + 如果输入密码后提示找不到文件，那就两步走
-        + 先本地执行执行：`scp ./dist.zip root@120.79.123.45:~`
-        + 上传成功后在服务器终端里执行：`mv ~/dist.zip /opt/项目根目录/client/`
-    + 解压文件：`unzip dist.zip`
-+ 重启前端容器：`docker restart xxx-client`
-+ 注意：如果出现 **520/521** 的报错，可能是因为修改部署了后端后，重新挂载前端时，前端无法找到后端的 `compose` 文件导致。此时你可以执行：
-    + `docker compose -f docker-compose.yml -f docker-compose.client.slim.yml up -d client`
+### Chat API
 
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| `POST` | `/api/ai/interview_app/chat/sse` | 面试聊天 SSE |
+| `POST` | `/api/ai/knowledge/upload` | 上传知识库 PDF |
+| `POST` | `/api/ai/knowledge/text` | 导入知识库文本 |
+| `GET` | `/api/ai/knowledge/folders` | 查询知识库目录 |
+| `GET` | `/api/ai/knowledge/documents` | 查询知识库文档 |
+| `GET` | `/api/ai/knowledge/documents/:id/chunks` | 查询文档分块 |
+| `POST` | `/api/ai/knowledge/test-query` | RAG 检索测试 |
 
----
+### User API
 
-### 后端更新
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| `POST` | `/api/users/register` | 注册 |
+| `POST` | `/api/users/login` | 登录 |
+| `POST` | `/api/users/refresh` | 刷新 token |
+| `GET` | `/api/users/workbench/bootstrap` | 工作台聚合数据 |
+| `GET` | `/api/users/interview/questions` | 面试题列表 |
+| `POST` | `/api/users/sessions` | 创建面试会话 |
+| `GET` | `/api/users/sessions/:id/bootstrap` | 会话启动数据 |
+| `POST` | `/api/users/sessions/:id/finish` | 结束面试 |
+| `GET` | `/api/users/sessions/:id/report` | 单场报告 |
+| `POST` | `/api/users/resume/upload` | 上传简历 PDF |
+| `GET` | `/api/users/report-center/bootstrap` | 报告中心聚合数据 |
 
-+ 本地修改代码并提交到 github 仓库中
-+ 服务器执行 `docker-compose pull`，或者本地打包上传服务器后，替换掉旧文件。
-+ 服务器执行 `docker-compose build api（你的 docker-compose SERVICE）`，重新生成镜像文件。
-+ 服务器执行 `docker-compose up -d --no-deps api（你的 docker-compose SERVICE）`，重启并替换旧的服务容器，其他容器不会中断。
+## 前端路由
 
-+ 注意，不能删除容器，否则数据会丢失
+| 路由 | 页面 |
+|------|------|
+| `/` | 首页 |
+| `/login` | 登录 |
+| `/register` | 注册 |
+| `/chat` | AI 面试聊天 |
+| `/workbench` | 工作台 |
+| `/workbench/new` | 新建面试 |
+| `/workbench/bank` | 题库浏览 |
+| `/workbench/knowledge` | 知识库 |
+| `/workbench/resume` | 简历管理 |
+| `/workbench/reports` | 报告中心 |
 
----
+## 常用验证
 
-## 常见问题排查
+```bash
+go test ./...
 
-### 服务无法启动
-1. 检查端口是否被占用: `netstat -tulpn | grep [端口号]`
-2. 检查配置文件路径是否正确
-3. 验证依赖服务（Redis、PostgreSQL）是否正常运行
+cd client
+npm run build
+```
 
----
+## 安全说明
 
-### 数据库连接失败
-
-1. 确认 PostgreSQL 服务已启动
-2. 检查数据库连接参数
-3. 验证 pgvector 扩展是否已安装
-
----
-
-### API 调用失败
-1. 检查 OpenAI API Key 配置
-2. 验证网络连接
-3. 确认请求格式是否正确
-
----
-
-### 前端无法访问后端
-查看日志 `docker-compose -f docker-compose.yml -f docker-compose.client.slim.yml logs client` 定位并分析问题
-
----
-
-## 注意事项
-
-- 确保你的 key 足额。或者用自己搭建 gemini 轮询池服务
-- 更多详情请前往我的博客中查询有关信息
-
----
-
-## 关于这个项目
-
-本项目是我的毕业设计作品，在学习 GoZero 微服务和 AI 技术的过程中不断完善。虽然是个人学习项目，但我希望它能对其他学习者有所帮助。
-
-U1S1，虽然是个学习项目，但我希望它能帮到同样在学习的你。如果你：
-- 觉得某个想法不错，想提个 PR → 我会很开心 ~~~
-- 发现了 Bug 或有改进建议 → 非常欢迎 ~~
-- 觉得代码有些地方可以优化 → 请不吝赐教 ~
-- 如果觉得代码拉胯 -> 轻点喷，顺手再给我点优化建议 😭
-
-
-## 贡献指南
-
-欢迎提交 Issue 和 Pull Request 来帮助改进项目！
-
-### 如何贡献
-
-1. Fork 本仓库
-2. 创建你的特性分支 (`git checkout -b feature/AmazingFeature`)
-3. 提交你的修改 (`git commit -m 'Add some AmazingFeature'`)
-4. 推送到分支 (`git push origin feature/AmazingFeature`)
-5. 开启一个 Pull Request
-
-### 开发规范
-
-- 遵循现有代码风格
-- 添加必要的注释
-- 更新相关文档
-- 确保代码通过测试
-
----
+- 不要把真实 API Key、数据库密码、JWT secret、UniPDF license 提交到仓库。
+- `*.example.yaml` 和 `.env.example` 只用于说明配置结构。
+- 生产环境应使用环境变量、密钥管理服务或受控配置文件注入敏感信息。
 
 ## 许可证
 
-本项目采用 MIT 许可证 - 详见 [LICENSE](LICENSE) 文件
-
----
-
-## 联系方式
-
-- 个人博客: [https://aomanoh.com](https://aomanoh.com)
-- GitHub: [@AoManoh](https://github.com/AoManoh)
-- 邮箱: yangzsb1@gmail.com
-
----
-
-## 致谢
-
-- [GoZero](https://go-zero.dev/) - 微服务框架
-- [pgvector](https://github.com/pgvector/pgvector) - PostgreSQL 向量扩展
-- [UniPDF](https://unidoc.io/) - PDF 处理库
-- [Vue.js](https://vuejs.org/) - 前端框架
-
----
-
-**如果这个项目对你有帮助，请给一个 Star ⭐**
-
-
-
-
-
-  如果你想更像采访现场，不那么长，可以用这个 精简版：
-
-  我是四川人，平时会看一些足球比赛，但不是特别专业的球迷。2025年苏超火起来之前，我其实不太知道这个比赛，后来主要是在短视频平台和微博、B站
-  上刷到，才慢慢关注到。
-
-  后面让我更关注苏超，主要还是因为网上那些梗很有意思。像“比赛第一，友谊第十四”，还有“楚汉争霸”这些说法，会让人觉得这个比赛不只是看球，还能
-  看到城市文化和地域特色，传播度特别高。
-
-  如果说我印象最深的一个梗，我会选“楚汉争霸”。因为它把历史文化和比赛联系起来了，不只是好笑，而且很有记忆点。对我来说，苏超最有意思的地方就
-  是这个，比赛本身有看点，场外的话题和梗也很吸引人。
+本项目采用 MIT License，详见 `LICENSE`。
