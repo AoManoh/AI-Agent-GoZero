@@ -10,6 +10,7 @@ import (
 	"GoZero-AI/api/chat/internal/config"
 	"GoZero-AI/api/chat/internal/handler"
 	"GoZero-AI/api/chat/internal/svc"
+	"GoZero-AI/api/chat/internal/transport"
 )
 
 var configFile = flag.String("f", "etc/chat.yaml", "the config file")
@@ -19,6 +20,8 @@ func main() {
 
 	var c config.Config
 	conf.MustLoad(*configFile, &c)
+
+	transport.InstallErrorHandlers()
 
 	// 为所有响应附加通配 CORS 头，解决前端题型跨域失败错误提示
 	// "*" 在生产环境中存在安全风险，部署时应替换为具体的前端域名。

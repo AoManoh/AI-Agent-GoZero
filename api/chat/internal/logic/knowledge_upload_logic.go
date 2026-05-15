@@ -22,12 +22,17 @@ package logic
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"strings"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/zeromicro/go-zero/core/logx"
 
 	"GoZero-AI/api/chat/internal/svc"
 	"GoZero-AI/api/chat/internal/types"
 	"GoZero-AI/api/chat/internal/utils"
+	"GoZero-AI/internal/statuserr"
 )
 
 // KnowledgeUploadLogic RAG知识库上传业务逻辑处理器
@@ -112,17 +117,24 @@ func NewKnowledgeUploadLogic(ctx context.Context, svcCtx *svc.ServiceContext) *K
 //
 // 参数说明:
 //
-//	req: 知识上传请求，包含文档标题和从PDF提取的文本内容
+//	req: 知识上传内部输入，包含文档标题和从PDF提取的文本内容
 //
 // 返回值:
 //
-//	*types.KnowledgeUploadRes: 上传结果，包含成功消息和处理的知识块数量
+//	*types.KnowledgeUploadOutput: 上传结果，包含成功消息和处理的知识块数量
 //	error: 处理过程中的任何错误，包括分块失败、向量化失败、存储失败等
-func (l *KnowledgeUploadLogic) KnowledgeUpload(req *types.KnowledgeUploadReq) (*types.KnowledgeUploadRes, error) {
+func (l *KnowledgeUploadLogic) KnowledgeUpload(req *types.KnowledgeUploadInput) (*types.KnowledgeUploadOutput, error) {
+	if err := validateKnowledgeUploadInput(req); err != nil {
+		return nil, err
+	}
+
 	// 步骤1: 执行文档分块策略
 	// 根据VectorDB.Knowledge.MaxChunkSize配置将长文档分割为合适大小的片段
 	// 分块大小直接影响后续的向量化效果和检索精度
 	chunks := utils.SplitText(req.Content, l.svcCtx.Config.VectorDB.Knowledge.MaxChunkSize)
+	if len(chunks) == 0 {
+		return nil, fmt.Errorf("知识内容为空，无法分块保存")
+	}
 
 	// 调试日志：标记分块处理开始
 	logx.Infof("准备分块！！：\n")
@@ -130,8 +142,11 @@ func (l *KnowledgeUploadLogic) KnowledgeUpload(req *types.KnowledgeUploadReq) (*
 	// 步骤2: 批量存储知识块到向量数据库
 	// 遍历每个分块，逐一进行向量化和存储处理
 	// 采用原子操作，要么全部成功，要么全部失败。禁止上传一半失败，数据库里留下僵尸数据的情况
-	if err := l.svcCtx.VectorStore.SaveKnowledgeBatch(req.Title, chunks); err != nil {
+	if err := l.svcCtx.VectorStore.SaveKnowledgeBatchForUserContextWithMetaInFolder(l.ctx, req.Title, chunks, req.UserID, req.Source, req.FolderID); err != nil {
 		logx.Errorf("保存知识失败: %v", err)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, statuserr.NotFound("知识目录不存在或无权访问")
+		}
 		return nil, err
 	}
 
@@ -140,8 +155,28 @@ func (l *KnowledgeUploadLogic) KnowledgeUpload(req *types.KnowledgeUploadReq) (*
 
 	// 步骤3: 构造并返回成功响应
 	// 向上层返回处理结果，包含用户友好的消息和统计信息
-	return &types.KnowledgeUploadRes{
+	return &types.KnowledgeUploadOutput{
 		Msg:    "知识上传成功",    // 用户友好的成功提示信息
 		Chunks: len(chunks), // 实际处理的知识块数量，便于用户了解处理效果
 	}, nil
+}
+
+func validateKnowledgeUploadInput(req *types.KnowledgeUploadInput) error {
+	if req == nil {
+		return fmt.Errorf("知识上传请求不能为空")
+	}
+	if strings.TrimSpace(req.Title) == "" {
+		return fmt.Errorf("知识标题不能为空")
+	}
+	if strings.TrimSpace(req.Content) == "" {
+		return fmt.Errorf("知识内容不能为空")
+	}
+	if req.UserID <= 0 {
+		return fmt.Errorf("知识所有者不能为空")
+	}
+	if req.FolderID != nil && *req.FolderID <= 0 {
+		return fmt.Errorf("知识目录 ID 无效")
+	}
+
+	return nil
 }

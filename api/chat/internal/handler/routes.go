@@ -6,25 +6,80 @@ package handler
 import (
 	"net/http"
 
-	"github.com/zeromicro/go-zero/rest"
-
 	"GoZero-AI/api/chat/internal/svc"
+
+	"github.com/zeromicro/go-zero/rest"
 )
 
 func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 	server.AddRoutes(
 		[]rest.Route{
 			{
-				// Go 面试官聊天SSE流式接口
+				// Go 面试官聊天SSE流式接口，使用 multipart/form-data，并支持可选 file(PDF) part
 				Method:  http.MethodPost,
 				Path:    "/api/ai/interview_app/chat/sse",
 				Handler: ChatHandler(serverCtx),
 			},
 			{
-				// 知识库上传接口
+				// 知识库文档列表接口，匿名只读公共知识，登录后包含当前用户知识
+				Method:  http.MethodGet,
+				Path:    "/api/ai/knowledge/documents",
+				Handler: KnowledgeDocumentsHandler(serverCtx),
+			},
+			{
+				// 知识库文档分块预览接口
+				Method:  http.MethodGet,
+				Path:    "/api/ai/knowledge/documents/:id/chunks",
+				Handler: KnowledgeDocumentChunksHandler(serverCtx),
+			},
+			{
+				// 知识库文档移动目录接口，要求登录态 Bearer token，folderId=0 表示移出目录
+				Method:  http.MethodPatch,
+				Path:    "/api/ai/knowledge/documents/:id/folder",
+				Handler: KnowledgeMoveDocumentFolderHandler(serverCtx),
+			},
+			{
+				// 知识库目录列表接口，要求登录态 Bearer token
+				Method:  http.MethodGet,
+				Path:    "/api/ai/knowledge/folders",
+				Handler: KnowledgeFoldersHandler(serverCtx),
+			},
+			{
+				// 知识库目录创建接口，要求登录态 Bearer token
+				Method:  http.MethodPost,
+				Path:    "/api/ai/knowledge/folders",
+				Handler: KnowledgeCreateFolderHandler(serverCtx),
+			},
+			{
+				// 知识库目录更新接口，要求登录态 Bearer token
+				Method:  http.MethodPatch,
+				Path:    "/api/ai/knowledge/folders/:id",
+				Handler: KnowledgeUpdateFolderHandler(serverCtx),
+			},
+			{
+				// 知识库目录删除接口，要求登录态 Bearer token；只允许删除空目录
+				Method:  http.MethodDelete,
+				Path:    "/api/ai/knowledge/folders/:id",
+				Handler: KnowledgeDeleteFolderHandler(serverCtx),
+			},
+			{
+				// 知识库测试召回接口，用于管理页验证 TopK 检索命中
+				Method:  http.MethodPost,
+				Path:    "/api/ai/knowledge/test-query",
+				Handler: KnowledgeTestQueryHandler(serverCtx),
+			},
+			{
+				// 公共知识库文本资料包导入接口，使用 JSON，要求管理员 Bearer token
+				Method:  http.MethodPost,
+				Path:    "/api/ai/knowledge/text",
+				Handler: KnowledgeTextUploadHandler(serverCtx),
+			},
+			{
+				// 知识库 PDF 上传接口，使用 multipart/form-data，要求 file(PDF) part 与登录态 Bearer token；admin(user_id=1) 上传 → visibility=public，普通 user 上传 → visibility=private（2026-05-12 Q7=B 角色路由）
 				Method:  http.MethodPost,
 				Path:    "/api/ai/knowledge/upload",
 				Handler: KnowledgeUploadHandler(serverCtx),
 			},
-		})
+		},
+	)
 }

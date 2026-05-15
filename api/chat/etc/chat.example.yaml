@@ -4,10 +4,17 @@ Port: 8123
 Timeout: 0 # 禁用超时，因为流式输出需要持久输出，如果启用超时断开的话，可能会影响服务的稳定性
 MaxBytes: 52428800 # 允许最大 50MB 的请求体
 
+Auth:
+  AccessSecret: "your-user-access-secret" # 需与 user 服务保持一致；不强制路由鉴权，仅用于解析可选 Bearer token
+
 OpenAI:
-  ApiKey: "your-openai-api-key-here"
-  BaseURL: "https://api.openai.com/v1"
-  Model: "gpt-4"
+  # 对话模型可以使用明文、环境变量或 JSON 文件三种方式提供 key。
+  # ApiKey: "your-openai-api-key-here"
+  # ApiKeyEnv: "OPENAI_API_KEY"
+  ApiKeyFile: "~/.codex/auth.json"
+  ApiKeyJSONKey: "OPENAI_API_KEY"
+  BaseURL: "http://sub2api.aomanoh.com:18080/v1"
+  Model: "gpt-5.4"
 
   # 或使用阿里云千问模型
   # ApiKey: "your-dashscope-api-key"
@@ -19,8 +26,21 @@ OpenAI:
   # BaseURL: "https://your-api-endpoint/v1"
   # Model: "your-model-name"
 
-  MaxCompletionTokens: 2048           # 最大token数，注意，原 MaxTokens 已废弃
-  Temperature: 0.75          # 温度参数
+  MaxCompletionTokens: 768            # 最大token数，注意，原 MaxTokens 已废弃；正式面试由流式预算守卫进一步限制可见内容
+  Temperature: 1.0          # gpt-5.4 等 beta 模型要求 temperature=1
+
+StateTransition:
+  Enabled: true
+  # 默认继承 OpenAI 的 ApiKey/BaseURL/Model；如需独立厂商，可在本块单独声明 ApiKey/BaseURL/Model。
+  MaxCompletionTokens: 128
+  Temperature: 1.0
+  ReasoningEffort: "low"
+  TimeoutMillis: 3000
+
+Embedding:
+  ApiKey: "your-dashscope-api-key"
+  BaseURL: "https://dashscope.aliyuncs.com/compatible-mode/v1"
+  Model: "text-embedding-v2"
 
 # 向量数据库配置
 VectorDB:
@@ -31,7 +51,7 @@ VectorDB:
   Password: "your-database-password"
   Table: "vector_store"
   MaxConn: 20       # 最大连接数
-  EmbeddingModel: "text-embedding-v1" # 千问嵌入模型
+  EmbeddingModel: "text-embedding-v2" # 千问嵌入模型，固定 1536 维
   # EmbeddingModel: "text-embedding-3-small" # OpenAI 嵌入模型
   TimeZone: "Asia/Shanghai"
   # 更新 RAG 本地知识库配置
@@ -43,6 +63,8 @@ VectorDB:
 # MCP 服务配置
 MCP:
   Endpoint: 127.0.0.1:8080 # MCP服务地址
+  AuthToken: "your-mcp-auth-token"
+  MaxUploadBytes: 52428800
 
 # Redis 配置
 Redis:

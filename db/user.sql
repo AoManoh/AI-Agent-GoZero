@@ -1,5 +1,5 @@
 -- =================================================================
--- 数据库安全升级脚本 v4 (非破坏性, 已修复索引兼容性问题)
+-- 数据库安全升级脚本 v5 (非破坏性, 兼容旧 embedding 存储形态)
 -- 功能：在保留现有数据的基础上，升级表结构并为所有字段添加注释。
 -- =================================================================
 
@@ -27,19 +27,156 @@ DO $$
     BEGIN
         IF NOT EXISTS (SELECT 1 FROM "public"."users" WHERE id = 1) THEN
             PERFORM setval(pg_get_serial_sequence('public.users', 'id'), 1, false);
-            INSERT INTO "public"."users" (id, username, password_hash) VALUES (1, 'your_username', MD5('your_password')); -- 请替换为真实的哈希密码
+            INSERT INTO "public"."users" (id, username, password_hash) VALUES (1, 'your_username', '$2a$10$b1r0Ng24On7XGaHKvOuzmOzr3do5f4Y7wmqvUidhDrO3Ujpw3XwYq'); -- 占位密码 your_password 的 bcrypt 哈希，部署前请替换
         END IF;
     END $$;
+
+-- ----------------------------
+-- 步骤 1.1: 创建知识库目录表
+-- ----------------------------
+CREATE TABLE IF NOT EXISTS "public"."knowledge_folders" (
+                                                            "id" BIGSERIAL PRIMARY KEY,
+                                                            "user_id" BIGINT NOT NULL REFERENCES "public"."users"("id") ON DELETE CASCADE,
+                                                            "parent_id" BIGINT REFERENCES "public"."knowledge_folders"("id") ON DELETE SET NULL,
+                                                            "name" VARCHAR(80) NOT NULL,
+                                                            "path" VARCHAR(500) NOT NULL DEFAULT '',
+                                                            "depth" INTEGER NOT NULL DEFAULT 0 CHECK ("depth" >= 0 AND "depth" <= 2),
+                                                            "sort_order" INTEGER NOT NULL DEFAULT 0,
+                                                            "created_at" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                                                            "updated_at" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                                                            CHECK (btrim("name") <> ''),
+                                                            CHECK ("parent_id" IS NULL OR "parent_id" <> "id")
+);
+
+ALTER TABLE "public"."knowledge_folders" ADD COLUMN IF NOT EXISTS "path" VARCHAR(500) NOT NULL DEFAULT '';
+ALTER TABLE "public"."knowledge_folders" ADD COLUMN IF NOT EXISTS "depth" INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE "public"."knowledge_folders" ALTER COLUMN "name" TYPE VARCHAR(80);
+UPDATE "public"."knowledge_folders"
+SET "path" = CASE WHEN btrim(coalesce("path", '')) = '' THEN '/' || btrim("name") ELSE "path" END,
+    "depth" = GREATEST(0, LEAST("depth", 2))
+WHERE btrim(coalesce("path", '')) = '' OR "depth" < 0 OR "depth" > 2;
+
+DO $$
+    DECLARE
+        parent_constraint text;
+    BEGIN
+        SELECT c.conname
+        INTO parent_constraint
+        FROM pg_constraint c
+        JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = ANY(c.conkey)
+        WHERE c.conrelid = '"public"."knowledge_folders"'::regclass
+          AND c.contype = 'f'
+          AND a.attname = 'parent_id'
+        LIMIT 1;
+        IF parent_constraint IS NOT NULL THEN
+            EXECUTE format('ALTER TABLE "public"."knowledge_folders" DROP CONSTRAINT %I', parent_constraint);
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_knowledge_folders_parent_id') THEN
+            ALTER TABLE "public"."knowledge_folders"
+                ADD CONSTRAINT fk_knowledge_folders_parent_id
+                    FOREIGN KEY (parent_id) REFERENCES "public"."knowledge_folders"(id) ON DELETE SET NULL;
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'chk_knowledge_folders_depth') THEN
+            ALTER TABLE "public"."knowledge_folders"
+                ADD CONSTRAINT chk_knowledge_folders_depth CHECK ("depth" >= 0 AND "depth" <= 2);
+        END IF;
+    END $$;
+
+CREATE INDEX IF NOT EXISTS idx_knowledge_folders_user_parent_sort ON "public"."knowledge_folders" (user_id, parent_id, sort_order, id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_knowledge_folders_user_parent_name ON "public"."knowledge_folders" (user_id, COALESCE(parent_id, 0), lower(name));
+CREATE INDEX IF NOT EXISTS idx_knowledge_folders_user_path ON "public"."knowledge_folders" (user_id, path);
+
+COMMENT ON TABLE "public"."knowledge_folders" IS '存储用户私有知识库目录树';
+COMMENT ON COLUMN "public"."knowledge_folders"."id" IS '知识库目录的唯一标识符 (主键)';
+COMMENT ON COLUMN "public"."knowledge_folders"."user_id" IS '目录所属用户 ID';
+COMMENT ON COLUMN "public"."knowledge_folders"."parent_id" IS '父目录 ID，NULL 表示根目录';
+COMMENT ON COLUMN "public"."knowledge_folders"."name" IS '目录名称';
+COMMENT ON COLUMN "public"."knowledge_folders"."path" IS '目录完整路径，例如 /岗位画像/Java 后端，由后端维护';
+COMMENT ON COLUMN "public"."knowledge_folders"."depth" IS '目录深度：0=顶级，1=二级，2=三级';
+COMMENT ON COLUMN "public"."knowledge_folders"."sort_order" IS '同级目录排序权重';
+COMMENT ON COLUMN "public"."knowledge_folders"."created_at" IS '目录创建时间戳';
+COMMENT ON COLUMN "public"."knowledge_folders"."updated_at" IS '目录最近更新时间';
 
 
 -- ----------------------------
 -- 步骤 2: 升级 `knowledge_base` 表
 -- ----------------------------
 -- 2.1: 新增 user_id 字段，并假设所有现有知识都属于管理员(id=1)
-ALTER TABLE "public"."knowledge_base" ADD COLUMN IF NOT EXISTS "user_id" BIGINT NOT NULL DEFAULT 1;
+ALTER TABLE "public"."knowledge_base" ADD COLUMN IF NOT EXISTS "user_id" BIGINT;
+UPDATE "public"."knowledge_base" SET "user_id" = 1 WHERE "user_id" IS NULL;
+ALTER TABLE "public"."knowledge_base" ALTER COLUMN "user_id" SET DEFAULT 1;
+ALTER TABLE "public"."knowledge_base" ALTER COLUMN "user_id" SET NOT NULL;
+ALTER TABLE "public"."knowledge_base" ADD COLUMN IF NOT EXISTS "folder_id" BIGINT;
 
 -- 2.2: 将 embedding 字段从 JSONB 转换为 vector
-ALTER TABLE "public"."knowledge_base" ALTER COLUMN "embedding" TYPE vector(1536) USING ("embedding"::text::vector);
+DO $$
+    DECLARE
+        embedding_udt text;
+        array_rows bigint;
+        string_rows bigint;
+        other_rows bigint;
+        existing_dims integer;
+        distinct_dims integer;
+    BEGIN
+        SELECT udt_name
+        INTO embedding_udt
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'knowledge_base'
+          AND column_name = 'embedding';
+
+        IF embedding_udt = 'jsonb' THEN
+            SELECT COUNT(*) FILTER (WHERE jsonb_typeof(embedding) = 'array'),
+                   COUNT(*) FILTER (WHERE jsonb_typeof(embedding) = 'string'),
+                   COUNT(*) FILTER (WHERE jsonb_typeof(embedding) NOT IN ('array', 'string'))
+            INTO array_rows, string_rows, other_rows
+            FROM "public"."knowledge_base"
+            WHERE embedding IS NOT NULL;
+
+            IF array_rows = 0 AND string_rows = 0 THEN
+                ALTER TABLE "public"."knowledge_base"
+                    ALTER COLUMN "embedding" TYPE vector(1536) USING ("embedding"::text::vector);
+            ELSIF array_rows > 0 AND string_rows = 0 AND other_rows = 0 THEN
+                SELECT COUNT(DISTINCT jsonb_array_length(embedding)),
+                       COALESCE(MAX(jsonb_array_length(embedding)), 1536)
+                INTO distinct_dims, existing_dims
+                FROM "public"."knowledge_base"
+                WHERE embedding IS NOT NULL;
+
+                IF distinct_dims > 1 THEN
+                    RAISE NOTICE 'skip converting knowledge_base.embedding: inconsistent vector dimensions in existing jsonb array data';
+                ELSIF existing_dims = 1536 THEN
+                    ALTER TABLE "public"."knowledge_base"
+                        ALTER COLUMN "embedding" TYPE vector(1536) USING ("embedding"::text::vector);
+                ELSE
+                    RAISE NOTICE 'skip converting knowledge_base.embedding: existing dimension % does not match expected 1536', existing_dims;
+                END IF;
+            ELSIF string_rows > 0 AND array_rows = 0 AND other_rows = 0 THEN
+                BEGIN
+                    SELECT COUNT(DISTINCT jsonb_array_length((convert_from(decode(trim(both '"' from embedding::text), 'base64'), 'UTF8'))::jsonb)),
+                           COALESCE(MAX(jsonb_array_length((convert_from(decode(trim(both '"' from embedding::text), 'base64'), 'UTF8'))::jsonb)), 1536)
+                    INTO distinct_dims, existing_dims
+                    FROM "public"."knowledge_base"
+                    WHERE embedding IS NOT NULL;
+
+                    IF distinct_dims > 1 THEN
+                        RAISE NOTICE 'skip converting knowledge_base.embedding: inconsistent vector dimensions in base64 jsonb string data';
+                    ELSIF existing_dims = 1536 THEN
+                        ALTER TABLE "public"."knowledge_base"
+                            ALTER COLUMN "embedding" TYPE vector(1536)
+                            USING ((convert_from(decode(trim(both '"' from embedding::text), 'base64'), 'UTF8'))::vector);
+                    ELSE
+                        RAISE NOTICE 'skip converting knowledge_base.embedding: existing base64 dimension % does not match expected 1536', existing_dims;
+                    END IF;
+                EXCEPTION
+                    WHEN OTHERS THEN
+                        RAISE NOTICE 'skip converting knowledge_base.embedding: unsupported jsonb string payload: %', SQLERRM;
+                END;
+            ELSE
+                RAISE NOTICE 'skip converting knowledge_base.embedding: mixed jsonb payload shapes detected';
+            END IF;
+        END IF;
+    END $$;
 
 
 -- 2.3: 添加外键约束 (如果不存在)
@@ -50,21 +187,87 @@ DO $$
         END IF;
     END $$;
 
+DO $$
+    DECLARE
+        kb_folder_constraint text;
+    BEGIN
+        SELECT c.conname
+        INTO kb_folder_constraint
+        FROM pg_constraint c
+        JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = ANY(c.conkey)
+        WHERE c.conrelid = '"public"."knowledge_base"'::regclass
+          AND c.contype = 'f'
+          AND a.attname = 'folder_id'
+        LIMIT 1;
+        IF kb_folder_constraint IS NOT NULL THEN
+            EXECUTE format('ALTER TABLE "public"."knowledge_base" DROP CONSTRAINT %I', kb_folder_constraint);
+        END IF;
+        ALTER TABLE "public"."knowledge_base"
+            ADD CONSTRAINT fk_kb_folder_id
+                FOREIGN KEY (folder_id) REFERENCES "public"."knowledge_folders"(id) ON DELETE SET NULL;
+    END $$;
+
 -- 2.4: 更新索引 (使用 DROP IF EXISTS + CREATE 模式)
 DROP INDEX IF EXISTS idx_knowledge_base_title;
 DROP INDEX IF EXISTS idx_kb_user_id;
+ALTER TABLE "public"."knowledge_base" ADD COLUMN IF NOT EXISTS "source" TEXT NOT NULL DEFAULT '';
+ALTER TABLE "public"."knowledge_base" ADD COLUMN IF NOT EXISTS "visibility" VARCHAR(32) NOT NULL DEFAULT 'public';
+ALTER TABLE "public"."knowledge_base" ADD COLUMN IF NOT EXISTS "status" VARCHAR(32) NOT NULL DEFAULT 'ready';
+ALTER TABLE "public"."knowledge_base" ADD COLUMN IF NOT EXISTS "version" BIGINT NOT NULL DEFAULT 1;
+ALTER TABLE "public"."knowledge_base" ADD COLUMN IF NOT EXISTS "content_hash" VARCHAR(64);
+ALTER TABLE "public"."knowledge_base" ADD COLUMN IF NOT EXISTS "updated_at" TIMESTAMPTZ NOT NULL DEFAULT now();
+UPDATE "public"."knowledge_base"
+SET "visibility" = CASE WHEN user_id = 1 THEN 'public' ELSE 'private' END
+WHERE "visibility" IS NULL OR btrim("visibility") = '';
+UPDATE "public"."knowledge_base"
+SET "status" = 'ready'
+WHERE "status" IS NULL OR btrim("status") = '';
+UPDATE "public"."knowledge_base"
+SET "version" = 1
+WHERE "version" IS NULL OR "version" <= 0;
+UPDATE "public"."knowledge_base"
+SET "updated_at" = COALESCE("updated_at", "created_at", now())
+WHERE "updated_at" IS NULL;
 CREATE INDEX idx_kb_user_id ON "public"."knowledge_base" (user_id);
+CREATE INDEX IF NOT EXISTS idx_kb_folder_id ON "public"."knowledge_base" (folder_id);
+DROP INDEX IF EXISTS idx_kb_document_identity;
+CREATE INDEX idx_kb_document_identity ON "public"."knowledge_base" (user_id, title, source, version);
+DROP INDEX IF EXISTS idx_kb_visibility_status;
+CREATE INDEX idx_kb_visibility_status ON "public"."knowledge_base" (visibility, status, updated_at DESC);
 DROP INDEX IF EXISTS idx_kb_embedding;
-CREATE INDEX idx_kb_embedding ON "public"."knowledge_base" USING hnsw (embedding vector_l2_ops);
+DO $$
+    DECLARE
+        embedding_udt text;
+    BEGIN
+        SELECT udt_name
+        INTO embedding_udt
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'knowledge_base'
+          AND column_name = 'embedding';
+
+        IF embedding_udt = 'vector' THEN
+            CREATE INDEX idx_kb_embedding ON "public"."knowledge_base" USING hnsw (embedding vector_l2_ops);
+        ELSE
+            RAISE NOTICE 'skip creating idx_kb_embedding: knowledge_base.embedding is still %', embedding_udt;
+        END IF;
+    END $$;
 
 -- 2.5: 为 knowledge_base 表的所有字段添加/更新注释
 COMMENT ON TABLE "public"."knowledge_base" IS '存储可复用的RAG数据源，包括公共和私有知识';
 COMMENT ON COLUMN "public"."knowledge_base"."id" IS '知识条目的唯一标识符 (主键)';
 COMMENT ON COLUMN "public"."knowledge_base"."user_id" IS '知识的所有者ID。业务约定 user_id = 1 为管理员上传的公共知识。';
+COMMENT ON COLUMN "public"."knowledge_base"."folder_id" IS '知识条目所属目录 ID，NULL 表示未归类；删除目录时应用层先提升文档，DB 层 ON DELETE SET NULL 兜底。';
 COMMENT ON COLUMN "public"."knowledge_base"."title" IS '知识条目的标题，便于管理和识别';
 COMMENT ON COLUMN "public"."knowledge_base"."content" IS '知识条目的原始文本内容';
 COMMENT ON COLUMN "public"."knowledge_base"."embedding" IS '由文本内容生成的高维向量，用于相似度检索';
+COMMENT ON COLUMN "public"."knowledge_base"."source" IS '知识来源，例如 PDF 文件名、Grok Search MCP 或手工资料包';
+COMMENT ON COLUMN "public"."knowledge_base"."visibility" IS '知识可见性，当前支持 public/private';
+COMMENT ON COLUMN "public"."knowledge_base"."status" IS '知识条目状态，例如 ready/failed/archived';
+COMMENT ON COLUMN "public"."knowledge_base"."version" IS '同一 user_id + title + source 知识来源的上传批次版本号';
+COMMENT ON COLUMN "public"."knowledge_base"."content_hash" IS '知识内容哈希，用于后续去重和重建索引';
 COMMENT ON COLUMN "public"."knowledge_base"."created_at" IS '知识条目的创建时间戳';
+COMMENT ON COLUMN "public"."knowledge_base"."updated_at" IS '知识条目的最近更新时间';
 
 
 -- ----------------------------
@@ -76,17 +279,90 @@ ALTER TABLE "public"."vector_store" ADD COLUMN IF NOT EXISTS "user_id" BIGINT DE
 -- 3.2: 将旧的 source_type 字段重命名为 doc_type (如果存在)
 DO $$
     BEGIN
-        IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='vector_store' AND column_name='source_type') THEN
+        IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='vector_store' AND column_name='source_type')
+           AND NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='vector_store' AND column_name='doc_type') THEN
             ALTER TABLE "public"."vector_store" RENAME COLUMN "source_type" TO "doc_type";
         END IF;
     END $$;
 
 -- 3.2.1: 为 doc_type 设置默认值
+ALTER TABLE "public"."vector_store" ADD COLUMN IF NOT EXISTS "doc_type" VARCHAR(50);
+UPDATE "public"."vector_store"
+SET "doc_type" = COALESCE(NULLIF(btrim("doc_type"), ''), 'message')
+WHERE "doc_type" IS NULL OR btrim("doc_type") = '';
 ALTER TABLE "public"."vector_store" ALTER COLUMN "doc_type" SET DEFAULT 'message';
+ALTER TABLE "public"."vector_store" ALTER COLUMN "doc_type" SET NOT NULL;
 
 
 -- 3.3: 将 embedding 字段从 JSONB 转换为 vector
-ALTER TABLE "public"."vector_store" ALTER COLUMN "embedding" TYPE vector(1536) USING ("embedding"::text::vector);
+DO $$
+    DECLARE
+        embedding_udt text;
+        array_rows bigint;
+        string_rows bigint;
+        other_rows bigint;
+        existing_dims integer;
+        distinct_dims integer;
+    BEGIN
+        SELECT udt_name
+        INTO embedding_udt
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'vector_store'
+          AND column_name = 'embedding';
+
+        IF embedding_udt = 'jsonb' THEN
+            SELECT COUNT(*) FILTER (WHERE jsonb_typeof(embedding) = 'array'),
+                   COUNT(*) FILTER (WHERE jsonb_typeof(embedding) = 'string'),
+                   COUNT(*) FILTER (WHERE jsonb_typeof(embedding) NOT IN ('array', 'string'))
+            INTO array_rows, string_rows, other_rows
+            FROM "public"."vector_store"
+            WHERE embedding IS NOT NULL;
+
+            IF array_rows = 0 AND string_rows = 0 THEN
+                ALTER TABLE "public"."vector_store"
+                    ALTER COLUMN "embedding" TYPE vector(1536) USING ("embedding"::text::vector);
+            ELSIF array_rows > 0 AND string_rows = 0 AND other_rows = 0 THEN
+                SELECT COUNT(DISTINCT jsonb_array_length(embedding)),
+                       COALESCE(MAX(jsonb_array_length(embedding)), 1536)
+                INTO distinct_dims, existing_dims
+                FROM "public"."vector_store"
+                WHERE embedding IS NOT NULL;
+
+                IF distinct_dims > 1 THEN
+                    RAISE NOTICE 'skip converting vector_store.embedding: inconsistent vector dimensions in existing jsonb array data';
+                ELSIF existing_dims = 1536 THEN
+                    ALTER TABLE "public"."vector_store"
+                        ALTER COLUMN "embedding" TYPE vector(1536) USING ("embedding"::text::vector);
+                ELSE
+                    RAISE NOTICE 'skip converting vector_store.embedding: existing dimension % does not match expected 1536', existing_dims;
+                END IF;
+            ELSIF string_rows > 0 AND array_rows = 0 AND other_rows = 0 THEN
+                BEGIN
+                    SELECT COUNT(DISTINCT jsonb_array_length((convert_from(decode(trim(both '"' from embedding::text), 'base64'), 'UTF8'))::jsonb)),
+                           COALESCE(MAX(jsonb_array_length((convert_from(decode(trim(both '"' from embedding::text), 'base64'), 'UTF8'))::jsonb)), 1536)
+                    INTO distinct_dims, existing_dims
+                    FROM "public"."vector_store"
+                    WHERE embedding IS NOT NULL;
+
+                    IF distinct_dims > 1 THEN
+                        RAISE NOTICE 'skip converting vector_store.embedding: inconsistent vector dimensions in base64 jsonb string data';
+                    ELSIF existing_dims = 1536 THEN
+                        ALTER TABLE "public"."vector_store"
+                            ALTER COLUMN "embedding" TYPE vector(1536)
+                            USING ((convert_from(decode(trim(both '"' from embedding::text), 'base64'), 'UTF8'))::vector);
+                    ELSE
+                        RAISE NOTICE 'skip converting vector_store.embedding: existing base64 dimension % does not match expected 1536', existing_dims;
+                    END IF;
+                EXCEPTION
+                    WHEN OTHERS THEN
+                        RAISE NOTICE 'skip converting vector_store.embedding: unsupported jsonb string payload: %', SQLERRM;
+                END;
+            ELSE
+                RAISE NOTICE 'skip converting vector_store.embedding: mixed jsonb payload shapes detected';
+            END IF;
+        END IF;
+    END $$;
 
 -- 3.4: 添加外键约束 (如果不存在)
 DO $$
@@ -103,12 +379,30 @@ CREATE INDEX idx_vs_user_id_type ON "public"."vector_store" (user_id, doc_type);
 -- 用于快速加载和回放特定会话的上下文
 DROP INDEX IF EXISTS idx_vs_chat_id;
 CREATE INDEX idx_vs_chat_id ON "public"."vector_store" (chat_id);
+DROP INDEX IF EXISTS idx_vs_chat_user_type;
+CREATE INDEX idx_vs_chat_user_type ON "public"."vector_store" (chat_id, user_id, doc_type);
 -- 【新增】用于按时间排序和高效地执行定期的数据清理任务
 DROP INDEX IF EXISTS idx_vs_created_at;
 CREATE INDEX idx_vs_created_at ON "public"."vector_store" (created_at DESC);
 -- 用于高性能向量相似度搜索
 DROP INDEX IF EXISTS idx_vs_embedding;
-CREATE INDEX idx_vs_embedding ON "public"."vector_store" USING hnsw (embedding vector_l2_ops);
+DO $$
+    DECLARE
+        embedding_udt text;
+    BEGIN
+        SELECT udt_name
+        INTO embedding_udt
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'vector_store'
+          AND column_name = 'embedding';
+
+        IF embedding_udt = 'vector' THEN
+            CREATE INDEX idx_vs_embedding ON "public"."vector_store" USING hnsw (embedding vector_l2_ops);
+        ELSE
+            RAISE NOTICE 'skip creating idx_vs_embedding: vector_store.embedding is still %', embedding_udt;
+        END IF;
+    END $$;
 
 
 -- 3.6: 为 vector_store 表的所有字段添加/更新注释
@@ -121,6 +415,668 @@ COMMENT ON COLUMN "public"."vector_store"."content" IS '消息或文档（如简
 COMMENT ON COLUMN "public"."vector_store"."embedding" IS '文本内容的向量化表示';
 COMMENT ON COLUMN "public"."vector_store"."doc_type" IS '文档类型，区分为 "message" (对话消息) 和 "resume" (简历内容)';
 COMMENT ON COLUMN "public"."vector_store"."created_at" IS '记录的创建时间戳，可用于TTL清理';
+
+
+-- ----------------------------
+-- 步骤 4: 正式化 `chat_sessions` 表
+-- ----------------------------
+CREATE TABLE IF NOT EXISTS "public"."chat_sessions" (
+                                                        "id" BIGSERIAL PRIMARY KEY,
+                                                        "session_id" VARCHAR(64) UNIQUE NOT NULL,
+                                                        "user_id" BIGINT NOT NULL,
+                                                        "title" VARCHAR(200) NOT NULL DEFAULT '新对话',
+                                                        "mode" VARCHAR(64) NOT NULL DEFAULT 'Interview',
+                                                        "created_at" TIMESTAMPTZ NOT NULL DEFAULT now(),
+                                                        "updated_at" TIMESTAMPTZ NOT NULL DEFAULT now(),
+                                                        "last_message_at" TIMESTAMPTZ,
+                                                        "message_count" INTEGER NOT NULL DEFAULT 0,
+                                                        "is_active" BOOLEAN NOT NULL DEFAULT true
+);
+
+DO $$
+    BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_chat_sessions_user_id') THEN
+            ALTER TABLE "public"."chat_sessions"
+                ADD CONSTRAINT fk_chat_sessions_user_id
+                    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
+        END IF;
+    END $$;
+
+DROP INDEX IF EXISTS idx_chat_sessions_session_id;
+CREATE UNIQUE INDEX idx_chat_sessions_session_id ON "public"."chat_sessions" (session_id);
+ALTER TABLE "public"."chat_sessions" ADD COLUMN IF NOT EXISTS "mode" VARCHAR(64);
+UPDATE "public"."chat_sessions"
+SET "mode" = 'Interview'
+WHERE "mode" IS NULL OR btrim("mode") = '';
+ALTER TABLE "public"."chat_sessions" ALTER COLUMN "mode" SET NOT NULL;
+ALTER TABLE "public"."chat_sessions" ALTER COLUMN "mode" SET DEFAULT 'Interview';
+ALTER TABLE "public"."chat_sessions" ADD COLUMN IF NOT EXISTS "direction_key" VARCHAR(64) NOT NULL DEFAULT 'go_backend';
+ALTER TABLE "public"."chat_sessions" ADD COLUMN IF NOT EXISTS "direction_label" VARCHAR(80) NOT NULL DEFAULT 'Go 后端';
+ALTER TABLE "public"."chat_sessions" ADD COLUMN IF NOT EXISTS "difficulty_level" INTEGER NOT NULL DEFAULT 3;
+ALTER TABLE "public"."chat_sessions" ADD COLUMN IF NOT EXISTS "difficulty_label" VARCHAR(32) NOT NULL DEFAULT '中级';
+ALTER TABLE "public"."chat_sessions" ADD COLUMN IF NOT EXISTS "interviewer_style" VARCHAR(64) NOT NULL DEFAULT 'senior';
+ALTER TABLE "public"."chat_sessions" ADD COLUMN IF NOT EXISTS "interviewer_style_label" VARCHAR(80) NOT NULL DEFAULT '资深技术官';
+ALTER TABLE "public"."chat_sessions" ADD COLUMN IF NOT EXISTS "focus_areas" JSONB NOT NULL DEFAULT '[]'::jsonb;
+ALTER TABLE "public"."chat_sessions" ADD COLUMN IF NOT EXISTS "follow_up_depth" VARCHAR(16) NOT NULL DEFAULT 'N+3';
+ALTER TABLE "public"."chat_sessions" ADD COLUMN IF NOT EXISTS "estimated_minutes" INTEGER NOT NULL DEFAULT 30;
+ALTER TABLE "public"."chat_sessions" ADD COLUMN IF NOT EXISTS "progress_percent" INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE "public"."chat_sessions" ADD COLUMN IF NOT EXISTS "started_at" TIMESTAMPTZ;
+ALTER TABLE "public"."chat_sessions" ADD COLUMN IF NOT EXISTS "completed_at" TIMESTAMPTZ;
+ALTER TABLE "public"."chat_sessions" ADD COLUMN IF NOT EXISTS "duration_seconds" INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE "public"."chat_sessions" ADD COLUMN IF NOT EXISTS "resume_artifact_id" VARCHAR(64) NOT NULL DEFAULT '';
+ALTER TABLE "public"."chat_sessions" ADD COLUMN IF NOT EXISTS "scenario_type" VARCHAR(32) NOT NULL DEFAULT 'formal_interview';
+ALTER TABLE "public"."chat_sessions" ADD COLUMN IF NOT EXISTS "starter_source" VARCHAR(32) NOT NULL DEFAULT 'none';
+ALTER TABLE "public"."chat_sessions" ADD COLUMN IF NOT EXISTS "starter_question_key" VARCHAR(128) NOT NULL DEFAULT '';
+UPDATE "public"."chat_sessions"
+SET "scenario_type" = 'formal_interview'
+WHERE "scenario_type" IS NULL OR "scenario_type" NOT IN ('formal_interview', 'question_practice');
+UPDATE "public"."chat_sessions"
+SET "starter_source" = 'none'
+WHERE "starter_source" IS NULL OR "starter_source" NOT IN ('none', 'bank', 'resume_plan', 'manual');
+UPDATE "public"."chat_sessions"
+SET "starter_question_key" = ''
+WHERE "starter_question_key" IS NULL;
+ALTER TABLE "public"."chat_sessions" ALTER COLUMN "scenario_type" SET NOT NULL;
+ALTER TABLE "public"."chat_sessions" ALTER COLUMN "scenario_type" SET DEFAULT 'formal_interview';
+ALTER TABLE "public"."chat_sessions" ALTER COLUMN "starter_source" SET NOT NULL;
+ALTER TABLE "public"."chat_sessions" ALTER COLUMN "starter_source" SET DEFAULT 'none';
+ALTER TABLE "public"."chat_sessions" ALTER COLUMN "starter_question_key" SET NOT NULL;
+ALTER TABLE "public"."chat_sessions" ALTER COLUMN "starter_question_key" SET DEFAULT '';
+DO $$
+    BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'chk_chat_sessions_scenario_type') THEN
+            ALTER TABLE "public"."chat_sessions"
+                ADD CONSTRAINT chk_chat_sessions_scenario_type
+                    CHECK ("scenario_type" IN ('formal_interview', 'question_practice'));
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'chk_chat_sessions_starter_source') THEN
+            ALTER TABLE "public"."chat_sessions"
+                ADD CONSTRAINT chk_chat_sessions_starter_source
+                    CHECK ("starter_source" IN ('none', 'bank', 'resume_plan', 'manual'));
+        END IF;
+    END $$;
+DROP INDEX IF EXISTS idx_chat_sessions_user_last_message;
+CREATE INDEX idx_chat_sessions_user_last_message ON "public"."chat_sessions" (user_id, last_message_at DESC);
+DROP INDEX IF EXISTS idx_chat_sessions_user_active;
+CREATE INDEX idx_chat_sessions_user_active ON "public"."chat_sessions" (user_id, is_active);
+DROP INDEX IF EXISTS idx_chat_sessions_user_completed_at;
+CREATE INDEX idx_chat_sessions_user_completed_at ON "public"."chat_sessions" (user_id, completed_at DESC);
+DROP INDEX IF EXISTS idx_chat_sessions_user_resume_artifact;
+CREATE INDEX idx_chat_sessions_user_resume_artifact ON "public"."chat_sessions" (user_id, resume_artifact_id);
+
+COMMENT ON TABLE "public"."chat_sessions" IS '存储用户工作台中的会话元数据，用于会话列表、恢复与排序';
+COMMENT ON COLUMN "public"."chat_sessions"."id" IS '会话元数据主键';
+COMMENT ON COLUMN "public"."chat_sessions"."session_id" IS '对外暴露的会话ID，对应前端 chatId';
+COMMENT ON COLUMN "public"."chat_sessions"."user_id" IS '会话所属用户ID';
+COMMENT ON COLUMN "public"."chat_sessions"."title" IS '会话标题，默认由首条用户消息或默认值生成';
+COMMENT ON COLUMN "public"."chat_sessions"."mode" IS '会话所属工作模式，当前规范值为 Interview/Research/Memory/Coach';
+COMMENT ON COLUMN "public"."chat_sessions"."direction_key" IS '面试方向键，例如 go_backend/system_design/frontend_vue';
+COMMENT ON COLUMN "public"."chat_sessions"."direction_label" IS '面试方向展示名';
+COMMENT ON COLUMN "public"."chat_sessions"."difficulty_level" IS '面试难度等级，范围 1-5';
+COMMENT ON COLUMN "public"."chat_sessions"."difficulty_label" IS '面试难度展示名';
+COMMENT ON COLUMN "public"."chat_sessions"."interviewer_style" IS '面试官人格键，例如 senior/pressure/humorous';
+COMMENT ON COLUMN "public"."chat_sessions"."interviewer_style_label" IS '面试官人格展示名';
+COMMENT ON COLUMN "public"."chat_sessions"."focus_areas" IS '面试侧重点 JSON 数组，保存创建会话时的配置快照';
+COMMENT ON COLUMN "public"."chat_sessions"."follow_up_depth" IS '追问深度标签，例如 N+3/N+5';
+COMMENT ON COLUMN "public"."chat_sessions"."estimated_minutes" IS '预计面试时长，单位分钟';
+COMMENT ON COLUMN "public"."chat_sessions"."progress_percent" IS '当前面试进度百分比，用于工作台继续入口';
+COMMENT ON COLUMN "public"."chat_sessions"."created_at" IS '会话创建时间';
+COMMENT ON COLUMN "public"."chat_sessions"."updated_at" IS '会话最近一次元数据更新时间';
+COMMENT ON COLUMN "public"."chat_sessions"."last_message_at" IS '会话最近一条消息时间';
+COMMENT ON COLUMN "public"."chat_sessions"."started_at" IS '面试开始时间';
+COMMENT ON COLUMN "public"."chat_sessions"."completed_at" IS '面试完成时间';
+COMMENT ON COLUMN "public"."chat_sessions"."duration_seconds" IS '面试持续时长，单位秒';
+COMMENT ON COLUMN "public"."chat_sessions"."resume_artifact_id" IS '本会话绑定的独立简历资产ID，旧会话可为空';
+COMMENT ON COLUMN "public"."chat_sessions"."scenario_type" IS '会话运行场景，formal_interview=正式模拟面试，question_practice=题库练习';
+COMMENT ON COLUMN "public"."chat_sessions"."starter_source" IS '会话首题来源，none/bank/resume_plan/manual';
+COMMENT ON COLUMN "public"."chat_sessions"."starter_question_key" IS '会话首题稳定键快照；题库练习用于绑定题目，简历首题仅作追踪';
+COMMENT ON COLUMN "public"."chat_sessions"."message_count" IS '会话消息条数，用于工作台统计';
+COMMENT ON COLUMN "public"."chat_sessions"."is_active" IS '会话是否仍处于活跃状态';
+
+-- ----------------------------
+-- 步骤 4.5: 新增 `resume_documents` 表
+-- ----------------------------
+CREATE TABLE IF NOT EXISTS "public"."resume_documents" (
+                                                          "id" BIGSERIAL PRIMARY KEY,
+                                                          "artifact_id" VARCHAR(64) NOT NULL,
+                                                          "user_id" BIGINT NOT NULL,
+                                                          "session_id" VARCHAR(64) NOT NULL DEFAULT '',
+                                                          "version" BIGINT NOT NULL DEFAULT 1,
+                                                          "title" VARCHAR(200) NOT NULL,
+                                                          "filename" VARCHAR(255) NOT NULL,
+                                                          "status" VARCHAR(32) NOT NULL DEFAULT 'ready',
+                                                          "parse_stage" VARCHAR(32) NOT NULL DEFAULT 'ready',
+                                                          "parse_progress" INTEGER NOT NULL DEFAULT 100,
+                                                          "processed_chunk_count" INTEGER NOT NULL DEFAULT 0,
+                                                          "failed_chunk_count" INTEGER NOT NULL DEFAULT 0,
+                                                          "parse_error_code" VARCHAR(64) NOT NULL DEFAULT '',
+                                                          "parse_error_message" TEXT NOT NULL DEFAULT '',
+                                                          "parse_retryable" BOOLEAN NOT NULL DEFAULT false,
+                                                          "chunk_count" INTEGER NOT NULL DEFAULT 0,
+                                                          "is_current" BOOLEAN NOT NULL DEFAULT true,
+                                                          "uploaded_at" TIMESTAMPTZ NOT NULL DEFAULT now(),
+                                                          "updated_at" TIMESTAMPTZ NOT NULL DEFAULT now(),
+                                                          UNIQUE ("user_id", "artifact_id", "version")
+);
+
+ALTER TABLE "public"."resume_documents" ADD COLUMN IF NOT EXISTS "artifact_id" VARCHAR(64);
+UPDATE "public"."resume_documents"
+SET "artifact_id" = "session_id"
+WHERE "artifact_id" IS NULL OR btrim("artifact_id") = '';
+ALTER TABLE "public"."resume_documents" ALTER COLUMN "artifact_id" SET NOT NULL;
+ALTER TABLE "public"."resume_documents" ALTER COLUMN "artifact_id" SET DEFAULT '';
+ALTER TABLE "public"."resume_documents" ALTER COLUMN "session_id" SET DEFAULT '';
+ALTER TABLE "public"."resume_documents" ADD COLUMN IF NOT EXISTS "parse_stage" VARCHAR(32) NOT NULL DEFAULT 'ready';
+ALTER TABLE "public"."resume_documents" ADD COLUMN IF NOT EXISTS "parse_progress" INTEGER NOT NULL DEFAULT 100;
+ALTER TABLE "public"."resume_documents" ADD COLUMN IF NOT EXISTS "processed_chunk_count" INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE "public"."resume_documents" ADD COLUMN IF NOT EXISTS "failed_chunk_count" INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE "public"."resume_documents" ADD COLUMN IF NOT EXISTS "parse_error_code" VARCHAR(64) NOT NULL DEFAULT '';
+ALTER TABLE "public"."resume_documents" ADD COLUMN IF NOT EXISTS "parse_error_message" TEXT NOT NULL DEFAULT '';
+ALTER TABLE "public"."resume_documents" ADD COLUMN IF NOT EXISTS "parse_retryable" BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE "public"."resume_documents" DROP CONSTRAINT IF EXISTS resume_documents_user_id_session_id_version_key;
+ALTER TABLE "public"."resume_documents" DROP CONSTRAINT IF EXISTS resume_documents_user_id_artifact_id_version_key;
+
+DO $$
+    BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_resume_documents_user_id') THEN
+            ALTER TABLE "public"."resume_documents"
+                ADD CONSTRAINT fk_resume_documents_user_id
+                    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
+        END IF;
+    END $$;
+
+ALTER TABLE "public"."resume_documents" DROP CONSTRAINT IF EXISTS fk_resume_documents_session_id;
+
+DROP INDEX IF EXISTS idx_resume_documents_user_current;
+CREATE INDEX idx_resume_documents_user_current ON "public"."resume_documents" (user_id, is_current, updated_at DESC);
+DROP INDEX IF EXISTS idx_resume_documents_user_artifact_version;
+CREATE UNIQUE INDEX idx_resume_documents_user_artifact_version ON "public"."resume_documents" (user_id, artifact_id, version);
+DROP INDEX IF EXISTS idx_resume_documents_user_artifact_current;
+CREATE INDEX idx_resume_documents_user_artifact_current ON "public"."resume_documents" (user_id, artifact_id, is_current);
+DROP INDEX IF EXISTS idx_resume_documents_session_current;
+CREATE INDEX idx_resume_documents_session_current ON "public"."resume_documents" (session_id, user_id, is_current);
+
+COMMENT ON TABLE "public"."resume_documents" IS '存储用户简历资产的版本化元数据，向量分块仍保存在 vector_store 中';
+COMMENT ON COLUMN "public"."resume_documents"."id" IS '简历资料版本主键';
+COMMENT ON COLUMN "public"."resume_documents"."artifact_id" IS '独立简历资产ID，新数据不再等同于会话ID';
+COMMENT ON COLUMN "public"."resume_documents"."user_id" IS '简历所属用户ID';
+COMMENT ON COLUMN "public"."resume_documents"."session_id" IS '兼容旧数据的会话ID，新简历资产可为空字符串';
+COMMENT ON COLUMN "public"."resume_documents"."version" IS '同一用户同一简历资产下的版本号';
+COMMENT ON COLUMN "public"."resume_documents"."title" IS '简历资料展示标题';
+COMMENT ON COLUMN "public"."resume_documents"."filename" IS '上传的原始文件名';
+COMMENT ON COLUMN "public"."resume_documents"."status" IS '解析状态，例如 ready/failed';
+COMMENT ON COLUMN "public"."resume_documents"."parse_stage" IS '解析阶段，例如 extracting/chunking/embedding/ready/failed';
+COMMENT ON COLUMN "public"."resume_documents"."parse_progress" IS '解析进度百分比';
+COMMENT ON COLUMN "public"."resume_documents"."processed_chunk_count" IS '解析流程已处理分块数';
+COMMENT ON COLUMN "public"."resume_documents"."failed_chunk_count" IS '解析流程失败分块数';
+COMMENT ON COLUMN "public"."resume_documents"."parse_error_code" IS '结构化解析失败码';
+COMMENT ON COLUMN "public"."resume_documents"."parse_error_message" IS '面向用户的解析失败说明';
+COMMENT ON COLUMN "public"."resume_documents"."parse_retryable" IS '解析失败是否建议用户重试';
+COMMENT ON COLUMN "public"."resume_documents"."chunk_count" IS '本版本写入 vector_store 的简历分块数量';
+COMMENT ON COLUMN "public"."resume_documents"."is_current" IS '是否为当前会话正在使用的简历版本';
+COMMENT ON COLUMN "public"."resume_documents"."uploaded_at" IS '本版本上传时间';
+COMMENT ON COLUMN "public"."resume_documents"."updated_at" IS '本版本最近更新时间';
+
+-- ----------------------------
+-- 步骤 4.6: 新增 `resume_evaluations` 表
+-- ----------------------------
+CREATE TABLE IF NOT EXISTS "public"."resume_evaluations" (
+                                                            "id" BIGSERIAL PRIMARY KEY,
+                                                            "artifact_id" VARCHAR(64) NOT NULL,
+                                                            "user_id" BIGINT NOT NULL,
+                                                            "status" VARCHAR(32) NOT NULL DEFAULT 'missing',
+                                                            "summary" TEXT NOT NULL DEFAULT '',
+                                                            "overall_score" DOUBLE PRECISION NOT NULL DEFAULT 0,
+                                                            "level" VARCHAR(32) NOT NULL DEFAULT '',
+                                                            "rubric_version" VARCHAR(32) NOT NULL DEFAULT 'resume-rubric-v1',
+                                                            "score_source" VARCHAR(32) NOT NULL DEFAULT 'heuristic',
+                                                            "direction_key" VARCHAR(64) NOT NULL DEFAULT '',
+                                                            "dimensions" JSONB NOT NULL DEFAULT '[]'::jsonb,
+                                                            "strengths" JSONB NOT NULL DEFAULT '[]'::jsonb,
+                                                            "risks" JSONB NOT NULL DEFAULT '[]'::jsonb,
+                                                            "suggestions" JSONB NOT NULL DEFAULT '[]'::jsonb,
+                                                            "focus_matches" JSONB NOT NULL DEFAULT '[]'::jsonb,
+                                                            "suggested_questions" JSONB NOT NULL DEFAULT '[]'::jsonb,
+                                                            "evidence" JSONB NOT NULL DEFAULT '[]'::jsonb,
+                                                            "source_resume_version" BIGINT NOT NULL DEFAULT 0,
+                                                            "source_chunk_count" BIGINT NOT NULL DEFAULT 0,
+                                                            "source_updated_at" TIMESTAMPTZ,
+                                                            "first_generated_at" TIMESTAMPTZ,
+                                                            "generated_at" TIMESTAMPTZ NOT NULL DEFAULT now(),
+                                                            "updated_at" TIMESTAMPTZ NOT NULL DEFAULT now(),
+                                                            UNIQUE ("artifact_id", "user_id")
+);
+
+DO $$
+    BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_resume_evaluations_user_id') THEN
+            ALTER TABLE "public"."resume_evaluations"
+                ADD CONSTRAINT fk_resume_evaluations_user_id
+                    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
+        END IF;
+    END $$;
+
+ALTER TABLE "public"."resume_evaluations" DROP CONSTRAINT IF EXISTS fk_resume_evaluations_artifact_id;
+
+UPDATE "public"."resume_evaluations"
+SET "first_generated_at" = COALESCE("first_generated_at", "generated_at", "updated_at", now())
+WHERE "first_generated_at" IS NULL;
+ALTER TABLE "public"."resume_evaluations" ALTER COLUMN "first_generated_at" SET NOT NULL;
+ALTER TABLE "public"."resume_evaluations" ALTER COLUMN "first_generated_at" SET DEFAULT now();
+
+DROP INDEX IF EXISTS idx_resume_evaluations_user_id;
+CREATE INDEX idx_resume_evaluations_user_id ON "public"."resume_evaluations" (user_id);
+DROP INDEX IF EXISTS idx_resume_evaluations_artifact_id;
+CREATE INDEX idx_resume_evaluations_artifact_id ON "public"."resume_evaluations" (artifact_id);
+DROP INDEX IF EXISTS idx_resume_evaluations_user_status;
+CREATE INDEX idx_resume_evaluations_user_status ON "public"."resume_evaluations" (user_id, status);
+
+COMMENT ON TABLE "public"."resume_evaluations" IS '存储简历维度的结构化评估结果，为简历管理页提供稳定数据源';
+COMMENT ON COLUMN "public"."resume_evaluations"."id" IS '简历评估记录主键';
+COMMENT ON COLUMN "public"."resume_evaluations"."artifact_id" IS '关联的独立简历资产ID，对应 resume_documents.artifact_id';
+COMMENT ON COLUMN "public"."resume_evaluations"."user_id" IS '评估所属用户ID';
+COMMENT ON COLUMN "public"."resume_evaluations"."status" IS '评估状态，如 missing/evaluating/ready/insufficient_data/failed';
+COMMENT ON COLUMN "public"."resume_evaluations"."summary" IS '评估摘要';
+COMMENT ON COLUMN "public"."resume_evaluations"."overall_score" IS '按简历 rubric 计算后的综合得分';
+COMMENT ON COLUMN "public"."resume_evaluations"."level" IS '综合得分对应的展示等级';
+COMMENT ON COLUMN "public"."resume_evaluations"."rubric_version" IS '当前简历评估所使用的 rubric 版本';
+COMMENT ON COLUMN "public"."resume_evaluations"."score_source" IS '综合评分来源，例如 llm / heuristic / heuristic_fallback';
+COMMENT ON COLUMN "public"."resume_evaluations"."direction_key" IS '评估时使用的面试方向键';
+COMMENT ON COLUMN "public"."resume_evaluations"."dimensions" IS '结构化评估维度 JSON';
+COMMENT ON COLUMN "public"."resume_evaluations"."strengths" IS '优势摘要 JSON 数组';
+COMMENT ON COLUMN "public"."resume_evaluations"."risks" IS '风险摘要 JSON 数组';
+COMMENT ON COLUMN "public"."resume_evaluations"."suggestions" IS '可执行建议 JSON 数组';
+COMMENT ON COLUMN "public"."resume_evaluations"."focus_matches" IS '简历与面试侧重点匹配 JSON 数组';
+COMMENT ON COLUMN "public"."resume_evaluations"."suggested_questions" IS '基于评估结果生成的推荐追问题 JSON 数组';
+COMMENT ON COLUMN "public"."resume_evaluations"."evidence" IS '评估证据片段 JSON 数组';
+COMMENT ON COLUMN "public"."resume_evaluations"."source_resume_version" IS '当前评估覆盖的简历版本号';
+COMMENT ON COLUMN "public"."resume_evaluations"."source_chunk_count" IS '当前评估覆盖的简历分块数';
+COMMENT ON COLUMN "public"."resume_evaluations"."source_updated_at" IS '当前评估覆盖的简历更新时间';
+COMMENT ON COLUMN "public"."resume_evaluations"."first_generated_at" IS '当前简历评估结果首次生成的时间';
+COMMENT ON COLUMN "public"."resume_evaluations"."generated_at" IS '最近一次生成当前评估结果的时间';
+COMMENT ON COLUMN "public"."resume_evaluations"."updated_at" IS '当前简历评估结果最近一次刷新时间';
+
+-- ----------------------------
+-- 步骤 5: 新增 `session_evaluations` 表
+-- ----------------------------
+CREATE TABLE IF NOT EXISTS "public"."session_evaluations" (
+                                                              "id" BIGSERIAL PRIMARY KEY,
+                                                              "session_id" VARCHAR(64) NOT NULL,
+                                                              "user_id" BIGINT NOT NULL,
+                                                              "status" VARCHAR(32) NOT NULL DEFAULT 'draft',
+                                                              "summary" TEXT NOT NULL DEFAULT '',
+                                                              "user_turns" BIGINT NOT NULL DEFAULT 0,
+                                                              "assistant_turns" BIGINT NOT NULL DEFAULT 0,
+                                                              "overall_score" DOUBLE PRECISION NOT NULL DEFAULT 0,
+                                                              "rubric_version" VARCHAR(32) NOT NULL DEFAULT 'rubric-v1',
+                                                              "score_source" VARCHAR(32) NOT NULL DEFAULT 'heuristic',
+                                                              "dimensions" JSONB NOT NULL DEFAULT '[]'::jsonb,
+                                                              "strengths" JSONB NOT NULL DEFAULT '[]'::jsonb,
+                                                              "risks" JSONB NOT NULL DEFAULT '[]'::jsonb,
+                                                              "suggestions" JSONB NOT NULL DEFAULT '[]'::jsonb,
+                                                              "evidence" JSONB NOT NULL DEFAULT '[]'::jsonb,
+                                                              "source_last_message_id" BIGINT,
+                                                              "source_last_message_at" TIMESTAMPTZ,
+                                                              "first_generated_at" TIMESTAMPTZ,
+                                                              "generated_at" TIMESTAMPTZ NOT NULL DEFAULT now(),
+                                                              "updated_at" TIMESTAMPTZ NOT NULL DEFAULT now(),
+                                                              UNIQUE ("session_id", "user_id")
+);
+
+DO $$
+    BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_session_evaluations_user_id') THEN
+            ALTER TABLE "public"."session_evaluations"
+                ADD CONSTRAINT fk_session_evaluations_user_id
+                    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
+        END IF;
+    END $$;
+
+DO $$
+    BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_session_evaluations_session_id') THEN
+            ALTER TABLE "public"."session_evaluations"
+                ADD CONSTRAINT fk_session_evaluations_session_id
+                    FOREIGN KEY (session_id) REFERENCES "public"."chat_sessions"(session_id) ON DELETE CASCADE NOT VALID;
+        END IF;
+    END $$;
+
+DO $$
+    BEGIN
+        IF EXISTS (
+            SELECT 1
+            FROM pg_constraint
+            WHERE conname = 'fk_session_evaluations_session_id'
+              AND NOT convalidated
+        ) THEN
+            BEGIN
+                ALTER TABLE "public"."session_evaluations"
+                    VALIDATE CONSTRAINT fk_session_evaluations_session_id;
+            EXCEPTION
+                WHEN OTHERS THEN
+                    RAISE NOTICE 'skip validating fk_session_evaluations_session_id: %', SQLERRM;
+            END;
+        END IF;
+    END $$;
+
+ALTER TABLE "public"."session_evaluations" ADD COLUMN IF NOT EXISTS "overall_score" DOUBLE PRECISION NOT NULL DEFAULT 0;
+ALTER TABLE "public"."session_evaluations" ADD COLUMN IF NOT EXISTS "rubric_version" VARCHAR(32) NOT NULL DEFAULT 'rubric-v1';
+ALTER TABLE "public"."session_evaluations" ADD COLUMN IF NOT EXISTS "score_source" VARCHAR(32) NOT NULL DEFAULT 'heuristic';
+ALTER TABLE "public"."session_evaluations" ADD COLUMN IF NOT EXISTS "suggestions" JSONB NOT NULL DEFAULT '[]'::jsonb;
+ALTER TABLE "public"."session_evaluations" ADD COLUMN IF NOT EXISTS "source_last_message_id" BIGINT;
+ALTER TABLE "public"."session_evaluations" ADD COLUMN IF NOT EXISTS "source_last_message_at" TIMESTAMPTZ;
+ALTER TABLE "public"."session_evaluations" ADD COLUMN IF NOT EXISTS "first_generated_at" TIMESTAMPTZ;
+UPDATE "public"."session_evaluations"
+SET "first_generated_at" = COALESCE("first_generated_at", "generated_at", "updated_at", now())
+WHERE "first_generated_at" IS NULL;
+ALTER TABLE "public"."session_evaluations" ALTER COLUMN "first_generated_at" SET NOT NULL;
+ALTER TABLE "public"."session_evaluations" ALTER COLUMN "first_generated_at" SET DEFAULT now();
+ALTER TABLE "public"."session_evaluations" ALTER COLUMN "status" SET DEFAULT 'draft';
+ALTER TABLE "public"."session_evaluations" ALTER COLUMN "summary" SET DEFAULT '';
+
+DROP INDEX IF EXISTS idx_session_evaluations_user_id;
+CREATE INDEX idx_session_evaluations_user_id ON "public"."session_evaluations" (user_id);
+DROP INDEX IF EXISTS idx_session_evaluations_session_id;
+CREATE INDEX idx_session_evaluations_session_id ON "public"."session_evaluations" (session_id);
+
+COMMENT ON TABLE "public"."session_evaluations" IS '存储会话维度的结构化评估结果，为工作台和报告中心提供稳定数据源';
+COMMENT ON COLUMN "public"."session_evaluations"."id" IS '评估记录主键';
+COMMENT ON COLUMN "public"."session_evaluations"."session_id" IS '关联的会话ID';
+COMMENT ON COLUMN "public"."session_evaluations"."user_id" IS '评估所属用户ID';
+COMMENT ON COLUMN "public"."session_evaluations"."status" IS '评估状态，如 draft/ready/insufficient_data';
+COMMENT ON COLUMN "public"."session_evaluations"."summary" IS '评估摘要';
+COMMENT ON COLUMN "public"."session_evaluations"."user_turns" IS '用户消息轮次';
+COMMENT ON COLUMN "public"."session_evaluations"."assistant_turns" IS '助手消息轮次';
+COMMENT ON COLUMN "public"."session_evaluations"."overall_score" IS '按 rubric 计算后的综合得分';
+COMMENT ON COLUMN "public"."session_evaluations"."rubric_version" IS '当前评估所使用的 rubric 版本';
+COMMENT ON COLUMN "public"."session_evaluations"."score_source" IS '综合评分来源，例如 llm / heuristic / mixed';
+COMMENT ON COLUMN "public"."session_evaluations"."dimensions" IS '结构化评估维度 JSON';
+COMMENT ON COLUMN "public"."session_evaluations"."strengths" IS '优势摘要 JSON 数组';
+COMMENT ON COLUMN "public"."session_evaluations"."risks" IS '风险摘要 JSON 数组';
+COMMENT ON COLUMN "public"."session_evaluations"."suggestions" IS '可执行建议 JSON 数组';
+COMMENT ON COLUMN "public"."session_evaluations"."evidence" IS '评估证据片段 JSON 数组';
+COMMENT ON COLUMN "public"."session_evaluations"."source_last_message_id" IS '当前评估结果实际覆盖到的最新消息ID水位';
+COMMENT ON COLUMN "public"."session_evaluations"."source_last_message_at" IS '当前评估结果实际覆盖到的最新消息时间水位';
+COMMENT ON COLUMN "public"."session_evaluations"."first_generated_at" IS '当前会话评估结果首次生成的时间';
+COMMENT ON COLUMN "public"."session_evaluations"."generated_at" IS '最近一次生成当前评估结果的时间（接口兼容字段来源）';
+COMMENT ON COLUMN "public"."session_evaluations"."updated_at" IS '当前会话评估结果最近一次刷新时间';
+
+-- ----------------------------
+-- 步骤 5.5: 新增 `session_evaluation_items` 表
+-- ----------------------------
+CREATE TABLE IF NOT EXISTS "public"."session_evaluation_items" (
+                                                                  "id" BIGSERIAL PRIMARY KEY,
+                                                                  "session_id" VARCHAR(64) NOT NULL,
+                                                                  "user_id" BIGINT NOT NULL,
+                                                                  "turn_index" INTEGER NOT NULL,
+                                                                  "question" TEXT NOT NULL DEFAULT '',
+                                                                  "answer" TEXT NOT NULL DEFAULT '',
+                                                                  "ai_comment" TEXT NOT NULL DEFAULT '',
+                                                                  "score" DOUBLE PRECISION NOT NULL DEFAULT 0,
+                                                                  "max_score" DOUBLE PRECISION NOT NULL DEFAULT 5,
+                                                                  "tags" JSONB NOT NULL DEFAULT '[]'::jsonb,
+                                                                  "source_message_id" BIGINT,
+                                                                  "source_message_at" TIMESTAMPTZ,
+                                                                  "generated_at" TIMESTAMPTZ NOT NULL DEFAULT now(),
+                                                                  "updated_at" TIMESTAMPTZ NOT NULL DEFAULT now(),
+                                                                  UNIQUE ("session_id", "user_id", "turn_index")
+);
+
+DO $$
+    BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_session_evaluation_items_user_id') THEN
+            ALTER TABLE "public"."session_evaluation_items"
+                ADD CONSTRAINT fk_session_evaluation_items_user_id
+                    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
+        END IF;
+    END $$;
+
+DO $$
+    BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_session_evaluation_items_session_id') THEN
+            ALTER TABLE "public"."session_evaluation_items"
+                ADD CONSTRAINT fk_session_evaluation_items_session_id
+                    FOREIGN KEY (session_id) REFERENCES "public"."chat_sessions"(session_id) ON DELETE CASCADE NOT VALID;
+        END IF;
+    END $$;
+
+DO $$
+    BEGIN
+        IF EXISTS (
+            SELECT 1
+            FROM pg_constraint
+            WHERE conname = 'fk_session_evaluation_items_session_id'
+              AND NOT convalidated
+        ) THEN
+            BEGIN
+                ALTER TABLE "public"."session_evaluation_items"
+                    VALIDATE CONSTRAINT fk_session_evaluation_items_session_id;
+            EXCEPTION
+                WHEN OTHERS THEN
+                    RAISE NOTICE 'skip validating fk_session_evaluation_items_session_id: %', SQLERRM;
+            END;
+        END IF;
+    END $$;
+
+DROP INDEX IF EXISTS idx_session_evaluation_items_user_session;
+CREATE INDEX idx_session_evaluation_items_user_session ON "public"."session_evaluation_items" (user_id, session_id, turn_index);
+
+COMMENT ON TABLE "public"."session_evaluation_items" IS '存储会话评估的逐题卡片快照，用于报告详情复盘';
+COMMENT ON COLUMN "public"."session_evaluation_items"."id" IS '逐题评估明细主键';
+COMMENT ON COLUMN "public"."session_evaluation_items"."session_id" IS '关联的会话ID';
+COMMENT ON COLUMN "public"."session_evaluation_items"."user_id" IS '评估明细所属用户ID';
+COMMENT ON COLUMN "public"."session_evaluation_items"."turn_index" IS '用户回答轮次，从 1 开始';
+COMMENT ON COLUMN "public"."session_evaluation_items"."question" IS '该轮回答对应的面试官问题';
+COMMENT ON COLUMN "public"."session_evaluation_items"."answer" IS '用户回答摘要';
+COMMENT ON COLUMN "public"."session_evaluation_items"."ai_comment" IS 'AI 对该轮回答的点评';
+COMMENT ON COLUMN "public"."session_evaluation_items"."score" IS '该轮回答评分';
+COMMENT ON COLUMN "public"."session_evaluation_items"."max_score" IS '该轮回答满分';
+COMMENT ON COLUMN "public"."session_evaluation_items"."tags" IS '该轮回答标签 JSON 数组';
+COMMENT ON COLUMN "public"."session_evaluation_items"."source_message_id" IS '对应的用户消息ID';
+COMMENT ON COLUMN "public"."session_evaluation_items"."source_message_at" IS '对应的用户消息时间';
+COMMENT ON COLUMN "public"."session_evaluation_items"."generated_at" IS '该明细生成时间';
+COMMENT ON COLUMN "public"."session_evaluation_items"."updated_at" IS '该明细最近更新时间';
+
+-- ----------------------------
+-- 步骤 6: 新增结构化面试题库表
+-- ----------------------------
+CREATE TABLE IF NOT EXISTS "public"."interview_questions" (
+                                                              "id" BIGSERIAL PRIMARY KEY,
+                                                              "question_key" VARCHAR(160) UNIQUE NOT NULL,
+                                                              "direction_key" VARCHAR(64) NOT NULL,
+                                                              "focus_key" VARCHAR(64) NOT NULL,
+                                                              "focus_label" VARCHAR(80) NOT NULL DEFAULT '',
+                                                              "difficulty_level" INTEGER NOT NULL CHECK ("difficulty_level" BETWEEN 1 AND 5),
+                                                              "difficulty_label" VARCHAR(32) NOT NULL DEFAULT '',
+                                                              "title" VARCHAR(240) NOT NULL,
+                                                              "prompt" TEXT NOT NULL,
+                                                              "expected_signals" JSONB NOT NULL DEFAULT '[]'::jsonb,
+                                                              "follow_ups" JSONB NOT NULL DEFAULT '[]'::jsonb,
+                                                              "evaluation_dimensions" JSONB NOT NULL DEFAULT '[]'::jsonb,
+                                                              "tags" JSONB NOT NULL DEFAULT '[]'::jsonb,
+                                                              "source_refs" JSONB NOT NULL DEFAULT '[]'::jsonb,
+                                                              "batch_key" VARCHAR(80) NOT NULL DEFAULT '',
+                                                              "batch_label" VARCHAR(120) NOT NULL DEFAULT '',
+                                                              "sequence" INTEGER NOT NULL DEFAULT 0,
+                                                              "batch_sequence" INTEGER NOT NULL DEFAULT 0,
+                                                              "status" VARCHAR(32) NOT NULL DEFAULT 'ready',
+                                                              "quality_score" DOUBLE PRECISION NOT NULL DEFAULT 0,
+                                                              "usage_count" BIGINT NOT NULL DEFAULT 0,
+                                                              "last_used_at" TIMESTAMPTZ,
+                                                              "content_hash" VARCHAR(64),
+                                                              "created_at" TIMESTAMPTZ NOT NULL DEFAULT now(),
+                                                              "updated_at" TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+DROP INDEX IF EXISTS idx_interview_questions_direction_difficulty;
+CREATE INDEX idx_interview_questions_direction_difficulty
+    ON "public"."interview_questions" (direction_key, difficulty_level, status, updated_at DESC);
+DROP INDEX IF EXISTS idx_interview_questions_focus;
+CREATE INDEX idx_interview_questions_focus
+    ON "public"."interview_questions" (focus_key, status, updated_at DESC);
+DROP INDEX IF EXISTS idx_interview_questions_usage;
+CREATE INDEX idx_interview_questions_usage
+    ON "public"."interview_questions" (usage_count DESC, last_used_at DESC);
+DROP INDEX IF EXISTS idx_interview_questions_content_hash;
+CREATE INDEX idx_interview_questions_content_hash
+    ON "public"."interview_questions" (content_hash);
+
+COMMENT ON TABLE "public"."interview_questions" IS '结构化面试题库主表，用于前端题库浏览、筛选和固定题目练习';
+COMMENT ON COLUMN "public"."interview_questions"."id" IS '题库题目主键';
+COMMENT ON COLUMN "public"."interview_questions"."question_key" IS '题目稳定业务键，用于前端路由和增量导入去重';
+COMMENT ON COLUMN "public"."interview_questions"."direction_key" IS '面试方向键，例如 go_backend/frontend_vue/system_design';
+COMMENT ON COLUMN "public"."interview_questions"."focus_key" IS '能力侧重点键，例如 concurrency/database/performance';
+COMMENT ON COLUMN "public"."interview_questions"."focus_label" IS '能力侧重点展示名';
+COMMENT ON COLUMN "public"."interview_questions"."difficulty_level" IS '难度等级，范围 1-5';
+COMMENT ON COLUMN "public"."interview_questions"."difficulty_label" IS '难度展示名';
+COMMENT ON COLUMN "public"."interview_questions"."title" IS '题目标题';
+COMMENT ON COLUMN "public"."interview_questions"."prompt" IS '面试官可直接发问的题干';
+COMMENT ON COLUMN "public"."interview_questions"."expected_signals" IS '候选人回答中期望出现的信号 JSON 数组';
+COMMENT ON COLUMN "public"."interview_questions"."follow_ups" IS '追问建议 JSON 数组';
+COMMENT ON COLUMN "public"."interview_questions"."evaluation_dimensions" IS '建议评分维度 JSON 数组';
+COMMENT ON COLUMN "public"."interview_questions"."tags" IS '题目标签 JSON 数组，用于筛选和展示';
+COMMENT ON COLUMN "public"."interview_questions"."source_refs" IS '导入资产中的来源引用快照 JSON 数组';
+COMMENT ON COLUMN "public"."interview_questions"."batch_key" IS '导入批次键';
+COMMENT ON COLUMN "public"."interview_questions"."batch_label" IS '导入批次展示名';
+COMMENT ON COLUMN "public"."interview_questions"."sequence" IS '全局顺序号';
+COMMENT ON COLUMN "public"."interview_questions"."batch_sequence" IS '批次顺序号';
+COMMENT ON COLUMN "public"."interview_questions"."status" IS '题目状态，例如 ready/draft/archived';
+COMMENT ON COLUMN "public"."interview_questions"."quality_score" IS '题目质量评分，预留给后续审核和排序';
+COMMENT ON COLUMN "public"."interview_questions"."usage_count" IS '被用户选用练习的累计次数';
+COMMENT ON COLUMN "public"."interview_questions"."last_used_at" IS '最近一次被选用练习的时间';
+COMMENT ON COLUMN "public"."interview_questions"."content_hash" IS '题干与结构化字段的内容哈希，用于增量导入识别变化';
+COMMENT ON COLUMN "public"."interview_questions"."created_at" IS '题目入库时间';
+COMMENT ON COLUMN "public"."interview_questions"."updated_at" IS '题目最近更新时间';
+
+-- ----------------------------
+-- 步骤 6.1: 新增题库来源明细表
+-- ----------------------------
+CREATE TABLE IF NOT EXISTS "public"."interview_question_sources" (
+                                                                     "id" BIGSERIAL PRIMARY KEY,
+                                                                     "question_id" BIGINT NOT NULL,
+                                                                     "source_key" VARCHAR(160) NOT NULL DEFAULT '',
+                                                                     "source_title" VARCHAR(240) NOT NULL DEFAULT '',
+                                                                     "source_url" TEXT NOT NULL DEFAULT '',
+                                                                     "source_type" VARCHAR(64) NOT NULL DEFAULT 'reference',
+                                                                     "license_note" TEXT NOT NULL DEFAULT '',
+                                                                     "batch_key" VARCHAR(80) NOT NULL DEFAULT '',
+                                                                     "created_at" TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+DO $$
+    BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_interview_question_sources_question_id') THEN
+            ALTER TABLE "public"."interview_question_sources"
+                ADD CONSTRAINT fk_interview_question_sources_question_id
+                    FOREIGN KEY (question_id) REFERENCES "public"."interview_questions"(id) ON DELETE CASCADE;
+        END IF;
+    END $$;
+
+DO $$
+    BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'uq_interview_question_sources_identity') THEN
+            ALTER TABLE "public"."interview_question_sources"
+                ADD CONSTRAINT uq_interview_question_sources_identity
+                    UNIQUE (question_id, source_key, source_url, batch_key);
+        END IF;
+    END $$;
+
+DROP INDEX IF EXISTS idx_interview_question_sources_question_id;
+CREATE INDEX idx_interview_question_sources_question_id
+    ON "public"."interview_question_sources" (question_id);
+DROP INDEX IF EXISTS idx_interview_question_sources_source_key;
+CREATE INDEX idx_interview_question_sources_source_key
+    ON "public"."interview_question_sources" (source_key);
+
+COMMENT ON TABLE "public"."interview_question_sources" IS '结构化题库的来源明细，用于答辩时说明题目采集、清洗和引用边界';
+COMMENT ON COLUMN "public"."interview_question_sources"."id" IS '题目来源主键';
+COMMENT ON COLUMN "public"."interview_question_sources"."question_id" IS '关联的题库题目ID';
+COMMENT ON COLUMN "public"."interview_question_sources"."source_key" IS '来源稳定键，例如 go-public/rubric-public';
+COMMENT ON COLUMN "public"."interview_question_sources"."source_title" IS '来源展示标题';
+COMMENT ON COLUMN "public"."interview_question_sources"."source_url" IS '来源URL，公益站点或开源仓库可记录公开地址';
+COMMENT ON COLUMN "public"."interview_question_sources"."source_type" IS '来源类型，例如 public_site/open_source/manual';
+COMMENT ON COLUMN "public"."interview_question_sources"."license_note" IS '来源许可或二次整理说明';
+COMMENT ON COLUMN "public"."interview_question_sources"."batch_key" IS '来源所属导入批次键';
+COMMENT ON COLUMN "public"."interview_question_sources"."created_at" IS '来源记录创建时间';
+
+-- ----------------------------
+-- 步骤 6.2: 新增会话选题事件表
+-- ----------------------------
+CREATE TABLE IF NOT EXISTS "public"."session_question_events" (
+                                                                 "id" BIGSERIAL PRIMARY KEY,
+                                                                 "session_id" VARCHAR(64) NOT NULL,
+                                                                 "user_id" BIGINT NOT NULL,
+                                                                 "question_id" BIGINT,
+                                                                 "question_key" VARCHAR(160) NOT NULL DEFAULT '',
+                                                                 "turn_index" INTEGER NOT NULL,
+                                                                 "source" VARCHAR(32) NOT NULL DEFAULT 'bank',
+                                                                 "question_snapshot" TEXT NOT NULL DEFAULT '',
+                                                                 "created_at" TIMESTAMPTZ NOT NULL DEFAULT now(),
+                                                                 UNIQUE ("session_id", "user_id", "turn_index")
+);
+
+DO $$
+    BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_session_question_events_user_id') THEN
+            ALTER TABLE "public"."session_question_events"
+                ADD CONSTRAINT fk_session_question_events_user_id
+                    FOREIGN KEY (user_id) REFERENCES "public"."users"(id) ON DELETE CASCADE;
+        END IF;
+    END $$;
+
+DO $$
+    BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_session_question_events_session_id') THEN
+            ALTER TABLE "public"."session_question_events"
+                ADD CONSTRAINT fk_session_question_events_session_id
+                    FOREIGN KEY (session_id) REFERENCES "public"."chat_sessions"(session_id) ON DELETE CASCADE NOT VALID;
+        END IF;
+    END $$;
+
+DO $$
+    BEGIN
+        IF EXISTS (
+            SELECT 1
+            FROM pg_constraint
+            WHERE conname = 'fk_session_question_events_session_id'
+              AND NOT convalidated
+        ) THEN
+            BEGIN
+                ALTER TABLE "public"."session_question_events"
+                    VALIDATE CONSTRAINT fk_session_question_events_session_id;
+            EXCEPTION
+                WHEN OTHERS THEN
+                    RAISE NOTICE 'skip validating fk_session_question_events_session_id: %', SQLERRM;
+            END;
+        END IF;
+    END $$;
+
+DO $$
+    BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_session_question_events_question_id') THEN
+            ALTER TABLE "public"."session_question_events"
+                ADD CONSTRAINT fk_session_question_events_question_id
+                    FOREIGN KEY (question_id) REFERENCES "public"."interview_questions"(id) ON DELETE SET NULL;
+        END IF;
+    END $$;
+
+DROP INDEX IF EXISTS idx_session_question_events_user_session;
+CREATE INDEX idx_session_question_events_user_session
+    ON "public"."session_question_events" (user_id, session_id, turn_index);
+DROP INDEX IF EXISTS idx_session_question_events_question_id;
+CREATE INDEX idx_session_question_events_question_id
+    ON "public"."session_question_events" (question_id);
+
+COMMENT ON TABLE "public"."session_question_events" IS '记录会话中实际绑定或发出的题库题目事件，用于练习复盘和题库使用统计';
+COMMENT ON COLUMN "public"."session_question_events"."id" IS '选题事件主键';
+COMMENT ON COLUMN "public"."session_question_events"."session_id" IS '关联的会话ID';
+COMMENT ON COLUMN "public"."session_question_events"."user_id" IS '事件所属用户ID';
+COMMENT ON COLUMN "public"."session_question_events"."question_id" IS '关联的题库题目ID，可为空以兼容非题库追问';
+COMMENT ON COLUMN "public"."session_question_events"."question_key" IS '题目稳定业务键快照';
+COMMENT ON COLUMN "public"."session_question_events"."turn_index" IS '会话中的题目轮次，从 1 开始';
+COMMENT ON COLUMN "public"."session_question_events"."source" IS '题目来源，例如 bank/rag/generated';
+COMMENT ON COLUMN "public"."session_question_events"."question_snapshot" IS '当时实际使用的题干快照';
+COMMENT ON COLUMN "public"."session_question_events"."created_at" IS '事件创建时间';
 
 COMMIT; -- 提交事务，所有更改生效
 

@@ -11,24 +11,239 @@ info (
 )
 
 // InterviewAppChatReq AI 面试官聊天请求结构体
-// 定义了用户发送给 AI 面试官的消息内容和会话标识
+// 定义了用户发送给 AI 面试官的消息内容和会话标识。
+// 当前运行时通过 multipart/form-data 接收该表单字段，并允许额外附带一个可选的 `file` PDF part。
+// Bearer token 通过 Authorization 请求头传递，由 handler 手工解析，因此不在 goctl type 中展开。
 type InterviewAppChatReq {
 	Message string `form:"message"`
 	ChatId  string `form:"chatId"`
+	Mode    string `form:"mode,optional"`
 }
 
-// ChatRes AI 面试官聊天响应结构体
-// 定义了 AI 面试官返回的消息内容和状态信息
-type ChatRes {
-	Content  string `json:"content"`
-	IsLatest bool   `json:"isLatest"`
+// KnowledgeUploadReq 公共知识上传请求结构体
+// 运行时要求 multipart/form-data 中包含名为 `file` 的 PDF 文件 part；
+// 该文件 part 由 handler 手工读取，因此这里只保留占位字段用于表达外部契约。
+type KnowledgeUploadReq {
+	File     string `form:"file"`
+	FolderId int64  `form:"folderId,optional"`
+}
+
+// KnowledgeTextUploadReq 外部工具资料包导入请求结构体
+// 用于将 Grok Search、openACE、openPic 等工具产出的文本资料导入公共知识库。
+type KnowledgeTextUploadReq {
+	Title   string `json:"title"`
+	Content string `json:"content"`
+	Source  string `json:"source,optional"`
+}
+
+// KnowledgeUploadRes 公共知识上传响应结构体
+type KnowledgeUploadRes {
+	Msg    string `json:"msg"`
+	Chunks int    `json:"chunks"`
+}
+
+// KnowledgeDocumentsReq 知识库文档列表请求
+type KnowledgeDocumentsReq {
+	Limit        int64  `form:"limit,optional"`
+	FolderId     int64  `form:"folderId,optional"`
+	FolderScoped bool   `form:"folderScoped,optional"`
+	Visibility   string `form:"visibility,optional"`
+}
+
+// KnowledgeFoldersReq 知识库目录列表请求
+type KnowledgeFoldersReq {}
+
+// KnowledgeFolderItem 知识库目录项
+type KnowledgeFolderItem {
+	Id            int64                 `json:"id"`
+	ParentId      int64                 `json:"parentId,optional"`
+	Name          string                `json:"name"`
+	Path          string                `json:"path"`
+	Depth         int64                 `json:"depth"`
+	SortOrder     int64                 `json:"sortOrder"`
+	DocumentCount int64                 `json:"documentCount"`
+	ChunkCount    int64                 `json:"chunkCount"`
+	Children      []KnowledgeFolderItem `json:"children,optional"`
+	CreatedAt     string                `json:"createdAt"`
+	UpdatedAt     string                `json:"updatedAt"`
+}
+
+// KnowledgeFoldersResp 知识库目录列表响应
+type KnowledgeFoldersResp {
+	Folders      []KnowledgeFolderItem `json:"folders"`
+	UnfiledCount int64                 `json:"unfiledCount"`
+	Total        int64                 `json:"total"`
+	TotalCount   int64                 `json:"totalCount"`
+	Initialized  bool                  `json:"initialized"`
+	Meta         KnowledgeManagerMeta  `json:"meta"`
+}
+
+// KnowledgeCreateFolderReq 创建知识库目录请求
+type KnowledgeCreateFolderReq {
+	Name      string `json:"name"`
+	ParentId  int64  `json:"parentId,optional"`
+	SortOrder int64  `json:"sortOrder,optional"`
+}
+
+// KnowledgeUpdateFolderReq 更新知识库目录请求
+type KnowledgeUpdateFolderReq {
+	Id           int64  `path:"id"`
+	Name         string `json:"name,optional"`
+	ParentId     int64  `json:"parentId,optional"`
+	SortOrder    int64  `json:"sortOrder,optional"`
+	SetParent    bool   `json:"setParent,optional"`
+	SetSortOrder bool   `json:"setSortOrder,optional"`
+}
+
+// KnowledgeDeleteFolderReq 删除知识库目录请求
+type KnowledgeDeleteFolderReq {
+	Id int64 `path:"id"`
+}
+
+// KnowledgeMoveDocumentFolderReq 移动知识库文档目录请求
+type KnowledgeMoveDocumentFolderReq {
+	Id       int64 `path:"id"`
+	FolderId int64 `json:"folderId,optional"`
+}
+
+// KnowledgeFolderMutationResp 知识库目录变更响应
+type KnowledgeFolderMutationResp {
+	Folder KnowledgeFolderItem  `json:"folder"`
+	Meta   KnowledgeManagerMeta `json:"meta"`
+}
+
+// KnowledgeFolderDeleteResp 知识库目录删除响应
+type KnowledgeFolderDeleteResp {
+	Deleted bool                 `json:"deleted"`
+	Meta    KnowledgeManagerMeta `json:"meta"`
+}
+
+// KnowledgeDocumentMutationResp 知识库文档变更响应
+type KnowledgeDocumentMutationResp {
+	Document KnowledgeDocumentItem `json:"document"`
+	Meta     KnowledgeManagerMeta  `json:"meta"`
+}
+
+// KnowledgeManagerMeta 知识库管理响应元信息
+type KnowledgeManagerMeta {
+	SchemaVersion string `json:"schemaVersion"`
+	Available     bool   `json:"available"`
+	Scope         string `json:"scope"`
+	GeneratedAt   string `json:"generatedAt"`
+}
+
+// KnowledgeDocumentItem 知识库文档聚合项
+// 2026-05-12 Q8=B 决策：暴露 sizeBytes/embeddingDimension/embeddingModel 三个免费元信息字段，
+// 用于前端卡片底部 chip 排版（"1536d · text-embedding-3-small · 12.3 KB · 12 chunks"）。
+// 拒绝产品图的 "1024d"（设计稿示意，与真实 vector(1536) 不符）和 "召回 87 次"（DB 无 query_hits 列，挪到 v0.3+ 可观察性升级）。
+type KnowledgeDocumentItem {
+	DocumentId         int64  `json:"documentId"`
+	FolderId           int64  `json:"folderId"`
+	Title              string `json:"title"`
+	Scope              string `json:"scope"`
+	Source             string `json:"source,optional"`
+	Visibility         string `json:"visibility"`
+	Status             string `json:"status"`
+	Version            int64  `json:"version"`
+	OwnerId            int64  `json:"ownerId"`
+	ChunkCount         int64  `json:"chunkCount"`
+	SizeBytes          int64  `json:"sizeBytes"` // 文档所有 chunk content 字节数求和（PG 端 SUM(LENGTH(content))）
+	EmbeddingDimension int    `json:"embeddingDimension"` // 当前向量维度（与 DDL vector(1536) 对齐）
+	EmbeddingModel     string `json:"embeddingModel"` // 当前 embedding 模型名（来自 svcCtx.Config.EmbeddingModel()）
+	Preview            string `json:"preview"`
+	CreatedAt          string `json:"createdAt"`
+	UpdatedAt          string `json:"updatedAt"`
+}
+
+// KnowledgeDocumentsResp 知识库文档列表响应
+type KnowledgeDocumentsResp {
+	Documents []KnowledgeDocumentItem `json:"documents"`
+	Total     int64                   `json:"total"`
+	Meta      KnowledgeManagerMeta    `json:"meta"`
+}
+
+// KnowledgeDocumentChunksReq 知识库文档分块请求
+type KnowledgeDocumentChunksReq {
+	Id    int64 `path:"id"`
+	Limit int64 `form:"limit,optional"`
+}
+
+// KnowledgeChunkItem 知识库分块与召回项
+type KnowledgeChunkItem {
+	ChunkId   int64   `json:"chunkId"`
+	Title     string  `json:"title"`
+	Content   string  `json:"content"`
+	Score     float64 `json:"score,optional"`
+	CreatedAt string  `json:"createdAt,optional"`
+}
+
+// KnowledgeDocumentChunksResp 知识库文档分块响应
+type KnowledgeDocumentChunksResp {
+	Document KnowledgeDocumentItem `json:"document"`
+	Chunks   []KnowledgeChunkItem  `json:"chunks"`
+	Meta     KnowledgeManagerMeta  `json:"meta"`
+}
+
+// KnowledgeTestQueryReq 知识库测试召回请求
+type KnowledgeTestQueryReq {
+	Query        string `json:"query"`
+	TopK         int64  `json:"topK,optional"`
+	FolderId     int64  `json:"folderId,optional"`
+	FolderScoped bool   `json:"folderScoped,optional"`
+	Visibility   string `json:"visibility,optional"`
+}
+
+// KnowledgeTestQueryResp 知识库测试召回响应
+type KnowledgeTestQueryResp {
+	Results []KnowledgeChunkItem `json:"results"`
+	Total   int64                `json:"total"`
+	Meta    KnowledgeManagerMeta `json:"meta"`
 }
 
 // chat 服务提供 AI 面试官聊天功能
 // 支持 SSE 流式响应，实现实时对话交互
 service chat {
-	@doc "Go 面试官聊天SSE流式接口"
+	@doc "Go 面试官聊天SSE流式接口，使用 multipart/form-data，并支持可选 file(PDF) part"
 	@handler Chat
 	post /api/ai/interview_app/chat/sse (InterviewAppChatReq)
-}
 
+	@doc "知识库 PDF 上传接口，使用 multipart/form-data，要求 file(PDF) part 与登录态 Bearer token；admin(user_id=1) 上传 → visibility=public，普通 user 上传 → visibility=private（2026-05-12 Q7=B 角色路由）"
+	@handler KnowledgeUpload
+	post /api/ai/knowledge/upload (KnowledgeUploadReq) returns (KnowledgeUploadRes)
+
+	@doc "公共知识库文本资料包导入接口，使用 JSON，要求管理员 Bearer token"
+	@handler KnowledgeTextUpload
+	post /api/ai/knowledge/text (KnowledgeTextUploadReq) returns (KnowledgeUploadRes)
+
+	@doc "知识库目录列表接口，要求登录态 Bearer token"
+	@handler KnowledgeFolders
+	get /api/ai/knowledge/folders (KnowledgeFoldersReq) returns (KnowledgeFoldersResp)
+
+	@doc "知识库目录创建接口，要求登录态 Bearer token"
+	@handler KnowledgeCreateFolder
+	post /api/ai/knowledge/folders (KnowledgeCreateFolderReq) returns (KnowledgeFolderMutationResp)
+
+	@doc "知识库目录更新接口，要求登录态 Bearer token"
+	@handler KnowledgeUpdateFolder
+	patch /api/ai/knowledge/folders/:id (KnowledgeUpdateFolderReq) returns (KnowledgeFolderMutationResp)
+
+	@doc "知识库目录删除接口，要求登录态 Bearer token；只允许删除空目录"
+	@handler KnowledgeDeleteFolder
+	delete /api/ai/knowledge/folders/:id (KnowledgeDeleteFolderReq) returns (KnowledgeFolderDeleteResp)
+
+	@doc "知识库文档列表接口，匿名只读公共知识，登录后包含当前用户知识"
+	@handler KnowledgeDocuments
+	get /api/ai/knowledge/documents (KnowledgeDocumentsReq) returns (KnowledgeDocumentsResp)
+
+	@doc "知识库文档移动目录接口，要求登录态 Bearer token，folderId=0 表示移出目录"
+	@handler KnowledgeMoveDocumentFolder
+	patch /api/ai/knowledge/documents/:id/folder (KnowledgeMoveDocumentFolderReq) returns (KnowledgeDocumentMutationResp)
+
+	@doc "知识库文档分块预览接口"
+	@handler KnowledgeDocumentChunks
+	get /api/ai/knowledge/documents/:id/chunks (KnowledgeDocumentChunksReq) returns (KnowledgeDocumentChunksResp)
+
+	@doc "知识库测试召回接口，用于管理页验证 TopK 检索命中"
+	@handler KnowledgeTestQuery
+	post /api/ai/knowledge/test-query (KnowledgeTestQueryReq) returns (KnowledgeTestQueryResp)
+}

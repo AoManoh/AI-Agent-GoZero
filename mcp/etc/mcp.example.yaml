@@ -9,3 +9,7 @@ Etcd:
 # 请访问 https://unidoc.io 获取你自己的许可证
 # 如果不使用商业版，可以使用社区版，但功能会有限制
 UniPDFLicense: "your-unipdf-license-key-here"
+
+PDF:
+  AuthToken: "your-mcp-auth-token"
+  MaxUploadBytes: 52428800

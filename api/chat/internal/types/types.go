@@ -3,12 +3,161 @@
 
 package types
 
-type ChatRes struct {
-	Content  string `json:"content"`
-	IsLatest bool   `json:"isLatest"`
-}
-
 type InterviewAppChatReq struct {
 	Message string `form:"message"`
 	ChatId  string `form:"chatId"`
+	Mode    string `form:"mode,optional"`
+}
+
+type KnowledgeChunkItem struct {
+	ChunkId   int64   `json:"chunkId"`
+	Title     string  `json:"title"`
+	Content   string  `json:"content"`
+	Score     float64 `json:"score,optional"`
+	CreatedAt string  `json:"createdAt,optional"`
+}
+
+type KnowledgeCreateFolderReq struct {
+	Name      string `json:"name"`
+	ParentId  int64  `json:"parentId,optional"`
+	SortOrder int64  `json:"sortOrder,optional"`
+}
+
+type KnowledgeDeleteFolderReq struct {
+	Id int64 `path:"id"`
+}
+
+type KnowledgeDocumentChunksReq struct {
+	Id    int64 `path:"id"`
+	Limit int64 `form:"limit,optional"`
+}
+
+type KnowledgeDocumentChunksResp struct {
+	Document KnowledgeDocumentItem `json:"document"`
+	Chunks   []KnowledgeChunkItem  `json:"chunks"`
+	Meta     KnowledgeManagerMeta  `json:"meta"`
+}
+
+type KnowledgeDocumentItem struct {
+	DocumentId         int64  `json:"documentId"`
+	FolderId           int64  `json:"folderId"`
+	Title              string `json:"title"`
+	Scope              string `json:"scope"`
+	Source             string `json:"source,optional"`
+	Visibility         string `json:"visibility"`
+	Status             string `json:"status"`
+	Version            int64  `json:"version"`
+	OwnerId            int64  `json:"ownerId"`
+	ChunkCount         int64  `json:"chunkCount"`
+	SizeBytes          int64  `json:"sizeBytes"`          // 文档所有 chunk content 字节数求和（PG 端 SUM(LENGTH(content))）
+	EmbeddingDimension int    `json:"embeddingDimension"` // 当前向量维度（与 DDL vector(1536) 对齐）
+	EmbeddingModel     string `json:"embeddingModel"`     // 当前 embedding 模型名（来自 svcCtx.Config.EmbeddingModel()）
+	Preview            string `json:"preview"`
+	CreatedAt          string `json:"createdAt"`
+	UpdatedAt          string `json:"updatedAt"`
+}
+
+type KnowledgeDocumentMutationResp struct {
+	Document KnowledgeDocumentItem `json:"document"`
+	Meta     KnowledgeManagerMeta  `json:"meta"`
+}
+
+type KnowledgeDocumentsReq struct {
+	Limit        int64  `form:"limit,optional"`
+	FolderId     int64  `form:"folderId,optional"`
+	FolderScoped bool   `form:"folderScoped,optional"`
+	Visibility   string `form:"visibility,optional"`
+}
+
+type KnowledgeDocumentsResp struct {
+	Documents []KnowledgeDocumentItem `json:"documents"`
+	Total     int64                   `json:"total"`
+	Meta      KnowledgeManagerMeta    `json:"meta"`
+}
+
+type KnowledgeFolderDeleteResp struct {
+	Deleted bool                 `json:"deleted"`
+	Meta    KnowledgeManagerMeta `json:"meta"`
+}
+
+type KnowledgeFolderItem struct {
+	Id            int64                 `json:"id"`
+	ParentId      int64                 `json:"parentId,optional"`
+	Name          string                `json:"name"`
+	Path          string                `json:"path"`
+	Depth         int64                 `json:"depth"`
+	SortOrder     int64                 `json:"sortOrder"`
+	DocumentCount int64                 `json:"documentCount"`
+	ChunkCount    int64                 `json:"chunkCount"`
+	Children      []KnowledgeFolderItem `json:"children,optional"`
+	CreatedAt     string                `json:"createdAt"`
+	UpdatedAt     string                `json:"updatedAt"`
+}
+
+type KnowledgeFolderMutationResp struct {
+	Folder KnowledgeFolderItem  `json:"folder"`
+	Meta   KnowledgeManagerMeta `json:"meta"`
+}
+
+type KnowledgeFoldersReq struct {
+}
+
+type KnowledgeFoldersResp struct {
+	Folders      []KnowledgeFolderItem `json:"folders"`
+	UnfiledCount int64                 `json:"unfiledCount"`
+	Total        int64                 `json:"total"`
+	TotalCount   int64                 `json:"totalCount"`
+	Initialized  bool                  `json:"initialized"`
+	Meta         KnowledgeManagerMeta  `json:"meta"`
+}
+
+type KnowledgeManagerMeta struct {
+	SchemaVersion string `json:"schemaVersion"`
+	Available     bool   `json:"available"`
+	Scope         string `json:"scope"`
+	GeneratedAt   string `json:"generatedAt"`
+}
+
+type KnowledgeMoveDocumentFolderReq struct {
+	Id       int64 `path:"id"`
+	FolderId int64 `json:"folderId,optional"`
+}
+
+type KnowledgeTestQueryReq struct {
+	Query        string `json:"query"`
+	TopK         int64  `json:"topK,optional"`
+	FolderId     int64  `json:"folderId,optional"`
+	FolderScoped bool   `json:"folderScoped,optional"`
+	Visibility   string `json:"visibility,optional"`
+}
+
+type KnowledgeTestQueryResp struct {
+	Results []KnowledgeChunkItem `json:"results"`
+	Total   int64                `json:"total"`
+	Meta    KnowledgeManagerMeta `json:"meta"`
+}
+
+type KnowledgeTextUploadReq struct {
+	Title   string `json:"title"`
+	Content string `json:"content"`
+	Source  string `json:"source,optional"`
+}
+
+type KnowledgeUpdateFolderReq struct {
+	Id           int64  `path:"id"`
+	Name         string `json:"name,optional"`
+	ParentId     int64  `json:"parentId,optional"`
+	SortOrder    int64  `json:"sortOrder,optional"`
+	SetParent    bool   `json:"setParent,optional"`
+	SetSortOrder bool   `json:"setSortOrder,optional"`
+}
+
+type KnowledgeUploadReq struct {
+	File     string `form:"file"`
+	FolderId int64  `form:"folderId,optional"`
+}
+
+type KnowledgeUploadRes struct {
+	Msg    string `json:"msg"`
+	Chunks int    `json:"chunks"`
 }

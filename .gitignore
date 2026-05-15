@@ -1,5 +1,6 @@
 /.cursor/
 /.augment
+/.augmentignore
 /.env
 /default.etcd
 /notes
@@ -33,6 +34,8 @@ vendor/
 *.swo
 *~
 .DS_Store
+# Windows 保留设备名误写文件（如 nul、con、prn 等）
+/nul
 
 # IDE 配置
 .vscode/
@@ -55,10 +58,41 @@ vendor/
 /api/chat/etc/chat.yaml
 /api/chat/etc/docker.yaml
 /api/user/etc/user-api.yaml
+/api/user/etc/docker.yaml
 /mcp/etc/docker.yaml
 /mcp/etc/mcp.yaml
+/**/*.local.yaml
 /docker-compose.yml
 
 # 前端环境变量 (保留 example 文件)
 /client/.env.development
 /client/.env.production
+
+# 本地工程治理结构（不上传服务器）
+/skills/
+/AGENTS.md
+/docs/
+.agents/
+.runtime/
+
+# 临时测试用脚本
+/scripts/
+
+# 前端运行时/导入用生成数据资产
+/client/public/data/
+
+# Playwright MCP 运行记录
+/.playwright-mcp/
+
+# openACE / ACE 本地索引与缓存：永远不进版本库
+# (实际缓存默认在 ~/.cache/openace-mcp，但兜底防止任何子目录意外生成)
+**/.openace/
+**/.ace/
+**/openace-cache/
+**/.openace-cache/
+
+# 浏览器临时 profile（演示截图工作流产生的运行时数据）
+# 即使将来 /docs/ 或 /skills/ 解禁，这类目录也不应入库
+**/chrome-profile/
+**/chrome-profile-formal/
+**/chrome-profile-*/

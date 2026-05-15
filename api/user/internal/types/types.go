@@ -3,6 +3,262 @@
 
 package types
 
+type AbilityRadarPoint struct {
+	Key      string `json:"key"`
+	Label    string `json:"label"`
+	Score    int64  `json:"score"`
+	MaxScore int64  `json:"maxScore"`
+}
+
+type CreateSessionReq struct {
+	Title            string   `json:"title,optional"`
+	Mode             string   `json:"mode,optional"`
+	DirectionKey     string   `json:"directionKey,optional"`
+	Difficulty       int64    `json:"difficulty,optional"`
+	FocusKeys        []string `json:"focusKeys,optional"`
+	InterviewerStyle string   `json:"interviewerStyle,optional"`
+	EstimatedMinutes int64    `json:"estimatedMinutes,optional"`
+	QuestionKey      string   `json:"questionKey,optional"`
+	ResumeArtifactId string   `json:"resumeArtifactId,optional"`
+}
+
+type CreateSessionResp struct {
+	Session       SessionItem           `json:"session"`
+	Config        SessionConfigSnapshot `json:"config"`
+	ResumeBinding *ResumeBindingSummary `json:"resumeBinding,optional"`
+}
+
+type DeleteSessionReq struct {
+	Id string `path:"id"`
+}
+
+type DeleteSessionResp struct {
+}
+
+type DemoInterviewSceneMessage struct {
+	Role      string `json:"role"`
+	Name      string `json:"name"`
+	Content   string `json:"content"`
+	CreatedAt string `json:"createdAt"`
+}
+
+type DemoInterviewSceneRandomReq struct {
+	Limit int64 `form:"limit,optional"`
+}
+
+type DemoInterviewSceneRandomResp struct {
+	Available             bool                        `json:"available"`
+	SessionId             string                      `json:"sessionId,optional"`
+	Title                 string                      `json:"title,optional"`
+	Mode                  string                      `json:"mode,optional"`
+	ModeKey               string                      `json:"modeKey,optional"`
+	Source                string                      `json:"source,optional"`
+	SourceLabel           string                      `json:"sourceLabel,optional"`
+	DirectionLabel        string                      `json:"directionLabel,optional"`
+	DifficultyLabel       string                      `json:"difficultyLabel,optional"`
+	InterviewerStyleLabel string                      `json:"interviewerStyleLabel,optional"`
+	FollowUpDepth         string                      `json:"followUpDepth,optional"`
+	Messages              []DemoInterviewSceneMessage `json:"messages"`
+}
+
+type EvaluationDimension struct {
+	Key      string `json:"key"`
+	Label    string `json:"label"`
+	Score    int64  `json:"score"`
+	MaxScore int64  `json:"maxScore"`
+	Summary  string `json:"summary"`
+}
+
+type EvaluationEvidence struct {
+	Role      string `json:"role"`
+	Content   string `json:"content"`
+	CreatedAt string `json:"createdAt"`
+}
+
+type FinishSessionReq struct {
+	Id string `path:"id"`
+}
+
+type FinishSessionResp struct {
+	Session SessionItem           `json:"session"`
+	Config  SessionConfigSnapshot `json:"config"`
+}
+
+type FlowStateEvent struct {
+	Type   string `json:"type"`
+	From   string `json:"from,optional"`
+	To     string `json:"to,optional"`
+	Role   string `json:"role,optional"`
+	Reason string `json:"reason,optional"`
+	At     string `json:"at"`
+}
+
+type FocusAreaSelection struct {
+	Key   string `json:"key"`
+	Label string `json:"label"`
+}
+
+type InterviewDifficultyPreset struct {
+	Level                int64  `json:"level"`
+	Label                string `json:"label"`
+	Description          string `json:"description"`
+	DefaultFollowUpDepth string `json:"defaultFollowUpDepth"`
+}
+
+type InterviewDirectionPreset struct {
+	Key             string   `json:"key"`
+	Label           string   `json:"label"`
+	Description     string   `json:"description"`
+	QuestionCount   int64    `json:"questionCount"`
+	DifficultyRange []int64  `json:"difficultyRange"`
+	FocusKeys       []string `json:"focusKeys"`
+}
+
+type InterviewFocusOption struct {
+	Key         string `json:"key"`
+	Label       string `json:"label"`
+	Description string `json:"description"`
+}
+
+type InterviewPlanMilestone struct {
+	Key             string  `json:"key"`
+	Label           string  `json:"label"`
+	Description     string  `json:"description"`
+	QuestionIndexes []int64 `json:"questionIndexes"`
+}
+
+type InterviewPlanPreviewReq struct {
+	DirectionKey     string `form:"directionKey,optional"`
+	Difficulty       int64  `form:"difficulty,optional"`
+	FocusKeys        string `form:"focusKeys,optional"`
+	InterviewerStyle string `form:"interviewerStyle,optional"`
+	Limit            int64  `form:"limit,optional"`
+}
+
+type InterviewPlanQuestion struct {
+	Key                  string   `json:"key"`
+	DirectionKey         string   `json:"directionKey"`
+	FocusKey             string   `json:"focusKey"`
+	FocusLabel           string   `json:"focusLabel"`
+	DifficultyLevel      int64    `json:"difficultyLevel"`
+	DifficultyLabel      string   `json:"difficultyLabel"`
+	Title                string   `json:"title"`
+	Prompt               string   `json:"prompt"`
+	ExpectedSignals      []string `json:"expectedSignals"`
+	FollowUps            []string `json:"followUps"`
+	EvaluationDimensions []string `json:"evaluationDimensions"`
+}
+
+type InterviewPlanResp struct {
+	Config     SessionConfigSnapshot    `json:"config"`
+	Questions  []InterviewPlanQuestion  `json:"questions"`
+	Milestones []InterviewPlanMilestone `json:"milestones"`
+	PlanMeta   ReportMeta               `json:"planMeta"`
+}
+
+type InterviewPresetsReq struct {
+}
+
+type InterviewPresetsResp struct {
+	Directions        []InterviewDirectionPreset  `json:"directions"`
+	Difficulties      []InterviewDifficultyPreset `json:"difficulties"`
+	FocusOptions      []InterviewFocusOption      `json:"focusOptions"`
+	InterviewerStyles []InterviewStyleOption      `json:"interviewerStyles"`
+	DefaultConfig     SessionConfigSnapshot       `json:"defaultConfig"`
+}
+
+type InterviewQuestionDetailReq struct {
+	Id string `path:"id"`
+}
+
+type InterviewQuestionDetailResp struct {
+	Question     InterviewQuestionItem         `json:"question"`
+	Sources      []InterviewQuestionSourceItem `json:"sources"`
+	QuestionMeta ReportMeta                    `json:"questionMeta"`
+}
+
+type InterviewQuestionDifficultyStat struct {
+	DifficultyLevel int64 `json:"difficultyLevel"`
+	Count           int64 `json:"count"`
+}
+
+type InterviewQuestionDirectionStat struct {
+	DirectionKey string `json:"directionKey"`
+	Count        int64  `json:"count"`
+}
+
+type InterviewQuestionItem struct {
+	Id                   int64    `json:"id"`
+	Key                  string   `json:"key"`
+	DirectionKey         string   `json:"directionKey"`
+	FocusKey             string   `json:"focusKey"`
+	FocusLabel           string   `json:"focusLabel"`
+	DifficultyLevel      int64    `json:"difficultyLevel"`
+	DifficultyLabel      string   `json:"difficultyLabel"`
+	Title                string   `json:"title"`
+	Prompt               string   `json:"prompt"`
+	ExpectedSignals      []string `json:"expectedSignals"`
+	FollowUps            []string `json:"followUps"`
+	EvaluationDimensions []string `json:"evaluationDimensions"`
+	Tags                 []string `json:"tags"`
+	SourceRefs           []string `json:"sourceRefs"`
+	BatchKey             string   `json:"batchKey"`
+	BatchLabel           string   `json:"batchLabel"`
+	Sequence             int64    `json:"sequence"`
+	BatchSequence        int64    `json:"batchSequence"`
+	Status               string   `json:"status"`
+	QualityScore         float64  `json:"qualityScore"`
+	UsageCount           int64    `json:"usageCount"`
+	LastUsedAt           string   `json:"lastUsedAt,optional"`
+	UpdatedAt            string   `json:"updatedAt"`
+	SourceCount          int64    `json:"sourceCount"`
+}
+
+type InterviewQuestionSourceItem struct {
+	SourceKey   string `json:"sourceKey"`
+	SourceTitle string `json:"sourceTitle"`
+	SourceUrl   string `json:"sourceUrl"`
+	SourceType  string `json:"sourceType"`
+	LicenseNote string `json:"licenseNote"`
+	BatchKey    string `json:"batchKey"`
+}
+
+type InterviewQuestionStatsReq struct {
+}
+
+type InterviewQuestionStatsResp struct {
+	Total        int64                             `json:"total"`
+	Directions   []InterviewQuestionDirectionStat  `json:"directions"`
+	Difficulties []InterviewQuestionDifficultyStat `json:"difficulties"`
+	UpdatedAt    string                            `json:"updatedAt,optional"`
+	StatsMeta    ReportMeta                        `json:"statsMeta"`
+}
+
+type InterviewQuestionsReq struct {
+	DirectionKey string `form:"directionKey,optional"`
+	Difficulty   int64  `form:"difficulty,optional"`
+	FocusKeys    string `form:"focusKeys,optional"`
+	Keyword      string `form:"keyword,optional"`
+	Limit        int64  `form:"limit,optional"`
+	Offset       int64  `form:"offset,optional"`
+	Sort         string `form:"sort,optional"`
+}
+
+type InterviewQuestionsResp struct {
+	Questions    []InterviewQuestionItem `json:"questions"`
+	Total        int64                   `json:"total"`
+	Limit        int64                   `json:"limit"`
+	Offset       int64                   `json:"offset"`
+	HasMore      bool                    `json:"hasMore"`
+	QuestionMeta ReportMeta              `json:"questionMeta"`
+}
+
+type InterviewStyleOption struct {
+	Key         string `json:"key"`
+	Label       string `json:"label"`
+	Description string `json:"description"`
+}
+
 type LoginReq struct {
 	Username string `json:"username" validate:"required"`
 	Password string `json:"password" validate:"required"`
@@ -18,6 +274,15 @@ type LogoutReq struct {
 }
 
 type LogoutResp struct {
+}
+
+type ProfileReq struct {
+}
+
+type ProfileResp struct {
+	UserId    int64  `json:"userId"`
+	Username  string `json:"username"`
+	CreatedAt string `json:"createdAt"`
 }
 
 type RefreshTokenReq struct {
@@ -37,4 +302,625 @@ type RegisterReq struct {
 }
 
 type RegisterResp struct {
+}
+
+type ReportAssetSummary struct {
+	HasResume       bool   `json:"hasResume"`
+	ResumeChunks    int64  `json:"resumeChunks"`
+	ResumeUpdatedAt string `json:"resumeUpdatedAt,optional"`
+}
+
+type ReportCenterBootstrapFilters struct {
+	Mode    string `json:"mode"`
+	ModeKey string `json:"modeKey"`
+	Limit   int64  `json:"limit"`
+}
+
+type ReportCenterBootstrapReq struct {
+	Mode    string `form:"mode,optional"`
+	ModeKey string `form:"modeKey,optional"`
+	Limit   int64  `form:"limit,optional"`
+}
+
+type ReportCenterBootstrapResp struct {
+	Overview      ReportCenterOverviewResp   `json:"overview"`
+	Modes         []ReportCenterModeCard     `json:"modes"`
+	ModeDetail    ReportCenterModeDetailResp `json:"modeDetail"`
+	BootstrapMeta ReportMeta                 `json:"bootstrapMeta"`
+}
+
+type ReportCenterModeCard struct {
+	Mode                     string                    `json:"mode"`
+	ModeKey                  string                    `json:"modeKey"`
+	SessionCount             int64                     `json:"sessionCount"`
+	MessageCount             int64                     `json:"messageCount"`
+	EvaluatedSessions        int64                     `json:"evaluatedSessions"`
+	ReadySessions            int64                     `json:"readySessions"`
+	DraftSessions            int64                     `json:"draftSessions"`
+	InsufficientDataSessions int64                     `json:"insufficientDataSessions"`
+	ResumeBackedSessions     int64                     `json:"resumeBackedSessions"`
+	AverageScore             float64                   `json:"averageScore"`
+	HasSessions              bool                      `json:"hasSessions"`
+	HasReadyReport           bool                      `json:"hasReadyReport"`
+	HasResumeContext         bool                      `json:"hasResumeContext"`
+	AttentionState           string                    `json:"attentionState"`
+	LastActivityAt           string                    `json:"lastActivityAt,optional"`
+	Spotlight                *ReportCenterRecentReport `json:"spotlight,optional"`
+}
+
+type ReportCenterModeDetailFilters struct {
+	Mode    string `json:"mode"`
+	ModeKey string `json:"modeKey"`
+	Limit   int64  `json:"limit"`
+	HasMore bool   `json:"hasMore"`
+}
+
+type ReportCenterModeDetailReq struct {
+	ModeKey string `path:"modeKey"`
+	Limit   int64  `form:"limit,optional"`
+}
+
+type ReportCenterModeDetailResp struct {
+	Card     ReportCenterModeCard          `json:"card"`
+	Reports  []ReportCenterRecentReport    `json:"reports"`
+	Total    int64                         `json:"total"`
+	Filters  ReportCenterModeDetailFilters `json:"filters"`
+	ModeMeta ReportMeta                    `json:"modeMeta"`
+}
+
+type ReportCenterModeSummary struct {
+	Mode                     string  `json:"mode"`
+	ModeKey                  string  `json:"modeKey"`
+	SessionCount             int64   `json:"sessionCount"`
+	MessageCount             int64   `json:"messageCount"`
+	EvaluatedSessions        int64   `json:"evaluatedSessions"`
+	ReadySessions            int64   `json:"readySessions"`
+	DraftSessions            int64   `json:"draftSessions"`
+	InsufficientDataSessions int64   `json:"insufficientDataSessions"`
+	ResumeBackedSessions     int64   `json:"resumeBackedSessions"`
+	AverageScore             float64 `json:"averageScore"`
+	LastActivityAt           string  `json:"lastActivityAt,optional"`
+}
+
+type ReportCenterModesReq struct {
+}
+
+type ReportCenterModesResp struct {
+	Modes     []ReportCenterModeCard `json:"modes"`
+	ModesMeta ReportMeta             `json:"modesMeta"`
+}
+
+type ReportCenterOverviewReq struct {
+}
+
+type ReportCenterOverviewResp struct {
+	Totals        ReportCenterTotals         `json:"totals"`
+	Modes         []ReportCenterModeSummary  `json:"modes"`
+	RecentReports []ReportCenterRecentReport `json:"recentReports"`
+	OverviewMeta  ReportMeta                 `json:"overviewMeta"`
+}
+
+type ReportCenterRecentReport struct {
+	Session        SessionItem `json:"session"`
+	Status         string      `json:"status"`
+	Summary        string      `json:"summary"`
+	OverallScore   float64     `json:"overallScore"`
+	HasResume      bool        `json:"hasResume"`
+	ResumeChunks   int64       `json:"resumeChunks"`
+	NextAction     string      `json:"nextAction,optional"`
+	GeneratedAt    string      `json:"generatedAt,optional"`
+	LastActivityAt string      `json:"lastActivityAt,optional"`
+}
+
+type ReportCenterSessionsFilters struct {
+	Mode    string `json:"mode,optional"`
+	ModeKey string `json:"modeKey,optional"`
+	Status  string `json:"status,optional"`
+	Limit   int64  `json:"limit"`
+	HasMore bool   `json:"hasMore"`
+}
+
+type ReportCenterSessionsReq struct {
+	Mode    string `form:"mode,optional"`
+	ModeKey string `form:"modeKey,optional"`
+	Status  string `form:"status,optional"`
+	Limit   int64  `form:"limit,optional"`
+}
+
+type ReportCenterSessionsResp struct {
+	Reports      []ReportCenterRecentReport  `json:"reports"`
+	Total        int64                       `json:"total"`
+	Filters      ReportCenterSessionsFilters `json:"filters"`
+	SessionsMeta ReportMeta                  `json:"sessionsMeta"`
+}
+
+type ReportCenterTotals struct {
+	TotalSessions            int64   `json:"totalSessions"`
+	EvaluatedSessions        int64   `json:"evaluatedSessions"`
+	ReadySessions            int64   `json:"readySessions"`
+	DraftSessions            int64   `json:"draftSessions"`
+	InsufficientDataSessions int64   `json:"insufficientDataSessions"`
+	ResumeBackedSessions     int64   `json:"resumeBackedSessions"`
+	AverageScore             float64 `json:"averageScore"`
+	LastActivityAt           string  `json:"lastActivityAt,optional"`
+}
+
+type ReportConversationSummary struct {
+	MessageCount           int64  `json:"messageCount"`
+	UserTurns              int64  `json:"userTurns"`
+	AssistantTurns         int64  `json:"assistantTurns"`
+	FirstMessageAt         string `json:"firstMessageAt,optional"`
+	LastMessageAt          string `json:"lastMessageAt,optional"`
+	LatestUserMessage      string `json:"latestUserMessage,optional"`
+	LatestAssistantMessage string `json:"latestAssistantMessage,optional"`
+}
+
+type ReportEvaluationSummary struct {
+	Status           string                `json:"status"`
+	Summary          string                `json:"summary"`
+	OverallScore     float64               `json:"overallScore"`
+	RubricVersion    string                `json:"rubricVersion"`
+	ScoreSource      string                `json:"scoreSource"`
+	Dimensions       []EvaluationDimension `json:"dimensions"`
+	Strengths        []string              `json:"strengths"`
+	Risks            []string              `json:"risks"`
+	Suggestions      []string              `json:"suggestions"`
+	FirstGeneratedAt string                `json:"firstGeneratedAt"`
+	LastRefreshedAt  string                `json:"lastRefreshedAt"`
+	GeneratedAt      string                `json:"generatedAt"`
+}
+
+type ReportMeta struct {
+	SchemaVersion string `json:"schemaVersion"`
+	Available     bool   `json:"available"`
+}
+
+type ReportSnapshot struct {
+	Title      string `json:"title"`
+	Summary    string `json:"summary"`
+	Status     string `json:"status"`
+	NextAction string `json:"nextAction,optional"`
+}
+
+type ResumeArtifactAnalysisPrepareReq struct {
+	Id           string `path:"id"`
+	DirectionKey string `json:"directionKey,optional"`
+	Force        bool   `json:"force,optional"`
+	Limit        int64  `json:"limit,optional"`
+}
+
+type ResumeArtifactAnalysisReq struct {
+	Id           string `path:"id"`
+	DirectionKey string `form:"directionKey,optional"`
+	Limit        int64  `form:"limit,optional"`
+}
+
+type ResumeArtifactAnalysisResp struct {
+	Artifact           ResumeArtifactItem       `json:"artifact"`
+	EvaluationStatus   string                   `json:"evaluationStatus"`
+	OverallScore       float64                  `json:"overallScore"`
+	Level              string                   `json:"level"`
+	Summary            string                   `json:"summary"`
+	Dimensions         []EvaluationDimension    `json:"dimensions"`
+	Skills             []ResumeSkillSignal      `json:"skills"`
+	Projects           []ResumeProjectHighlight `json:"projects"`
+	Risks              []ResumeRiskSignal       `json:"risks"`
+	Strengths          []string                 `json:"strengths"`
+	Suggestions        []string                 `json:"suggestions"`
+	Evidence           []EvaluationEvidence     `json:"evidence"`
+	FocusMatches       []ResumeFocusMatch       `json:"focusMatches"`
+	SuggestedQuestions []InterviewPlanQuestion  `json:"suggestedQuestions"`
+	AnalysisMeta       ReportMeta               `json:"analysisMeta"`
+	EvaluationMeta     ResumeEvaluationMeta     `json:"evaluationMeta"`
+}
+
+type ResumeArtifactChunk struct {
+	Index        int64  `json:"index"`
+	EvidenceId   string `json:"evidenceId"`
+	Content      string `json:"content"`
+	Page         int64  `json:"page,optional"`
+	Section      string `json:"section,optional"`
+	SourceStatus string `json:"sourceStatus"`
+	CreatedAt    string `json:"createdAt,optional"`
+}
+
+type ResumeArtifactDetailReq struct {
+	Id string `path:"id"`
+}
+
+type ResumeArtifactDetailResp struct {
+	Artifact ResumeArtifactItem    `json:"artifact"`
+	Chunks   []ResumeArtifactChunk `json:"chunks"`
+	Meta     ReportMeta            `json:"meta"`
+}
+
+type ResumeArtifactItem struct {
+	ArtifactId         string            `json:"artifactId"`
+	Title              string            `json:"title"`
+	Version            int64             `json:"version"`
+	Filename           string            `json:"filename,optional"`
+	Status             string            `json:"status"`
+	ChunkCount         int64             `json:"chunkCount"`
+	BoundSessionId     string            `json:"boundSessionId"`
+	BoundSessionName   string            `json:"boundSessionName"`
+	OverallScore       float64           `json:"overallScore"`
+	Level              string            `json:"level"`
+	EvaluationStatus   string            `json:"evaluationStatus"`
+	ProjectCount       int64             `json:"projectCount"`
+	SkillCount         int64             `json:"skillCount"`
+	RiskCount          int64             `json:"riskCount"`
+	LatestEvaluationAt string            `json:"latestEvaluationAt,optional"`
+	ParseStatus        ResumeParseStatus `json:"parseStatus"`
+	UploadedAt         string            `json:"uploadedAt,optional"`
+	UpdatedAt          string            `json:"updatedAt"`
+}
+
+type ResumeArtifactsReq struct {
+}
+
+type ResumeArtifactsResp struct {
+	Artifacts []ResumeArtifactItem `json:"artifacts"`
+	Total     int64                `json:"total"`
+}
+
+type ResumeBindingSummary struct {
+	ArtifactId string `json:"artifactId"`
+	Title      string `json:"title"`
+	Version    int64  `json:"version"`
+	Status     string `json:"status"`
+}
+
+type ResumeEvaluationMeta struct {
+	SchemaVersion    string `json:"schemaVersion"`
+	Available        bool   `json:"available"`
+	RubricVersion    string `json:"rubricVersion,optional"`
+	ScoreSource      string `json:"scoreSource,optional"`
+	GeneratedAt      string `json:"generatedAt,optional"`
+	FirstGeneratedAt string `json:"firstGeneratedAt,optional"`
+	LastRefreshedAt  string `json:"lastRefreshedAt,optional"`
+}
+
+type ResumeFocusMatch struct {
+	Key             string   `json:"key"`
+	Label           string   `json:"label"`
+	MatchScore      int64    `json:"matchScore"`
+	Evidence        []string `json:"evidence"`
+	PlannedQuestion int64    `json:"plannedQuestion"`
+}
+
+type ResumeParseStatus struct {
+	Stage           string `json:"stage"`
+	Progress        int64  `json:"progress"`
+	TotalChunks     int64  `json:"totalChunks"`
+	ProcessedChunks int64  `json:"processedChunks"`
+	FailedChunks    int64  `json:"failedChunks"`
+	ErrorCode       string `json:"errorCode,optional"`
+	ErrorMessage    string `json:"errorMessage,optional"`
+	Retryable       bool   `json:"retryable"`
+}
+
+type ResumeProjectHighlight struct {
+	Title    string   `json:"title"`
+	Summary  string   `json:"summary"`
+	Evidence []string `json:"evidence"`
+}
+
+type ResumeRiskSignal struct {
+	Key        string `json:"key"`
+	Label      string `json:"label"`
+	Severity   string `json:"severity"`
+	Suggestion string `json:"suggestion"`
+}
+
+type ResumeSkillSignal struct {
+	Key      string   `json:"key"`
+	Label    string   `json:"label"`
+	Score    int64    `json:"score"`
+	Evidence []string `json:"evidence"`
+}
+
+type ResumeUploadReq struct {
+	ChatId string `form:"chatId,optional"`
+	Title  string `form:"title,optional"`
+	Mode   string `form:"mode,optional"`
+}
+
+type ResumeUploadResp struct {
+	Msg             string            `json:"msg"`
+	ChatId          string            `json:"chatId,optional"`
+	LegacySessionId string            `json:"legacySessionId,optional"`
+	ArtifactId      string            `json:"artifactId"`
+	Title           string            `json:"title"`
+	Filename        string            `json:"filename"`
+	Version         int64             `json:"version"`
+	Status          string            `json:"status"`
+	Chunks          int               `json:"chunks"`
+	ParseStatus     ResumeParseStatus `json:"parseStatus"`
+}
+
+type SessionBootstrapReq struct {
+	Id string `path:"id"`
+}
+
+type SessionBootstrapResp struct {
+	Session       SessionItem               `json:"session"`
+	Config        SessionConfigSnapshot     `json:"config"`
+	Messages      []SessionMessage          `json:"messages"`
+	FlowState     *SessionFlowStateResp     `json:"flowState,optional"`
+	ReportSummary *SessionReportSummaryResp `json:"reportSummary,optional"`
+	BootstrapMeta ReportMeta                `json:"bootstrapMeta"`
+}
+
+type SessionConfigSnapshot struct {
+	DirectionKey          string               `json:"directionKey"`
+	DirectionLabel        string               `json:"directionLabel"`
+	DifficultyLevel       int64                `json:"difficultyLevel"`
+	DifficultyLabel       string               `json:"difficultyLabel"`
+	InterviewerStyle      string               `json:"interviewerStyle"`
+	InterviewerStyleLabel string               `json:"interviewerStyleLabel"`
+	FocusAreas            []FocusAreaSelection `json:"focusAreas"`
+	FollowUpDepth         string               `json:"followUpDepth"`
+	EstimatedMinutes      int64                `json:"estimatedMinutes"`
+	ScenarioType          string               `json:"scenarioType"`
+	ScenarioLabel         string               `json:"scenarioLabel"`
+	StarterSource         string               `json:"starterSource"`
+	StarterSourceLabel    string               `json:"starterSourceLabel"`
+	StarterQuestionKey    string               `json:"starterQuestionKey,optional"`
+	ResumeArtifactId      string               `json:"resumeArtifactId,optional"`
+	ProgressPercent       int64                `json:"progressPercent"`
+	DurationSeconds       int64                `json:"durationSeconds"`
+	StartedAt             string               `json:"startedAt,optional"`
+	CompletedAt           string               `json:"completedAt,optional"`
+}
+
+type SessionDetailReq struct {
+	Id string `path:"id"`
+}
+
+type SessionDetailResp struct {
+	Session  SessionItem      `json:"session"`
+	Messages []SessionMessage `json:"messages"`
+}
+
+type SessionEvaluationRefreshReq struct {
+	Id    string `path:"id"`
+	Force bool   `json:"force,optional"`
+}
+
+type SessionEvaluationReq struct {
+	Id string `path:"id"`
+}
+
+type SessionEvaluationResp struct {
+	Session          SessionItem           `json:"session"`
+	Status           string                `json:"status"`
+	Summary          string                `json:"summary"`
+	UserTurns        int64                 `json:"userTurns"`
+	AssistantTurns   int64                 `json:"assistantTurns"`
+	OverallScore     float64               `json:"overallScore"`
+	RubricVersion    string                `json:"rubricVersion"`
+	ScoreSource      string                `json:"scoreSource"`
+	Dimensions       []EvaluationDimension `json:"dimensions"`
+	Strengths        []string              `json:"strengths"`
+	Risks            []string              `json:"risks"`
+	Suggestions      []string              `json:"suggestions"`
+	Evidence         []EvaluationEvidence  `json:"evidence"`
+	FirstGeneratedAt string                `json:"firstGeneratedAt"`
+	LastRefreshedAt  string                `json:"lastRefreshedAt"`
+	GeneratedAt      string                `json:"generatedAt"`
+}
+
+type SessionFlowStateReq struct {
+	Id string `path:"id"`
+}
+
+type SessionFlowStateResp struct {
+	Session        SessionItem      `json:"session"`
+	OwnerScope     string           `json:"ownerScope"`
+	Lane           string           `json:"lane"`
+	MemoryScope    string           `json:"memoryScope"`
+	InterviewState string           `json:"interviewState"`
+	LifecycleState string           `json:"lifecycleState"`
+	ExecutionState string           `json:"executionState"`
+	TurnCount      int64            `json:"turnCount"`
+	LastEvent      string           `json:"lastEvent"`
+	LastReason     string           `json:"lastReason"`
+	UpdatedAt      string           `json:"updatedAt"`
+	Events         []FlowStateEvent `json:"events"`
+	StateMeta      ReportMeta       `json:"stateMeta"`
+}
+
+type SessionFocusProgress struct {
+	Key                string `json:"key"`
+	Label              string `json:"label"`
+	PlannedQuestions   int64  `json:"plannedQuestions"`
+	CompletedQuestions int64  `json:"completedQuestions"`
+	ProgressPercent    int64  `json:"progressPercent"`
+}
+
+type SessionInterviewPlanReq struct {
+	Id    string `path:"id"`
+	Limit int64  `form:"limit,optional"`
+}
+
+type SessionItem struct {
+	SessionId     string `json:"sessionId"`
+	Title         string `json:"title"`
+	Mode          string `json:"mode"`
+	ModeKey       string `json:"modeKey"`
+	MessageCount  int64  `json:"messageCount"`
+	IsActive      bool   `json:"isActive"`
+	CreatedAt     string `json:"createdAt"`
+	UpdatedAt     string `json:"updatedAt"`
+	LastMessageAt string `json:"lastMessageAt,optional"`
+	CompletedAt   string `json:"completedAt,optional"`
+}
+
+type SessionMessage struct {
+	Role      string `json:"role"`
+	Content   string `json:"content"`
+	CreatedAt string `json:"createdAt"`
+}
+
+type SessionProgressReq struct {
+	Id        string `path:"id"`
+	PlanLimit int64  `form:"planLimit,optional"`
+}
+
+type SessionProgressResp struct {
+	Session              SessionItem            `json:"session"`
+	Config               SessionConfigSnapshot  `json:"config"`
+	TotalQuestions       int64                  `json:"totalQuestions"`
+	CompletedQuestions   int64                  `json:"completedQuestions"`
+	CurrentQuestionIndex int64                  `json:"currentQuestionIndex"`
+	ProgressPercent      int64                  `json:"progressPercent"`
+	UserTurns            int64                  `json:"userTurns"`
+	AssistantTurns       int64                  `json:"assistantTurns"`
+	FocusProgress        []SessionFocusProgress `json:"focusProgress"`
+	NextQuestion         *InterviewPlanQuestion `json:"nextQuestion,optional"`
+	ProgressMeta         ReportMeta             `json:"progressMeta"`
+}
+
+type SessionReportOverview struct {
+	Score           float64 `json:"score"`
+	MaxScore        int64   `json:"maxScore"`
+	Summary         string  `json:"summary"`
+	Status          string  `json:"status"`
+	DurationSeconds int64   `json:"durationSeconds"`
+	QuestionCount   int64   `json:"questionCount"`
+	UserTurns       int64   `json:"userTurns"`
+	AssistantTurns  int64   `json:"assistantTurns"`
+}
+
+type SessionReportPrepareReq struct {
+	Id    string `path:"id"`
+	Force bool   `json:"force,optional"`
+}
+
+type SessionReportPrepareResp struct {
+	Readiness     SessionReportReadinessResp `json:"readiness"`
+	ReportSummary *SessionReportSummaryResp  `json:"reportSummary,optional"`
+	PrepareMeta   ReportMeta                 `json:"prepareMeta"`
+}
+
+type SessionReportQuestionCard struct {
+	TurnIndex int64              `json:"turnIndex"`
+	Depth     string             `json:"depth"`
+	Question  string             `json:"question"`
+	Answer    string             `json:"answer"`
+	AiComment string             `json:"aiComment"`
+	Score     int64              `json:"score"`
+	MaxScore  int64              `json:"maxScore"`
+	Tags      []SessionReportTag `json:"tags"`
+}
+
+type SessionReportReadinessReq struct {
+	Id string `path:"id"`
+}
+
+type SessionReportReadinessResp struct {
+	Session          SessionItem `json:"session"`
+	EvaluationStatus string      `json:"evaluationStatus"`
+	ReportStatus     string      `json:"reportStatus"`
+	CanReadReport    bool        `json:"canReadReport"`
+	NeedsRefresh     bool        `json:"needsRefresh"`
+	Reason           string      `json:"reason"`
+	NextAction       string      `json:"nextAction"`
+	LastMessageAt    string      `json:"lastMessageAt,optional"`
+	LastRefreshedAt  string      `json:"lastRefreshedAt,optional"`
+	ReadinessMeta    ReportMeta  `json:"readinessMeta"`
+}
+
+type SessionReportReq struct {
+	Id string `path:"id"`
+}
+
+type SessionReportResp struct {
+	Session       SessionItem                 `json:"session"`
+	Config        SessionConfigSnapshot       `json:"config"`
+	Overview      SessionReportOverview       `json:"overview"`
+	Radar         []AbilityRadarPoint         `json:"radar"`
+	QuestionCards []SessionReportQuestionCard `json:"questionCards"`
+	Strengths     []string                    `json:"strengths"`
+	Risks         []string                    `json:"risks"`
+	Suggestions   []string                    `json:"suggestions"`
+	ReportMeta    ReportMeta                  `json:"reportMeta"`
+}
+
+type SessionReportSummaryReq struct {
+	Id string `path:"id"`
+}
+
+type SessionReportSummaryResp struct {
+	Session      SessionItem               `json:"session"`
+	Snapshot     ReportSnapshot            `json:"snapshot"`
+	Conversation ReportConversationSummary `json:"conversation"`
+	Assets       ReportAssetSummary        `json:"assets"`
+	Evaluation   ReportEvaluationSummary   `json:"evaluation"`
+	ReportMeta   ReportMeta                `json:"reportMeta"`
+}
+
+type SessionReportTag struct {
+	Key   string `json:"key"`
+	Label string `json:"label"`
+	Level string `json:"level"`
+}
+
+type SessionsReq struct {
+}
+
+type SessionsResp struct {
+	Sessions []SessionItem `json:"sessions"`
+	Total    int64         `json:"total"`
+}
+
+type WorkbenchAction struct {
+	Key         string `json:"key"`
+	Label       string `json:"label"`
+	Description string `json:"description"`
+	Route       string `json:"route"`
+}
+
+type WorkbenchBootstrapReq struct {
+}
+
+type WorkbenchBootstrapResp struct {
+	User             ProfileResp               `json:"user"`
+	Stats            WorkbenchStats            `json:"stats"`
+	ContinueSession  *WorkbenchContinueSession `json:"continueSession,optional"`
+	RecentSessions   []SessionItem             `json:"recentSessions"`
+	AbilityRadar     []AbilityRadarPoint       `json:"abilityRadar"`
+	ResumeSummary    WorkbenchResumeSummary    `json:"resumeSummary"`
+	KnowledgeSummary WorkbenchKnowledgeSummary `json:"knowledgeSummary"`
+	NextActions      []WorkbenchAction         `json:"nextActions"`
+	WorkbenchMeta    ReportMeta                `json:"workbenchMeta"`
+}
+
+type WorkbenchContinueSession struct {
+	Session  SessionItem           `json:"session"`
+	Config   SessionConfigSnapshot `json:"config"`
+	Progress int64                 `json:"progress"`
+	Depth    string                `json:"depth"`
+}
+
+type WorkbenchKnowledgeSummary struct {
+	Documents     int64  `json:"documents"`
+	Chunks        int64  `json:"chunks"`
+	LatestTitle   string `json:"latestTitle,optional"`
+	LatestAddedAt string `json:"latestAddedAt,optional"`
+}
+
+type WorkbenchResumeSummary struct {
+	Total           int64  `json:"total"`
+	LatestSessionId string `json:"latestSessionId,optional"`
+	LatestTitle     string `json:"latestTitle,optional"`
+	LatestUpdatedAt string `json:"latestUpdatedAt,optional"`
+	ChunkCount      int64  `json:"chunkCount"`
+	ProjectsCount   int64  `json:"projectsCount"`
+}
+
+type WorkbenchStats struct {
+	CompletedInterviews int64   `json:"completedInterviews"`
+	AverageScore        float64 `json:"averageScore"`
+	LastPracticeAt      string  `json:"lastPracticeAt,optional"`
 }

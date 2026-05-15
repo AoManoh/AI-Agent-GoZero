@@ -1,0 +1,37 @@
+Name: user-api
+Host: 0.0.0.0
+Port: 8124
+MaxBytes: 52428800
+Timeout: 60000
+
+Postgres:
+  DataSource: "postgresql://postgres:your-password@postgres:5432/gozero_ai_agent?sslmode=disable&TimeZone=Asia/Shanghai"
+
+OpenAI:
+  ApiKeyEnv: "DASHSCOPE_API_KEY"
+  BaseURL: "https://dashscope.aliyuncs.com/compatible-mode/v1"
+  EmbeddingModel: "text-embedding-v2"
+  EvaluationModel: "qwen-plus"
+  EvaluationTemp: 0.2
+  MaxCompletionTokens: 1200
+
+Evaluation:
+  ApiKeyEnv: "OPENAI_API_KEY"
+  BaseURL: "http://sub2api.aomanoh.com:18080/v1"
+  Model: "gpt-5.4"
+
+MCP:
+  Endpoint: "mcp:8321"
+  AuthToken: "your-mcp-auth-token"
+  MaxUploadBytes: 52428800
+
+Resume:
+  MaxChunkSize: 1000
+
+Auth:
+  AccessSecret: "your-access-secret"
+  AccessExpire: 7200
+
+Redis:
+  Host: "redis:6379"
+  Type: "node"

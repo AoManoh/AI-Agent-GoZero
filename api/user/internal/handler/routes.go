@@ -16,6 +16,12 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 	server.AddRoutes(
 		[]rest.Route{
 			{
+				// 随机获取管理员演示面试场景，用于公开首页打字机动画
+				Method:  http.MethodGet,
+				Path:    "/demo/interview-scenes/random",
+				Handler: user.DemoInterviewSceneRandomHandler(serverCtx),
+			},
+			{
 				// 用户登录
 				Method:  http.MethodPost,
 				Path:    "/login",
@@ -40,10 +46,202 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 	server.AddRoutes(
 		[]rest.Route{
 			{
+				// 预览新建面试的计划题目
+				Method:  http.MethodGet,
+				Path:    "/interview/plan/preview",
+				Handler: user.InterviewPlanPreviewHandler(serverCtx),
+			},
+			{
+				// 获取新建面试配置页预设选项
+				Method:  http.MethodGet,
+				Path:    "/interview/presets",
+				Handler: user.InterviewPresetsHandler(serverCtx),
+			},
+			{
+				// 获取结构化面试题库统计
+				Method:  http.MethodGet,
+				Path:    "/interview/question-stats",
+				Handler: user.InterviewQuestionStatsHandler(serverCtx),
+			},
+			{
+				// 获取结构化面试题库列表
+				Method:  http.MethodGet,
+				Path:    "/interview/questions",
+				Handler: user.InterviewQuestionsHandler(serverCtx),
+			},
+			{
+				// 获取结构化面试题详情
+				Method:  http.MethodGet,
+				Path:    "/interview/questions/:id",
+				Handler: user.InterviewQuestionDetailHandler(serverCtx),
+			},
+			{
 				// 用户退出登录
 				Method:  http.MethodPost,
 				Path:    "/logout",
 				Handler: user.LogoutHandler(serverCtx),
+			},
+			{
+				// 获取当前用户资料
+				Method:  http.MethodGet,
+				Path:    "/profile",
+				Handler: user.ProfileHandler(serverCtx),
+			},
+			{
+				// 获取当前用户报告中心工作台单入口
+				Method:  http.MethodGet,
+				Path:    "/report-center/bootstrap",
+				Handler: user.ReportCenterBootstrapHandler(serverCtx),
+			},
+			{
+				// 获取当前用户报告中心模式卡片
+				Method:  http.MethodGet,
+				Path:    "/report-center/modes",
+				Handler: user.ReportCenterModesHandler(serverCtx),
+			},
+			{
+				// 获取当前用户指定模式的报告中心详情
+				Method:  http.MethodGet,
+				Path:    "/report-center/modes/:modeKey",
+				Handler: user.ReportCenterModeDetailHandler(serverCtx),
+			},
+			{
+				// 获取当前用户报告中心概览
+				Method:  http.MethodGet,
+				Path:    "/report-center/overview",
+				Handler: user.ReportCenterOverviewHandler(serverCtx),
+			},
+			{
+				// 获取当前用户报告中心会话列表
+				Method:  http.MethodGet,
+				Path:    "/report-center/sessions",
+				Handler: user.ReportCenterSessionsHandler(serverCtx),
+			},
+			{
+				// 获取当前用户简历资料列表，当前按绑定会话聚合
+				Method:  http.MethodGet,
+				Path:    "/resume/artifacts",
+				Handler: user.ResumeArtifactsHandler(serverCtx),
+			},
+			{
+				// 获取当前用户指定简历资料详情和分块预览
+				Method:  http.MethodGet,
+				Path:    "/resume/artifacts/:id",
+				Handler: user.ResumeArtifactDetailHandler(serverCtx),
+			},
+			{
+				// 分析当前用户指定简历资料，返回技能、亮点、风险和建议追问题
+				Method:  http.MethodGet,
+				Path:    "/resume/artifacts/:id/analysis",
+				Handler: user.ResumeArtifactAnalysisHandler(serverCtx),
+			},
+			{
+				// 触发或刷新当前用户指定简历资料的持久化 LLM 评估
+				Method:  http.MethodPost,
+				Path:    "/resume/artifacts/:id/analysis/prepare",
+				Handler: user.ResumeArtifactAnalysisPrepareHandler(serverCtx),
+			},
+			{
+				// 上传当前用户私有简历，使用 multipart/form-data，要求 file(PDF)，chatId/title/mode 为可选表单字段
+				Method:  http.MethodPost,
+				Path:    "/resume/upload",
+				Handler: user.ResumeUploadHandler(serverCtx),
+			},
+			{
+				// 获取当前用户会话列表
+				Method:  http.MethodGet,
+				Path:    "/sessions",
+				Handler: user.SessionsHandler(serverCtx),
+			},
+			{
+				// 创建新会话
+				Method:  http.MethodPost,
+				Path:    "/sessions",
+				Handler: user.CreateSessionHandler(serverCtx),
+			},
+			{
+				// 获取指定会话详情
+				Method:  http.MethodGet,
+				Path:    "/sessions/:id",
+				Handler: user.SessionDetailHandler(serverCtx),
+			},
+			{
+				// 删除指定会话
+				Method:  http.MethodDelete,
+				Path:    "/sessions/:id",
+				Handler: user.DeleteSessionHandler(serverCtx),
+			},
+			{
+				// 获取指定会话的面试页单入口数据
+				Method:  http.MethodGet,
+				Path:    "/sessions/:id/bootstrap",
+				Handler: user.SessionBootstrapHandler(serverCtx),
+			},
+			{
+				// 获取指定会话的结构化评估
+				Method:  http.MethodGet,
+				Path:    "/sessions/:id/evaluation",
+				Handler: user.SessionEvaluationHandler(serverCtx),
+			},
+			{
+				// 显式刷新指定会话的结构化评估
+				Method:  http.MethodPost,
+				Path:    "/sessions/:id/evaluation/refresh",
+				Handler: user.SessionEvaluationRefreshHandler(serverCtx),
+			},
+			{
+				// 结束指定会话并标记面试完成
+				Method:  http.MethodPost,
+				Path:    "/sessions/:id/finish",
+				Handler: user.FinishSessionHandler(serverCtx),
+			},
+			{
+				// 获取指定会话的流程状态
+				Method:  http.MethodGet,
+				Path:    "/sessions/:id/flow-state",
+				Handler: user.SessionFlowStateHandler(serverCtx),
+			},
+			{
+				// 获取指定会话的面试计划题目
+				Method:  http.MethodGet,
+				Path:    "/sessions/:id/interview-plan",
+				Handler: user.SessionInterviewPlanHandler(serverCtx),
+			},
+			{
+				// 获取指定会话的面试进度和下一题建议
+				Method:  http.MethodGet,
+				Path:    "/sessions/:id/progress",
+				Handler: user.SessionProgressHandler(serverCtx),
+			},
+			{
+				// 获取指定会话的报告详情
+				Method:  http.MethodGet,
+				Path:    "/sessions/:id/report",
+				Handler: user.SessionReportHandler(serverCtx),
+			},
+			{
+				// 获取指定会话的报告准备状态，提示前端是否需要刷新评估
+				Method:  http.MethodGet,
+				Path:    "/sessions/:id/report-readiness",
+				Handler: user.SessionReportReadinessHandler(serverCtx),
+			},
+			{
+				// 获取指定会话的报告摘要
+				Method:  http.MethodGet,
+				Path:    "/sessions/:id/report-summary",
+				Handler: user.SessionReportSummaryHandler(serverCtx),
+			},
+			{
+				// 准备指定会话报告，必要时刷新评估并返回报告摘要
+				Method:  http.MethodPost,
+				Path:    "/sessions/:id/report/prepare",
+				Handler: user.SessionReportPrepareHandler(serverCtx),
+			},
+			{
+				// 获取当前用户工作台首屏聚合数据
+				Method:  http.MethodGet,
+				Path:    "/workbench/bootstrap",
+				Handler: user.WorkbenchBootstrapHandler(serverCtx),
 			},
 		},
 		rest.WithJwt(serverCtx.Config.Auth.AccessSecret),

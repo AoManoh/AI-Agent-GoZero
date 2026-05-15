@@ -1,0 +1,33 @@
+# Auto detect text files and perform LF normalization
+* text=auto
+
+# Force LF for all source files (cross-platform consistency)
+*.go text eol=lf
+*.js text eol=lf
+*.vue text eol=lf
+*.css text eol=lf
+*.html text eol=lf
+*.json text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf
+*.md text eol=lf
+*.sql text eol=lf
+*.sh text eol=lf
+*.bat text eol=crlf
+*.ps1 text eol=crlf
+
+# Binary files
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.zip binary
+*.gz binary
+*.tar binary
+*.pdf binary
+*.docx binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.eot binary

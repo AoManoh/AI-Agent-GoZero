@@ -3,10 +3,13 @@ module GoZero-AI
 go 1.24.6
 
 require (
+	github.com/DATA-DOG/go-sqlmock v1.5.2
+	github.com/alicebob/miniredis/v2 v2.35.0
 	github.com/pgvector/pgvector-go v0.3.0
 	github.com/redis/go-redis/v9 v9.12.1
 	github.com/sashabaranov/go-openai v1.41.1
 	github.com/zeromicro/go-zero v1.9.0
+	golang.org/x/crypto v0.37.0
 )
 
 require (
@@ -41,6 +44,7 @@ require (
 	github.com/unidoc/pkcs7 v0.2.0 // indirect
 	github.com/unidoc/timestamp v0.0.0-20200412005513-91597fd3793a // indirect
 	github.com/unidoc/unitype v0.5.1 // indirect
+	github.com/yuin/gopher-lua v1.1.1 // indirect
 	go.etcd.io/etcd/api/v3 v3.5.15 // indirect
 	go.etcd.io/etcd/client/pkg/v3 v3.5.15 // indirect
 	go.etcd.io/etcd/client/v3 v3.5.15 // indirect
@@ -48,7 +52,6 @@ require (
 	go.uber.org/mock v0.4.0 // indirect
 	go.uber.org/multierr v1.9.0 // indirect
 	go.uber.org/zap v1.24.0 // indirect
-	golang.org/x/crypto v0.37.0 // indirect
 	golang.org/x/image v0.24.0 // indirect
 	golang.org/x/oauth2 v0.24.0 // indirect
 	golang.org/x/sync v0.13.0 // indirect
@@ -75,8 +78,8 @@ require (
 	github.com/fatih/color v1.18.0 // indirect
 	github.com/go-logr/logr v1.4.2 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
-	github.com/golang-jwt/jwt/v4 v4.5.2 // indirect
-	github.com/google/uuid v1.6.0 // indirect
+	github.com/golang-jwt/jwt/v4 v4.5.2
+	github.com/google/uuid v1.6.0
 	github.com/grafana/pyroscope-go v1.2.4 // indirect
 	github.com/grafana/pyroscope-go/godeltaprof v0.1.8 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.20.0 // indirect

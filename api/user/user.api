@@ -57,6 +57,792 @@ type (
 		// 新的 AccessToken 的有效期，单位：秒
 		ExpireIn int64 `json:"expireIn"`
 	}
+	// 用户资料请求体
+	ProfileReq  {}
+	// 用户资料响应体
+	ProfileResp {
+		UserId    int64  `json:"userId"`
+		Username  string `json:"username"`
+		CreatedAt string `json:"createdAt"`
+	}
+	// 会话列表请求体
+	SessionsReq  {}
+	// 创建会话请求体
+	CreateSessionReq {
+		Title            string   `json:"title,optional"`
+		Mode             string   `json:"mode,optional"`
+		DirectionKey     string   `json:"directionKey,optional"`
+		Difficulty       int64    `json:"difficulty,optional"`
+		FocusKeys        []string `json:"focusKeys,optional"`
+		InterviewerStyle string   `json:"interviewerStyle,optional"`
+		EstimatedMinutes int64    `json:"estimatedMinutes,optional"`
+		QuestionKey      string   `json:"questionKey,optional"`
+		ResumeArtifactId string   `json:"resumeArtifactId,optional"`
+	}
+	ResumeBindingSummary {
+		ArtifactId string `json:"artifactId"`
+		Title      string `json:"title"`
+		Version    int64  `json:"version"`
+		Status     string `json:"status"`
+	}
+	// 创建会话响应体
+	CreateSessionResp {
+		Session       SessionItem           `json:"session"`
+		Config        SessionConfigSnapshot `json:"config"`
+		ResumeBinding *ResumeBindingSummary `json:"resumeBinding,optional"`
+	}
+	// 会话列表项
+	SessionItem {
+		SessionId     string `json:"sessionId"`
+		Title         string `json:"title"`
+		Mode          string `json:"mode"`
+		ModeKey       string `json:"modeKey"`
+		MessageCount  int64  `json:"messageCount"`
+		IsActive      bool   `json:"isActive"`
+		CreatedAt     string `json:"createdAt"`
+		UpdatedAt     string `json:"updatedAt"`
+		LastMessageAt string `json:"lastMessageAt,optional"`
+		CompletedAt   string `json:"completedAt,optional"`
+	}
+	FocusAreaSelection {
+		Key   string `json:"key"`
+		Label string `json:"label"`
+	}
+	SessionConfigSnapshot {
+		DirectionKey          string               `json:"directionKey"`
+		DirectionLabel        string               `json:"directionLabel"`
+		DifficultyLevel       int64                `json:"difficultyLevel"`
+		DifficultyLabel       string               `json:"difficultyLabel"`
+		InterviewerStyle      string               `json:"interviewerStyle"`
+		InterviewerStyleLabel string               `json:"interviewerStyleLabel"`
+		FocusAreas            []FocusAreaSelection `json:"focusAreas"`
+		FollowUpDepth         string               `json:"followUpDepth"`
+		EstimatedMinutes      int64                `json:"estimatedMinutes"`
+		ScenarioType          string               `json:"scenarioType"`
+		ScenarioLabel         string               `json:"scenarioLabel"`
+		StarterSource         string               `json:"starterSource"`
+		StarterSourceLabel    string               `json:"starterSourceLabel"`
+		StarterQuestionKey    string               `json:"starterQuestionKey,optional"`
+		ResumeArtifactId      string               `json:"resumeArtifactId,optional"`
+		ProgressPercent       int64                `json:"progressPercent"`
+		DurationSeconds       int64                `json:"durationSeconds"`
+		StartedAt             string               `json:"startedAt,optional"`
+		CompletedAt           string               `json:"completedAt,optional"`
+	}
+	InterviewPresetsReq  {}
+	InterviewDirectionPreset {
+		Key             string   `json:"key"`
+		Label           string   `json:"label"`
+		Description     string   `json:"description"`
+		QuestionCount   int64    `json:"questionCount"`
+		DifficultyRange []int64  `json:"difficultyRange"`
+		FocusKeys       []string `json:"focusKeys"`
+	}
+	InterviewDifficultyPreset {
+		Level                int64  `json:"level"`
+		Label                string `json:"label"`
+		Description          string `json:"description"`
+		DefaultFollowUpDepth string `json:"defaultFollowUpDepth"`
+	}
+	InterviewFocusOption {
+		Key         string `json:"key"`
+		Label       string `json:"label"`
+		Description string `json:"description"`
+	}
+	InterviewStyleOption {
+		Key         string `json:"key"`
+		Label       string `json:"label"`
+		Description string `json:"description"`
+	}
+	InterviewPresetsResp {
+		Directions        []InterviewDirectionPreset  `json:"directions"`
+		Difficulties      []InterviewDifficultyPreset `json:"difficulties"`
+		FocusOptions      []InterviewFocusOption      `json:"focusOptions"`
+		InterviewerStyles []InterviewStyleOption      `json:"interviewerStyles"`
+		DefaultConfig     SessionConfigSnapshot       `json:"defaultConfig"`
+	}
+	InterviewPlanPreviewReq {
+		DirectionKey     string `form:"directionKey,optional"`
+		Difficulty       int64  `form:"difficulty,optional"`
+		FocusKeys        string `form:"focusKeys,optional"`
+		InterviewerStyle string `form:"interviewerStyle,optional"`
+		Limit            int64  `form:"limit,optional"`
+	}
+	SessionInterviewPlanReq {
+		Id    string `path:"id"`
+		Limit int64  `form:"limit,optional"`
+	}
+	SessionProgressReq {
+		Id        string `path:"id"`
+		PlanLimit int64  `form:"planLimit,optional"`
+	}
+	SessionFocusProgress {
+		Key                string `json:"key"`
+		Label              string `json:"label"`
+		PlannedQuestions   int64  `json:"plannedQuestions"`
+		CompletedQuestions int64  `json:"completedQuestions"`
+		ProgressPercent    int64  `json:"progressPercent"`
+	}
+	SessionProgressResp {
+		Session              SessionItem            `json:"session"`
+		Config               SessionConfigSnapshot  `json:"config"`
+		TotalQuestions       int64                  `json:"totalQuestions"`
+		CompletedQuestions   int64                  `json:"completedQuestions"`
+		CurrentQuestionIndex int64                  `json:"currentQuestionIndex"`
+		ProgressPercent      int64                  `json:"progressPercent"`
+		UserTurns            int64                  `json:"userTurns"`
+		AssistantTurns       int64                  `json:"assistantTurns"`
+		FocusProgress        []SessionFocusProgress `json:"focusProgress"`
+		NextQuestion         *InterviewPlanQuestion `json:"nextQuestion,optional"`
+		ProgressMeta         ReportMeta             `json:"progressMeta"`
+	}
+	InterviewPlanQuestion {
+		Key                  string   `json:"key"`
+		DirectionKey         string   `json:"directionKey"`
+		FocusKey             string   `json:"focusKey"`
+		FocusLabel           string   `json:"focusLabel"`
+		DifficultyLevel      int64    `json:"difficultyLevel"`
+		DifficultyLabel      string   `json:"difficultyLabel"`
+		Title                string   `json:"title"`
+		Prompt               string   `json:"prompt"`
+		ExpectedSignals      []string `json:"expectedSignals"`
+		FollowUps            []string `json:"followUps"`
+		EvaluationDimensions []string `json:"evaluationDimensions"`
+	}
+	InterviewPlanMilestone {
+		Key             string  `json:"key"`
+		Label           string  `json:"label"`
+		Description     string  `json:"description"`
+		QuestionIndexes []int64 `json:"questionIndexes"`
+	}
+	InterviewPlanResp {
+		Config     SessionConfigSnapshot    `json:"config"`
+		Questions  []InterviewPlanQuestion  `json:"questions"`
+		Milestones []InterviewPlanMilestone `json:"milestones"`
+		PlanMeta   ReportMeta               `json:"planMeta"`
+	}
+	InterviewQuestionsReq {
+		DirectionKey string `form:"directionKey,optional"`
+		Difficulty   int64  `form:"difficulty,optional"`
+		FocusKeys    string `form:"focusKeys,optional"`
+		Keyword      string `form:"keyword,optional"`
+		Limit        int64  `form:"limit,optional"`
+		Offset       int64  `form:"offset,optional"`
+		Sort         string `form:"sort,optional"`
+	}
+	InterviewQuestionDetailReq {
+		Id string `path:"id"`
+	}
+	InterviewQuestionStatsReq  {}
+	InterviewQuestionItem {
+		Id                   int64    `json:"id"`
+		Key                  string   `json:"key"`
+		DirectionKey         string   `json:"directionKey"`
+		FocusKey             string   `json:"focusKey"`
+		FocusLabel           string   `json:"focusLabel"`
+		DifficultyLevel      int64    `json:"difficultyLevel"`
+		DifficultyLabel      string   `json:"difficultyLabel"`
+		Title                string   `json:"title"`
+		Prompt               string   `json:"prompt"`
+		ExpectedSignals      []string `json:"expectedSignals"`
+		FollowUps            []string `json:"followUps"`
+		EvaluationDimensions []string `json:"evaluationDimensions"`
+		Tags                 []string `json:"tags"`
+		SourceRefs           []string `json:"sourceRefs"`
+		BatchKey             string   `json:"batchKey"`
+		BatchLabel           string   `json:"batchLabel"`
+		Sequence             int64    `json:"sequence"`
+		BatchSequence        int64    `json:"batchSequence"`
+		Status               string   `json:"status"`
+		QualityScore         float64  `json:"qualityScore"`
+		UsageCount           int64    `json:"usageCount"`
+		LastUsedAt           string   `json:"lastUsedAt,optional"`
+		UpdatedAt            string   `json:"updatedAt"`
+		SourceCount          int64    `json:"sourceCount"`
+	}
+	InterviewQuestionSourceItem {
+		SourceKey   string `json:"sourceKey"`
+		SourceTitle string `json:"sourceTitle"`
+		SourceUrl   string `json:"sourceUrl"`
+		SourceType  string `json:"sourceType"`
+		LicenseNote string `json:"licenseNote"`
+		BatchKey    string `json:"batchKey"`
+	}
+	InterviewQuestionDirectionStat {
+		DirectionKey string `json:"directionKey"`
+		Count        int64  `json:"count"`
+	}
+	InterviewQuestionDifficultyStat {
+		DifficultyLevel int64 `json:"difficultyLevel"`
+		Count           int64 `json:"count"`
+	}
+	InterviewQuestionsResp {
+		Questions    []InterviewQuestionItem `json:"questions"`
+		Total        int64                   `json:"total"`
+		Limit        int64                   `json:"limit"`
+		Offset       int64                   `json:"offset"`
+		HasMore      bool                    `json:"hasMore"`
+		QuestionMeta ReportMeta              `json:"questionMeta"`
+	}
+	InterviewQuestionDetailResp {
+		Question     InterviewQuestionItem         `json:"question"`
+		Sources      []InterviewQuestionSourceItem `json:"sources"`
+		QuestionMeta ReportMeta                    `json:"questionMeta"`
+	}
+	InterviewQuestionStatsResp {
+		Total        int64                             `json:"total"`
+		Directions   []InterviewQuestionDirectionStat  `json:"directions"`
+		Difficulties []InterviewQuestionDifficultyStat `json:"difficulties"`
+		UpdatedAt    string                            `json:"updatedAt,optional"`
+		StatsMeta    ReportMeta                        `json:"statsMeta"`
+	}
+	// 会话列表响应体
+	SessionsResp {
+		Sessions []SessionItem `json:"sessions"`
+		Total    int64         `json:"total"`
+	}
+	// 会话详情请求体
+	SessionDetailReq {
+		Id string `path:"id"`
+	}
+	SessionBootstrapReq {
+		Id string `path:"id"`
+	}
+	FinishSessionReq {
+		Id string `path:"id"`
+	}
+	FinishSessionResp {
+		Session SessionItem           `json:"session"`
+		Config  SessionConfigSnapshot `json:"config"`
+	}
+	SessionReportReq {
+		Id string `path:"id"`
+	}
+	SessionEvaluationRefreshReq {
+		Id    string `path:"id"`
+		Force bool   `json:"force,optional"`
+	}
+	DeleteSessionReq {
+		Id string `path:"id"`
+	}
+	// 会话消息
+	SessionMessage {
+		Role      string `json:"role"`
+		Content   string `json:"content"`
+		CreatedAt string `json:"createdAt"`
+	}
+	// 会话详情响应体
+	SessionDetailResp {
+		Session  SessionItem      `json:"session"`
+		Messages []SessionMessage `json:"messages"`
+	}
+	SessionBootstrapResp {
+		Session       SessionItem               `json:"session"`
+		Config        SessionConfigSnapshot     `json:"config"`
+		Messages      []SessionMessage          `json:"messages"`
+		FlowState     *SessionFlowStateResp     `json:"flowState,optional"`
+		ReportSummary *SessionReportSummaryResp `json:"reportSummary,optional"`
+		BootstrapMeta ReportMeta                `json:"bootstrapMeta"`
+	}
+	DemoInterviewSceneRandomReq {
+		Limit int64 `form:"limit,optional"`
+	}
+	DemoInterviewSceneMessage {
+		Role      string `json:"role"`
+		Name      string `json:"name"`
+		Content   string `json:"content"`
+		CreatedAt string `json:"createdAt"`
+	}
+	DemoInterviewSceneRandomResp {
+		Available             bool                        `json:"available"`
+		SessionId             string                      `json:"sessionId,optional"`
+		Title                 string                      `json:"title,optional"`
+		Mode                  string                      `json:"mode,optional"`
+		ModeKey               string                      `json:"modeKey,optional"`
+		Source                string                      `json:"source,optional"`
+		SourceLabel           string                      `json:"sourceLabel,optional"`
+		DirectionLabel        string                      `json:"directionLabel,optional"`
+		DifficultyLabel       string                      `json:"difficultyLabel,optional"`
+		InterviewerStyleLabel string                      `json:"interviewerStyleLabel,optional"`
+		FollowUpDepth         string                      `json:"followUpDepth,optional"`
+		Messages              []DemoInterviewSceneMessage `json:"messages"`
+	}
+	DeleteSessionResp  {}
+	// 会话评估请求体
+	SessionEvaluationReq {
+		Id string `path:"id"`
+	}
+	SessionReportSummaryReq {
+		Id string `path:"id"`
+	}
+	SessionReportReadinessReq {
+		Id string `path:"id"`
+	}
+	SessionReportReadinessResp {
+		Session          SessionItem `json:"session"`
+		EvaluationStatus string      `json:"evaluationStatus"`
+		ReportStatus     string      `json:"reportStatus"`
+		CanReadReport    bool        `json:"canReadReport"`
+		NeedsRefresh     bool        `json:"needsRefresh"`
+		Reason           string      `json:"reason"`
+		NextAction       string      `json:"nextAction"`
+		LastMessageAt    string      `json:"lastMessageAt,optional"`
+		LastRefreshedAt  string      `json:"lastRefreshedAt,optional"`
+		ReadinessMeta    ReportMeta  `json:"readinessMeta"`
+	}
+	SessionReportPrepareReq {
+		Id    string `path:"id"`
+		Force bool   `json:"force,optional"`
+	}
+	SessionReportPrepareResp {
+		Readiness     SessionReportReadinessResp `json:"readiness"`
+		ReportSummary *SessionReportSummaryResp  `json:"reportSummary,optional"`
+		PrepareMeta   ReportMeta                 `json:"prepareMeta"`
+	}
+	SessionFlowStateReq {
+		Id string `path:"id"`
+	}
+	ReportCenterOverviewReq  {}
+	ReportCenterSessionsReq {
+		Mode    string `form:"mode,optional"`
+		ModeKey string `form:"modeKey,optional"`
+		Status  string `form:"status,optional"`
+		Limit   int64  `form:"limit,optional"`
+	}
+	ReportCenterModesReq  {}
+	ReportCenterModeDetailReq {
+		ModeKey string `path:"modeKey"`
+		Limit   int64  `form:"limit,optional"`
+	}
+	ReportCenterBootstrapReq {
+		Mode    string `form:"mode,optional"`
+		ModeKey string `form:"modeKey,optional"`
+		Limit   int64  `form:"limit,optional"`
+	}
+	// 评估维度项
+	EvaluationDimension {
+		Key      string `json:"key"`
+		Label    string `json:"label"`
+		Score    int64  `json:"score"`
+		MaxScore int64  `json:"maxScore"`
+		Summary  string `json:"summary"`
+	}
+	// 评估证据项
+	EvaluationEvidence {
+		Role      string `json:"role"`
+		Content   string `json:"content"`
+		CreatedAt string `json:"createdAt"`
+	}
+	// 会话评估响应体
+	SessionEvaluationResp {
+		Session        SessionItem           `json:"session"`
+		Status         string                `json:"status"`
+		Summary        string                `json:"summary"`
+		UserTurns      int64                 `json:"userTurns"`
+		AssistantTurns int64                 `json:"assistantTurns"`
+		OverallScore   float64               `json:"overallScore"`
+		RubricVersion  string                `json:"rubricVersion"`
+		ScoreSource    string                `json:"scoreSource"`
+		Dimensions     []EvaluationDimension `json:"dimensions"`
+		Strengths      []string              `json:"strengths"`
+		Risks          []string              `json:"risks"`
+		Suggestions    []string              `json:"suggestions"`
+		Evidence       []EvaluationEvidence  `json:"evidence"`
+		// 首次生成当前会话评估结果的时间
+		FirstGeneratedAt string `json:"firstGeneratedAt"`
+		// 最近一次刷新当前会话评估结果的时间
+		LastRefreshedAt string `json:"lastRefreshedAt"`
+		// 当前这版评估结果最近一次生成时间（兼容字段）
+		GeneratedAt string `json:"generatedAt"`
+	}
+	ReportConversationSummary {
+		MessageCount           int64  `json:"messageCount"`
+		UserTurns              int64  `json:"userTurns"`
+		AssistantTurns         int64  `json:"assistantTurns"`
+		FirstMessageAt         string `json:"firstMessageAt,optional"`
+		LastMessageAt          string `json:"lastMessageAt,optional"`
+		LatestUserMessage      string `json:"latestUserMessage,optional"`
+		LatestAssistantMessage string `json:"latestAssistantMessage,optional"`
+	}
+	ReportAssetSummary {
+		HasResume       bool   `json:"hasResume"`
+		ResumeChunks    int64  `json:"resumeChunks"`
+		ResumeUpdatedAt string `json:"resumeUpdatedAt,optional"`
+	}
+	ReportSnapshot {
+		Title      string `json:"title"`
+		Summary    string `json:"summary"`
+		Status     string `json:"status"`
+		NextAction string `json:"nextAction,optional"`
+	}
+	ReportEvaluationSummary {
+		Status           string                `json:"status"`
+		Summary          string                `json:"summary"`
+		OverallScore     float64               `json:"overallScore"`
+		RubricVersion    string                `json:"rubricVersion"`
+		ScoreSource      string                `json:"scoreSource"`
+		Dimensions       []EvaluationDimension `json:"dimensions"`
+		Strengths        []string              `json:"strengths"`
+		Risks            []string              `json:"risks"`
+		Suggestions      []string              `json:"suggestions"`
+		FirstGeneratedAt string                `json:"firstGeneratedAt"`
+		LastRefreshedAt  string                `json:"lastRefreshedAt"`
+		GeneratedAt      string                `json:"generatedAt"`
+	}
+	ReportMeta {
+		SchemaVersion string `json:"schemaVersion"`
+		Available     bool   `json:"available"`
+	}
+	SessionReportSummaryResp {
+		Session      SessionItem               `json:"session"`
+		Snapshot     ReportSnapshot            `json:"snapshot"`
+		Conversation ReportConversationSummary `json:"conversation"`
+		Assets       ReportAssetSummary        `json:"assets"`
+		Evaluation   ReportEvaluationSummary   `json:"evaluation"`
+		ReportMeta   ReportMeta                `json:"reportMeta"`
+	}
+	FlowStateEvent {
+		Type   string `json:"type"`
+		From   string `json:"from,optional"`
+		To     string `json:"to,optional"`
+		Role   string `json:"role,optional"`
+		Reason string `json:"reason,optional"`
+		At     string `json:"at"`
+	}
+	SessionFlowStateResp {
+		Session        SessionItem      `json:"session"`
+		OwnerScope     string           `json:"ownerScope"`
+		Lane           string           `json:"lane"`
+		MemoryScope    string           `json:"memoryScope"`
+		InterviewState string           `json:"interviewState"`
+		LifecycleState string           `json:"lifecycleState"`
+		ExecutionState string           `json:"executionState"`
+		TurnCount      int64            `json:"turnCount"`
+		LastEvent      string           `json:"lastEvent"`
+		LastReason     string           `json:"lastReason"`
+		UpdatedAt      string           `json:"updatedAt"`
+		Events         []FlowStateEvent `json:"events"`
+		StateMeta      ReportMeta       `json:"stateMeta"`
+	}
+	ReportCenterTotals {
+		TotalSessions            int64   `json:"totalSessions"`
+		EvaluatedSessions        int64   `json:"evaluatedSessions"`
+		ReadySessions            int64   `json:"readySessions"`
+		DraftSessions            int64   `json:"draftSessions"`
+		InsufficientDataSessions int64   `json:"insufficientDataSessions"`
+		ResumeBackedSessions     int64   `json:"resumeBackedSessions"`
+		AverageScore             float64 `json:"averageScore"`
+		LastActivityAt           string  `json:"lastActivityAt,optional"`
+	}
+	ReportCenterModeSummary {
+		Mode                     string  `json:"mode"`
+		ModeKey                  string  `json:"modeKey"`
+		SessionCount             int64   `json:"sessionCount"`
+		MessageCount             int64   `json:"messageCount"`
+		EvaluatedSessions        int64   `json:"evaluatedSessions"`
+		ReadySessions            int64   `json:"readySessions"`
+		DraftSessions            int64   `json:"draftSessions"`
+		InsufficientDataSessions int64   `json:"insufficientDataSessions"`
+		ResumeBackedSessions     int64   `json:"resumeBackedSessions"`
+		AverageScore             float64 `json:"averageScore"`
+		LastActivityAt           string  `json:"lastActivityAt,optional"`
+	}
+	ReportCenterRecentReport {
+		Session        SessionItem `json:"session"`
+		Status         string      `json:"status"`
+		Summary        string      `json:"summary"`
+		OverallScore   float64     `json:"overallScore"`
+		HasResume      bool        `json:"hasResume"`
+		ResumeChunks   int64       `json:"resumeChunks"`
+		NextAction     string      `json:"nextAction,optional"`
+		GeneratedAt    string      `json:"generatedAt,optional"`
+		LastActivityAt string      `json:"lastActivityAt,optional"`
+	}
+	ReportCenterOverviewResp {
+		Totals        ReportCenterTotals         `json:"totals"`
+		Modes         []ReportCenterModeSummary  `json:"modes"`
+		RecentReports []ReportCenterRecentReport `json:"recentReports"`
+		OverviewMeta  ReportMeta                 `json:"overviewMeta"`
+	}
+	ReportCenterSessionsFilters {
+		Mode    string `json:"mode,optional"`
+		ModeKey string `json:"modeKey,optional"`
+		Status  string `json:"status,optional"`
+		Limit   int64  `json:"limit"`
+		HasMore bool   `json:"hasMore"`
+	}
+	ReportCenterSessionsResp {
+		Reports      []ReportCenterRecentReport  `json:"reports"`
+		Total        int64                       `json:"total"`
+		Filters      ReportCenterSessionsFilters `json:"filters"`
+		SessionsMeta ReportMeta                  `json:"sessionsMeta"`
+	}
+	ReportCenterModeCard {
+		Mode                     string                    `json:"mode"`
+		ModeKey                  string                    `json:"modeKey"`
+		SessionCount             int64                     `json:"sessionCount"`
+		MessageCount             int64                     `json:"messageCount"`
+		EvaluatedSessions        int64                     `json:"evaluatedSessions"`
+		ReadySessions            int64                     `json:"readySessions"`
+		DraftSessions            int64                     `json:"draftSessions"`
+		InsufficientDataSessions int64                     `json:"insufficientDataSessions"`
+		ResumeBackedSessions     int64                     `json:"resumeBackedSessions"`
+		AverageScore             float64                   `json:"averageScore"`
+		HasSessions              bool                      `json:"hasSessions"`
+		HasReadyReport           bool                      `json:"hasReadyReport"`
+		HasResumeContext         bool                      `json:"hasResumeContext"`
+		AttentionState           string                    `json:"attentionState"`
+		LastActivityAt           string                    `json:"lastActivityAt,optional"`
+		Spotlight                *ReportCenterRecentReport `json:"spotlight,optional"`
+	}
+	ReportCenterModesResp {
+		Modes     []ReportCenterModeCard `json:"modes"`
+		ModesMeta ReportMeta             `json:"modesMeta"`
+	}
+	ReportCenterModeDetailFilters {
+		Mode    string `json:"mode"`
+		ModeKey string `json:"modeKey"`
+		Limit   int64  `json:"limit"`
+		HasMore bool   `json:"hasMore"`
+	}
+	ReportCenterModeDetailResp {
+		Card     ReportCenterModeCard          `json:"card"`
+		Reports  []ReportCenterRecentReport    `json:"reports"`
+		Total    int64                         `json:"total"`
+		Filters  ReportCenterModeDetailFilters `json:"filters"`
+		ModeMeta ReportMeta                    `json:"modeMeta"`
+	}
+	ReportCenterBootstrapFilters {
+		Mode    string `json:"mode"`
+		ModeKey string `json:"modeKey"`
+		Limit   int64  `json:"limit"`
+	}
+	ReportCenterBootstrapResp {
+		Overview      ReportCenterOverviewResp   `json:"overview"`
+		Modes         []ReportCenterModeCard     `json:"modes"`
+		ModeDetail    ReportCenterModeDetailResp `json:"modeDetail"`
+		BootstrapMeta ReportMeta                 `json:"bootstrapMeta"`
+	}
+	WorkbenchStats {
+		CompletedInterviews int64   `json:"completedInterviews"`
+		AverageScore        float64 `json:"averageScore"`
+		LastPracticeAt      string  `json:"lastPracticeAt,optional"`
+	}
+	WorkbenchContinueSession {
+		Session  SessionItem           `json:"session"`
+		Config   SessionConfigSnapshot `json:"config"`
+		Progress int64                 `json:"progress"`
+		Depth    string                `json:"depth"`
+	}
+	AbilityRadarPoint {
+		Key      string `json:"key"`
+		Label    string `json:"label"`
+		Score    int64  `json:"score"`
+		MaxScore int64  `json:"maxScore"`
+	}
+	WorkbenchResumeSummary {
+		Total           int64  `json:"total"`
+		LatestSessionId string `json:"latestSessionId,optional"`
+		LatestTitle     string `json:"latestTitle,optional"`
+		LatestUpdatedAt string `json:"latestUpdatedAt,optional"`
+		ChunkCount      int64  `json:"chunkCount"`
+		ProjectsCount   int64  `json:"projectsCount"`
+	}
+	WorkbenchKnowledgeSummary {
+		Documents     int64  `json:"documents"`
+		Chunks        int64  `json:"chunks"`
+		LatestTitle   string `json:"latestTitle,optional"`
+		LatestAddedAt string `json:"latestAddedAt,optional"`
+	}
+	WorkbenchAction {
+		Key         string `json:"key"`
+		Label       string `json:"label"`
+		Description string `json:"description"`
+		Route       string `json:"route"`
+	}
+	WorkbenchBootstrapReq  {}
+	WorkbenchBootstrapResp {
+		User             ProfileResp               `json:"user"`
+		Stats            WorkbenchStats            `json:"stats"`
+		ContinueSession  *WorkbenchContinueSession `json:"continueSession,optional"`
+		RecentSessions   []SessionItem             `json:"recentSessions"`
+		AbilityRadar     []AbilityRadarPoint       `json:"abilityRadar"`
+		ResumeSummary    WorkbenchResumeSummary    `json:"resumeSummary"`
+		KnowledgeSummary WorkbenchKnowledgeSummary `json:"knowledgeSummary"`
+		NextActions      []WorkbenchAction         `json:"nextActions"`
+		WorkbenchMeta    ReportMeta                `json:"workbenchMeta"`
+	}
+	SessionReportOverview {
+		Score           float64 `json:"score"`
+		MaxScore        int64   `json:"maxScore"`
+		Summary         string  `json:"summary"`
+		Status          string  `json:"status"`
+		DurationSeconds int64   `json:"durationSeconds"`
+		QuestionCount   int64   `json:"questionCount"`
+		UserTurns       int64   `json:"userTurns"`
+		AssistantTurns  int64   `json:"assistantTurns"`
+	}
+	SessionReportTag {
+		Key   string `json:"key"`
+		Label string `json:"label"`
+		Level string `json:"level"`
+	}
+	SessionReportQuestionCard {
+		TurnIndex int64              `json:"turnIndex"`
+		Depth     string             `json:"depth"`
+		Question  string             `json:"question"`
+		Answer    string             `json:"answer"`
+		AiComment string             `json:"aiComment"`
+		Score     int64              `json:"score"`
+		MaxScore  int64              `json:"maxScore"`
+		Tags      []SessionReportTag `json:"tags"`
+	}
+	SessionReportResp {
+		Session       SessionItem                 `json:"session"`
+		Config        SessionConfigSnapshot       `json:"config"`
+		Overview      SessionReportOverview       `json:"overview"`
+		Radar         []AbilityRadarPoint         `json:"radar"`
+		QuestionCards []SessionReportQuestionCard `json:"questionCards"`
+		Strengths     []string                    `json:"strengths"`
+		Risks         []string                    `json:"risks"`
+		Suggestions   []string                    `json:"suggestions"`
+		ReportMeta    ReportMeta                  `json:"reportMeta"`
+	}
+	// 私有简历上传请求体
+	// 当前运行时要求 multipart/form-data 中额外包含名为 `file` 的 PDF 文件 part；
+	// file 由 handler 手工读取，因此未在 goctl type 中展开。
+	ResumeUploadReq {
+		ChatId string `form:"chatId,optional"`
+		Title  string `form:"title,optional"`
+		Mode   string `form:"mode,optional"`
+	}
+	ResumeParseStatus {
+		Stage           string `json:"stage"`
+		Progress        int64  `json:"progress"`
+		TotalChunks     int64  `json:"totalChunks"`
+		ProcessedChunks int64  `json:"processedChunks"`
+		FailedChunks    int64  `json:"failedChunks"`
+		ErrorCode       string `json:"errorCode,optional"`
+		ErrorMessage    string `json:"errorMessage,optional"`
+		Retryable       bool   `json:"retryable"`
+	}
+	// 私有简历上传响应体
+	ResumeUploadResp {
+		Msg             string            `json:"msg"`
+		ChatId          string            `json:"chatId,optional"`
+		LegacySessionId string            `json:"legacySessionId,optional"`
+		ArtifactId      string            `json:"artifactId"`
+		Title           string            `json:"title"`
+		Filename        string            `json:"filename"`
+		Version         int64             `json:"version"`
+		Status          string            `json:"status"`
+		Chunks          int               `json:"chunks"`
+		ParseStatus     ResumeParseStatus `json:"parseStatus"`
+	}
+	ResumeArtifactsReq  {}
+	ResumeArtifactDetailReq {
+		Id string `path:"id"`
+	}
+	ResumeArtifactAnalysisReq {
+		Id           string `path:"id"`
+		DirectionKey string `form:"directionKey,optional"`
+		Limit        int64  `form:"limit,optional"`
+	}
+	ResumeArtifactAnalysisPrepareReq {
+		Id           string `path:"id"`
+		DirectionKey string `json:"directionKey,optional"`
+		Force        bool   `json:"force,optional"`
+		Limit        int64  `json:"limit,optional"`
+	}
+	ResumeArtifactItem {
+		ArtifactId         string            `json:"artifactId"`
+		Title              string            `json:"title"`
+		Version            int64             `json:"version"`
+		Filename           string            `json:"filename,optional"`
+		Status             string            `json:"status"`
+		ChunkCount         int64             `json:"chunkCount"`
+		BoundSessionId     string            `json:"boundSessionId"`
+		BoundSessionName   string            `json:"boundSessionName"`
+		OverallScore       float64           `json:"overallScore"`
+		Level              string            `json:"level"`
+		EvaluationStatus   string            `json:"evaluationStatus"`
+		ProjectCount       int64             `json:"projectCount"`
+		SkillCount         int64             `json:"skillCount"`
+		RiskCount          int64             `json:"riskCount"`
+		LatestEvaluationAt string            `json:"latestEvaluationAt,optional"`
+		ParseStatus        ResumeParseStatus `json:"parseStatus"`
+		UploadedAt         string            `json:"uploadedAt,optional"`
+		UpdatedAt          string            `json:"updatedAt"`
+	}
+	ResumeArtifactChunk {
+		Index        int64  `json:"index"`
+		EvidenceId   string `json:"evidenceId"`
+		Content      string `json:"content"`
+		Page         int64  `json:"page,optional"`
+		Section      string `json:"section,optional"`
+		SourceStatus string `json:"sourceStatus"`
+		CreatedAt    string `json:"createdAt,optional"`
+	}
+	ResumeSkillSignal {
+		Key      string   `json:"key"`
+		Label    string   `json:"label"`
+		Score    int64    `json:"score"`
+		Evidence []string `json:"evidence"`
+	}
+	ResumeProjectHighlight {
+		Title    string   `json:"title"`
+		Summary  string   `json:"summary"`
+		Evidence []string `json:"evidence"`
+	}
+	ResumeRiskSignal {
+		Key        string `json:"key"`
+		Label      string `json:"label"`
+		Severity   string `json:"severity"`
+		Suggestion string `json:"suggestion"`
+	}
+	ResumeFocusMatch {
+		Key             string   `json:"key"`
+		Label           string   `json:"label"`
+		MatchScore      int64    `json:"matchScore"`
+		Evidence        []string `json:"evidence"`
+		PlannedQuestion int64    `json:"plannedQuestion"`
+	}
+	ResumeEvaluationMeta {
+		SchemaVersion    string `json:"schemaVersion"`
+		Available        bool   `json:"available"`
+		RubricVersion    string `json:"rubricVersion,optional"`
+		ScoreSource      string `json:"scoreSource,optional"`
+		GeneratedAt      string `json:"generatedAt,optional"`
+		FirstGeneratedAt string `json:"firstGeneratedAt,optional"`
+		LastRefreshedAt  string `json:"lastRefreshedAt,optional"`
+	}
+	ResumeArtifactsResp {
+		Artifacts []ResumeArtifactItem `json:"artifacts"`
+		Total     int64                `json:"total"`
+	}
+	ResumeArtifactDetailResp {
+		Artifact ResumeArtifactItem    `json:"artifact"`
+		Chunks   []ResumeArtifactChunk `json:"chunks"`
+		Meta     ReportMeta            `json:"meta"`
+	}
+	ResumeArtifactAnalysisResp {
+		Artifact           ResumeArtifactItem       `json:"artifact"`
+		EvaluationStatus   string                   `json:"evaluationStatus"`
+		OverallScore       float64                  `json:"overallScore"`
+		Level              string                   `json:"level"`
+		Summary            string                   `json:"summary"`
+		Dimensions         []EvaluationDimension    `json:"dimensions"`
+		Skills             []ResumeSkillSignal      `json:"skills"`
+		Projects           []ResumeProjectHighlight `json:"projects"`
+		Risks              []ResumeRiskSignal       `json:"risks"`
+		Strengths          []string                 `json:"strengths"`
+		Suggestions        []string                 `json:"suggestions"`
+		Evidence           []EvaluationEvidence     `json:"evidence"`
+		FocusMatches       []ResumeFocusMatch       `json:"focusMatches"`
+		SuggestedQuestions []InterviewPlanQuestion  `json:"suggestedQuestions"`
+		AnalysisMeta       ReportMeta               `json:"analysisMeta"`
+		EvaluationMeta     ResumeEvaluationMeta     `json:"evaluationMeta"`
+	}
 )
 
 // ----------------------------------------------------
@@ -79,6 +865,10 @@ service user-api {
 	@doc "刷新访问令牌"
 	@handler RefreshTokenHandler
 	post /refresh (RefreshTokenReq) returns (RefreshTokenResp)
+
+	@doc "随机获取管理员演示面试场景，用于公开首页打字机动画"
+	@handler DemoInterviewSceneRandomHandler
+	get /demo/interview-scenes/random (DemoInterviewSceneRandomReq) returns (DemoInterviewSceneRandomResp)
 }
 
 // ----------------------------------------------------
@@ -96,5 +886,133 @@ service user-api {
 	@doc "用户退出登录"
 	@handler LogoutHandler
 	post /logout (LogoutReq) returns (LogoutResp)
+
+	@doc "获取当前用户资料"
+	@handler ProfileHandler
+	get /profile (ProfileReq) returns (ProfileResp)
+
+	@doc "获取当前用户工作台首屏聚合数据"
+	@handler WorkbenchBootstrapHandler
+	get /workbench/bootstrap (WorkbenchBootstrapReq) returns (WorkbenchBootstrapResp)
+
+	@doc "获取新建面试配置页预设选项"
+	@handler InterviewPresetsHandler
+	get /interview/presets (InterviewPresetsReq) returns (InterviewPresetsResp)
+
+	@doc "预览新建面试的计划题目"
+	@handler InterviewPlanPreviewHandler
+	get /interview/plan/preview (InterviewPlanPreviewReq) returns (InterviewPlanResp)
+
+	@doc "获取结构化面试题库列表"
+	@handler InterviewQuestionsHandler
+	get /interview/questions (InterviewQuestionsReq) returns (InterviewQuestionsResp)
+
+	@doc "获取结构化面试题库统计"
+	@handler InterviewQuestionStatsHandler
+	get /interview/question-stats (InterviewQuestionStatsReq) returns (InterviewQuestionStatsResp)
+
+	@doc "获取结构化面试题详情"
+	@handler InterviewQuestionDetailHandler
+	get /interview/questions/:id (InterviewQuestionDetailReq) returns (InterviewQuestionDetailResp)
+
+	@doc "获取当前用户会话列表"
+	@handler SessionsHandler
+	get /sessions (SessionsReq) returns (SessionsResp)
+
+	@doc "获取当前用户报告中心概览"
+	@handler ReportCenterOverviewHandler
+	get /report-center/overview (ReportCenterOverviewReq) returns (ReportCenterOverviewResp)
+
+	@doc "获取当前用户报告中心会话列表"
+	@handler ReportCenterSessionsHandler
+	get /report-center/sessions (ReportCenterSessionsReq) returns (ReportCenterSessionsResp)
+
+	@doc "获取当前用户报告中心模式卡片"
+	@handler ReportCenterModesHandler
+	get /report-center/modes (ReportCenterModesReq) returns (ReportCenterModesResp)
+
+	@doc "获取当前用户指定模式的报告中心详情"
+	@handler ReportCenterModeDetailHandler
+	get /report-center/modes/:modeKey (ReportCenterModeDetailReq) returns (ReportCenterModeDetailResp)
+
+	@doc "获取当前用户报告中心工作台单入口"
+	@handler ReportCenterBootstrapHandler
+	get /report-center/bootstrap (ReportCenterBootstrapReq) returns (ReportCenterBootstrapResp)
+
+	@doc "创建新会话"
+	@handler CreateSessionHandler
+	post /sessions (CreateSessionReq) returns (CreateSessionResp)
+
+	@doc "获取指定会话的面试页单入口数据"
+	@handler SessionBootstrapHandler
+	get /sessions/:id/bootstrap (SessionBootstrapReq) returns (SessionBootstrapResp)
+
+	@doc "获取指定会话的面试计划题目"
+	@handler SessionInterviewPlanHandler
+	get /sessions/:id/interview-plan (SessionInterviewPlanReq) returns (InterviewPlanResp)
+
+	@doc "获取指定会话的面试进度和下一题建议"
+	@handler SessionProgressHandler
+	get /sessions/:id/progress (SessionProgressReq) returns (SessionProgressResp)
+
+	@doc "结束指定会话并标记面试完成"
+	@handler FinishSessionHandler
+	post /sessions/:id/finish (FinishSessionReq) returns (FinishSessionResp)
+
+	@doc "获取指定会话的报告详情"
+	@handler SessionReportHandler
+	get /sessions/:id/report (SessionReportReq) returns (SessionReportResp)
+
+	@doc "获取指定会话详情"
+	@handler SessionDetailHandler
+	get /sessions/:id (SessionDetailReq) returns (SessionDetailResp)
+
+	@doc "删除指定会话"
+	@handler DeleteSessionHandler
+	delete /sessions/:id (DeleteSessionReq) returns (DeleteSessionResp)
+
+	@doc "获取指定会话的结构化评估"
+	@handler SessionEvaluationHandler
+	get /sessions/:id/evaluation (SessionEvaluationReq) returns (SessionEvaluationResp)
+
+	@doc "显式刷新指定会话的结构化评估"
+	@handler SessionEvaluationRefreshHandler
+	post /sessions/:id/evaluation/refresh (SessionEvaluationRefreshReq) returns (SessionEvaluationResp)
+
+	@doc "获取指定会话的报告摘要"
+	@handler SessionReportSummaryHandler
+	get /sessions/:id/report-summary (SessionReportSummaryReq) returns (SessionReportSummaryResp)
+
+	@doc "获取指定会话的报告准备状态，提示前端是否需要刷新评估"
+	@handler SessionReportReadinessHandler
+	get /sessions/:id/report-readiness (SessionReportReadinessReq) returns (SessionReportReadinessResp)
+
+	@doc "准备指定会话报告，必要时刷新评估并返回报告摘要"
+	@handler SessionReportPrepareHandler
+	post /sessions/:id/report/prepare (SessionReportPrepareReq) returns (SessionReportPrepareResp)
+
+	@doc "获取指定会话的流程状态"
+	@handler SessionFlowStateHandler
+	get /sessions/:id/flow-state (SessionFlowStateReq) returns (SessionFlowStateResp)
+
+	@doc "上传当前用户私有简历，使用 multipart/form-data，要求 file(PDF)，chatId/title/mode 为可选表单字段"
+	@handler ResumeUploadHandler
+	post /resume/upload (ResumeUploadReq) returns (ResumeUploadResp)
+
+	@doc "获取当前用户简历资料列表，当前按绑定会话聚合"
+	@handler ResumeArtifactsHandler
+	get /resume/artifacts (ResumeArtifactsReq) returns (ResumeArtifactsResp)
+
+	@doc "获取当前用户指定简历资料详情和分块预览"
+	@handler ResumeArtifactDetailHandler
+	get /resume/artifacts/:id (ResumeArtifactDetailReq) returns (ResumeArtifactDetailResp)
+
+	@doc "分析当前用户指定简历资料，返回技能、亮点、风险和建议追问题"
+	@handler ResumeArtifactAnalysisHandler
+	get /resume/artifacts/:id/analysis (ResumeArtifactAnalysisReq) returns (ResumeArtifactAnalysisResp)
+
+	@doc "触发或刷新当前用户指定简历资料的持久化 LLM 评估"
+	@handler ResumeArtifactAnalysisPrepareHandler
+	post /resume/artifacts/:id/analysis/prepare (ResumeArtifactAnalysisPrepareReq) returns (ResumeArtifactAnalysisResp)
 }
 
